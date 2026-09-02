@@ -1,0 +1,63 @@
+{
+  "name": "datara-language",
+  "displayName": "Datara Language Support",
+  "description": "Rich syntax highlighting, language configuration, and file icons for the Datara programming language (.dtr).",
+  "version": "0.1.0",
+  "publisher": "datara-project",
+  "icon": "icon.svg",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "datara",
+        "aliases": [
+          "Datara",
+          "datara",
+          "dtr"
+        ],
+        "extensions": [
+          ".dtr"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./icon.svg",
+          "dark": "./icon.svg"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "datara",
+        "scopeName": "source.datara",
+        "path": "./syntaxes/datara.tmLanguage.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "datara-icons",
+        "label": "Datara Icons",
+        "path": "./icons/icon-theme.json"
+      }
+    ],
+    "configuration": {
+      "title": "Datara Language Server",
+      "properties": {
+        "datara.lsp.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Datara Language Server (forgen lsp) for real-time diagnostics and completions."
+        },
+        "datara.lsp.command": {
+          "type": "string",
+          "default": "forgen lsp",
+          "description": "Command used to launch the Datara LSP server."
+        }
+      }
+    }
+  }
+}

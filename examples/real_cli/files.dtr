@@ -1,0 +1,19 @@
+class FileInfo {
+    filename: Str
+    line_count: Int
+}
+
+behavior FileInfo {
+    format() -> Str => this.filename + ": " + this.line_count + " lines"
+}
+
+class FileScanner {
+    root_path: Str
+}
+
+behavior FileScanner {
+    scan_simulated() -> FileInfo => FileInfo {
+        filename: "core/lexer.dtr",
+        line_count: 320
+    }
+}

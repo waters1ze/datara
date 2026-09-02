@@ -1,0 +1,7 @@
+use core.User
+use serialization.Serializable
+
+fn main() {
+    let u = User { name: "Maria", age: 30 }
+    out u.serialize()
+}

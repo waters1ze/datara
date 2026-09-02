@@ -1,0 +1,33 @@
+class Style {
+    bg: Str
+    color: Str
+    padding: Str
+    margin: Str
+    radius: Str
+    border: Str
+}
+
+behavior Style {
+    to_css() -> Str {
+        mut s = ""
+        if this.bg != "" {
+            s = s + "background:" + this.bg + ";"
+        }
+        if this.color != "" {
+            s = s + "color:" + this.color + ";"
+        }
+        if this.padding != "" {
+            s = s + "padding:" + this.padding + ";"
+        }
+        if this.margin != "" {
+            s = s + "margin:" + this.margin + ";"
+        }
+        if this.radius != "" {
+            s = s + "border-radius:" + this.radius + ";"
+        }
+        if this.border != "" {
+            s = s + "border:" + this.border + ";"
+        }
+        return s
+    }
+}

@@ -1,0 +1,76 @@
+class MetricCard {
+    label: Str
+    value: Str
+    delta: Str
+}
+
+behavior MetricCard {
+    render() -> Str {
+        return "<div class='metric-card'><div class='metric-label'>" + this.label + "</div><div class='metric-value'>" + this.value + "</div><div class='metric-delta'>" + this.delta + "</div></div>"
+    }
+}
+
+class Card {
+    title: Str
+    badge: Str
+    body_html: Str
+}
+
+behavior Card {
+    render() -> Str {
+        mut out_str = "<div class='card'>"
+        if this.badge != "" {
+            out_str = out_str + "<span class='badge'>" + this.badge + "</span>"
+        }
+        if this.title != "" {
+            out_str = out_str + "<h3>" + this.title + "</h3>"
+        }
+        out_str = out_str + this.body_html + "</div>"
+        return out_str
+    }
+}
+
+class Page {
+    title: Str
+    brand_name: Str
+    body_html: Str
+}
+
+behavior Page {
+    render() -> Str {
+        let head = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>" + this.title + "</title><style>:root{--bg:#070b12;--card:#0f172a;--border:#1e293b;--text:#f8fafc;--muted:#94a3b8;--cyan:#00f0ff;--blue:#0072ff;--green:#10b981}*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,sans-serif;padding:40px 20px;display:flex;justify-content:center}.container{width:100%;max-width:960px;display:flex;flex-direction:column;gap:24px}.nav{display:flex;justify-content:space-between;align-items:center;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px 24px}.brand{font-size:22px;font-weight:900;color:var(--cyan);letter-spacing:1px}.badge{background:rgba(0,240,255,0.12);color:var(--cyan);border:1px solid rgba(0,240,255,0.3);padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700}.row{display:flex;gap:16px;flex-wrap:wrap}.metric-card{flex:1;min-width:220px;background:#090d16;border:1px solid var(--border);border-radius:12px;padding:20px}.metric-label{font-size:12px;color:var(--muted);text-transform:uppercase;font-weight:700}.metric-value{font-size:32px;font-weight:800;color:var(--cyan);margin:8px 0}.metric-delta{font-size:13px;color:var(--green);font-weight:600}.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px}.card h3{margin-bottom:12px;font-size:18px}.btn{display:inline-block;padding:12px 24px;border-radius:8px;font-weight:700;text-decoration:none;background:linear-gradient(135deg,var(--cyan),var(--blue));color:#000;margin-top:16px}</style></head><body><div class='container'>"
+        let nav = "<div class='nav'><div class='brand'>" + this.brand_name + "</div><span class='badge'>PURE DATARA FRONTEND</span></div>"
+        let footer = "</div></body></html>"
+        return head + nav + this.body_html + footer
+    }
+
+    save(path: Str) -> Bool {
+        let content = this.render()
+        let res = file_write(path, content)
+        return res == 1
+    }
+}
+
+fn main() {
+    let m1 = MetricCard { label: "Zero-JS Render Latency", value: "0.00 ms", delta: "+100% instant" }
+    let m2 = MetricCard { label: "Client-Side JavaScript", value: "0 KB", delta: "Zero Bloat" }
+    let m3 = MetricCard { label: "Memory Overhead", value: "12 KB", delta: "13x lighter than Rust" }
+
+    let metrics_row = "<div class='row'>" + m1.render() + m2.render() + m3.render() + "</div>"
+
+    let content_card = Card {
+        title: "High Performance Frontend Without JS/TS",
+        badge: "HARDWARE-DIRECT ARCHITECTURE",
+        body_html: "<p>This web interface was completely synthesized, laid out, and validated by the <b>Datara Native Compiler</b>. No webpack, no npm, no React Virtual DOM, and 0 bytes of JavaScript overhead.</p><a href='#' class='btn'>Launch Native Workload</a>"
+    }
+
+    let page = Page {
+        title: "Datara Cloud Dashboard",
+        brand_name: "DATARA // FRONTEND",
+        body_html: metrics_row + content_card.render()
+    }
+
+    let ok = page.save("dashboard.html")
+    assert(ok, "Failed to save dashboard.html")
+    println(">>> SUCCESS: Datara Zero-JS Dashboard generated to dashboard.html <<<")
+}

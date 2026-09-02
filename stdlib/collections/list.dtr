@@ -1,0 +1,14 @@
+class ListWrapper<T> {
+    length: Int
+    head: T
+}
+
+behavior ListWrapper {
+    get_head() -> T {
+        return this.head
+    }
+
+    count() -> Int {
+        return this.length
+    }
+}

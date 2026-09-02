@@ -1,0 +1,151 @@
+name: Release & Packages
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-binaries:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_name: forgen-windows-x64.zip
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive_name: forgen-linux-x64.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive_name: forgen-darwin-arm64.tar.gz
+          - os: macos-13
+            target: x86_64-apple-darwin
+            archive_name: forgen-darwin-x64.tar.gz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Release Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Release Artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          if (-not $ver) { $ver = "v0.1.0" }
+          New-Item -ItemType Directory -Force -Path "dist/staging" | Out-Null
+          Copy-Item -Force "target/${{ matrix.target }}/release/forgen.exe" "dist/staging/forgen.exe"
+          Copy-Item -Force -Recurse "stdlib" "dist/staging/stdlib"
+          Copy-Item -Force "scripts/install.ps1" "dist/staging/install.ps1"
+          Copy-Item -Force "scripts/install.bat" "dist/staging/install.bat"
+          Copy-Item -Force "README.md", "LICENSE" "dist/staging/"
+          Compress-Archive -Path "dist/staging/*" -DestinationPath "dist/${{ matrix.archive_name }}" -Force
+          Get-FileHash -Algorithm SHA256 "dist/${{ matrix.archive_name }}" | Out-File "dist/${{ matrix.archive_name }}.sha256"
+
+      - name: Package Release Artifact (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist/staging
+          cp "target/${{ matrix.target }}/release/forgen" "dist/staging/forgen"
+          cp -r stdlib dist/staging/stdlib
+          cp scripts/install.sh dist/staging/install.sh
+          cp README.md LICENSE dist/staging/
+          cd dist/staging
+          tar -czf "../${{ matrix.archive_name }}" *
+          cd ../..
+          sha256sum "dist/${{ matrix.archive_name }}" > "dist/${{ matrix.archive_name }}.sha256"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive_name }}
+          path: |
+            dist/${{ matrix.archive_name }}
+            dist/${{ matrix.archive_name }}.sha256
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs: build-binaries
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-all
+          merge-multiple: true
+
+      - name: Generate Consolidated SHA256SUMS.txt
+        run: |
+          cd dist-all
+          cat *.sha256 > SHA256SUMS.txt
+          rm -f *.sha256
+          ls -la
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-all/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-github-package-docker:
+    name: Publish to GitHub Packages (GHCR)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

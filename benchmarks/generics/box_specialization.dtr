@@ -1,0 +1,19 @@
+class Box<T> {
+    val: T
+}
+
+fn compute_boxes(n: Int) -> Int {
+    mut total = 0
+    mut i = 0
+    while i < n {
+        let b = Box<Int> { val: i }
+        total = total + b.val
+        i = i + 1
+    }
+    return total
+}
+
+fn main() {
+    let res = compute_boxes(1000000)
+    out res
+}

@@ -1,0 +1,188 @@
+{
+  "schema": "outlinesave.assets",
+  "schema_version": 1,
+  "conversation": {
+    "source_id": "6a9340e7-e5a8-83eb-92db-3eb2a2856ff7",
+    "title": "Выбор перспективного языка",
+    "origin_url": "https://chatgpt.com/c/6a9340e7-e5a8-83eb-92db-3eb2a2856ff7",
+    "source_turn_count": 36
+  },
+  "limits": {
+    "concurrency": 3,
+    "timeout_ms": 20000,
+    "attempts": 3,
+    "max_image_bytes": 33554432,
+    "max_file_bytes": 67108864,
+    "max_total_bytes": 268435456
+  },
+  "resources": [
+    {
+      "resource_id": "resource-001",
+      "kind": "file",
+      "filename": "DATARA_FORGEN_CONCEPT.md",
+      "original_path": null,
+      "thumbnail_path": null,
+      "mime_type": null,
+      "byte_size": 0,
+      "status": "failed",
+      "error": "http_403",
+      "thumbnail_status": "not_applicable",
+      "references": [
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 0
+        },
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 1
+        },
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 2
+        },
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 3
+        },
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 4
+        },
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 5
+        },
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 6
+        },
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 7
+        },
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 8
+        },
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 9
+        },
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 10
+        },
+        {
+          "turn_ordinal": 7,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "381a16ae-5c58-4d88-b1e7-c745fbea8126",
+          "occurrence": 11
+        }
+      ]
+    },
+    {
+      "resource_id": "resource-002",
+      "kind": "image",
+      "filename": "64001a2e-b43a-4215-9e4d-672590fa0617.png",
+      "original_path": null,
+      "thumbnail_path": null,
+      "mime_type": "image/png",
+      "byte_size": 57510,
+      "status": "failed",
+      "error": "http_403",
+      "thumbnail_status": "pending",
+      "references": [
+        {
+          "turn_ordinal": 31,
+          "role": "user",
+          "segment_index": 0,
+          "source_message_id": "5f4753e9-92ee-4619-9f88-97a16da45564",
+          "occurrence": 0
+        }
+      ]
+    },
+    {
+      "resource_id": "resource-003",
+      "kind": "file",
+      "filename": "Вставленная ​​уценка(1).md",
+      "original_path": null,
+      "thumbnail_path": null,
+      "mime_type": "text/markdown",
+      "byte_size": 11085,
+      "status": "failed",
+      "error": "http_403",
+      "thumbnail_status": "not_applicable",
+      "references": [
+        {
+          "turn_ordinal": 32,
+          "role": "user",
+          "segment_index": 0,
+          "source_message_id": "970f045f-b492-4057-8b23-e322575b7557",
+          "occurrence": 0
+        },
+        {
+          "turn_ordinal": 32,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "97888413-ab3d-43a1-96e1-98dfdfe1f150",
+          "occurrence": 0
+        },
+        {
+          "turn_ordinal": 32,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "97888413-ab3d-43a1-96e1-98dfdfe1f150",
+          "occurrence": 1
+        },
+        {
+          "turn_ordinal": 32,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "97888413-ab3d-43a1-96e1-98dfdfe1f150",
+          "occurrence": 2
+        },
+        {
+          "turn_ordinal": 32,
+          "role": "assistant",
+          "segment_index": 0,
+          "source_message_id": "97888413-ab3d-43a1-96e1-98dfdfe1f150",
+          "occurrence": 3
+        }
+      ]
+    }
+  ]
+}

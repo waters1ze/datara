@@ -1,0 +1,26 @@
+class Outcome<T> {
+    is_success: Bool
+    value: T
+    error_msg: Str
+}
+
+behavior Outcome {
+    is_ok() -> Bool {
+        return this.is_success
+    }
+
+    is_err() -> Bool {
+        return !this.is_success
+    }
+
+    unwrap() -> T {
+        return this.value
+    }
+
+    unwrap_or(default_val: T) -> T {
+        if this.is_success {
+            return this.value
+        }
+        return default_val
+    }
+}

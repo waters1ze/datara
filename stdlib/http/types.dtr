@@ -1,0 +1,87 @@
+class HttpRequest {
+    method: Str
+    path: Str
+    headers: Str
+    body: Str
+    query: Str
+}
+
+behavior HttpRequest {
+    parse(raw: Str) -> HttpRequest {
+        let mut method = "GET"
+        let mut path = "/"
+        
+        if str_starts_with(raw, "GET ") {
+            method = "GET"
+            path = str_trim(raw)
+        }
+        if str_starts_with(raw, "POST ") {
+            method = "POST"
+        }
+        if str_starts_with(raw, "PUT ") {
+            method = "PUT"
+        }
+        if str_starts_with(raw, "DELETE ") {
+            method = "DELETE"
+        }
+
+        let body_idx = str_index_of(raw, "\r\n\r\n")
+        let mut body = ""
+        if body_idx > 0 {
+            body = raw
+        }
+
+        return HttpRequest {
+            method: method,
+            path: path,
+            headers: raw,
+            body: body,
+            query: ""
+        }
+    }
+}
+
+class HttpResponse {
+    status: Int
+    headers: Str
+    body: Str
+}
+
+behavior HttpResponse {
+    ok(body: Str) -> HttpResponse {
+        return HttpResponse {
+            status: 200,
+            headers: "Content-Type: text/plain\r\n",
+            body: body
+        }
+    }
+
+    json(json_str: Str) -> HttpResponse {
+        return HttpResponse {
+            status: 200,
+            headers: "Content-Type: application/json\r\n",
+            body: json_str
+        }
+    }
+
+    not_found() -> HttpResponse {
+        return HttpResponse {
+            status: 404,
+            headers: "Content-Type: text/plain\r\n",
+            body: "404 Not Found"
+        }
+    }
+
+    to_raw() -> Str {
+        let mut status_line = "HTTP/1.1 200 OK\r\n"
+        if this.status == 404 {
+            status_line = "HTTP/1.1 404 Not Found\r\n"
+        }
+        if this.status == 500 {
+            status_line = "HTTP/1.1 500 Internal Server Error\r\n"
+        }
+        
+        let full = status_line + this.headers + "Connection: close\r\n\r\n" + this.body
+        return full
+    }
+}

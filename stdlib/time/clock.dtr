@@ -1,0 +1,23 @@
+class Clock {
+    zone: Str
+}
+
+behavior Clock {
+    current_time_ms() -> Int {
+        return now_ms()
+    }
+
+    sleep_ms(ms: Int) {
+        sleep(ms)
+    }
+}
+
+class Stopwatch {
+    start_time: Int
+}
+
+behavior Stopwatch {
+    elapsed() -> Int {
+        return now_ms() - this.start_time
+    }
+}

@@ -1,0 +1,87 @@
+use stdlib.json.types
+
+class JsonParser {
+    source: Str
+}
+
+behavior JsonParser {
+    parse(raw: Str) -> JsonValue {
+        let trimmed = str_trim(raw)
+        if str_starts_with(trimmed, "{") {
+            return JsonValue.object_val(trimmed)
+        }
+        if str_starts_with(trimmed, "[") {
+            return JsonValue.array_val(trimmed)
+        }
+        if str_starts_with(trimmed, "\"") {
+            let inner = str_trim(trimmed)
+            return JsonValue.string_val(inner)
+        }
+        if trimmed == "true" {
+            return JsonValue.bool_val(true)
+        }
+        if trimmed == "false" {
+            return JsonValue.bool_val(false)
+        }
+        if trimmed == "null" {
+            return JsonValue.null_val()
+        }
+        if str_contains(trimmed, ".") {
+            let flt = str_to_float(trimmed)
+            return JsonValue.float_val(flt)
+        }
+        let num = str_to_int(trimmed)
+        return JsonValue.int_val(num)
+    }
+
+    get_string(raw: Str, key: Str) -> Str {
+        let pattern = "\"" + key + "\":"
+        let idx = str_index_of(raw, pattern)
+        if idx < 0 {
+            return ""
+        }
+        let sub_start = idx + str_len(pattern)
+        let rest = str_trim(str_substring(raw, sub_start, str_len(raw) - sub_start))
+        if str_starts_with(rest, "\"") {
+            let after_q = str_substring(rest, 1, str_len(rest) - 1)
+            let q_end = str_index_of(after_q, "\"")
+            if q_end >= 0 {
+                return str_substring(after_q, 0, q_end)
+            }
+        }
+        return ""
+    }
+
+    get_int(raw: Str, key: Str) -> Int {
+        let pattern = "\"" + key + "\":"
+        let idx = str_index_of(raw, pattern)
+        if idx < 0 {
+            return 0
+        }
+        let sub_start = idx + str_len(pattern)
+        let rest = str_trim(str_substring(raw, sub_start, str_len(raw) - sub_start))
+        return str_to_int(rest)
+    }
+
+    get_float(raw: Str, key: Str) -> Float {
+        let pattern = "\"" + key + "\":"
+        let idx = str_index_of(raw, pattern)
+        if idx < 0 {
+            return 0.0
+        }
+        let sub_start = idx + str_len(pattern)
+        let rest = str_trim(str_substring(raw, sub_start, str_len(raw) - sub_start))
+        return str_to_float(rest)
+    }
+
+    get_bool(raw: Str, key: Str) -> Bool {
+        let pattern = "\"" + key + "\":"
+        let idx = str_index_of(raw, pattern)
+        if idx < 0 {
+            return false
+        }
+        let sub_start = idx + str_len(pattern)
+        let rest = str_trim(str_substring(raw, sub_start, str_len(raw) - sub_start))
+        return str_starts_with(rest, "true")
+    }
+}

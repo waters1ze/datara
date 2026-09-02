@@ -1,0 +1,13 @@
+fn grade(score: Int) -> Str {
+    decide {
+        score >= 90 => "A"
+        score >= 75 => "B"
+        score >= 60 => "C"
+        else => "F"
+    }
+}
+
+fn main() {
+    out "Score 85 Grade: {grade(85)}"
+    out "Score 50 Grade: {grade(50)}"
+}

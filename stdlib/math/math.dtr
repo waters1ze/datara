@@ -1,0 +1,65 @@
+class Math {
+    precision: Int
+}
+
+behavior Math {
+    sqrt(x: Float) -> Float {
+        return math_sqrt(x)
+    }
+
+    pow(base: Float, exp: Float) -> Float {
+        return math_pow(base, exp)
+    }
+
+    abs(x: Float) -> Float {
+        return math_abs(x)
+    }
+
+    sin(x: Float) -> Float {
+        return math_sin(x)
+    }
+
+    cos(x: Float) -> Float {
+        return math_cos(x)
+    }
+
+    tan(x: Float) -> Float {
+        return math_tan(x)
+    }
+
+    floor(x: Float) -> Float {
+        return math_floor(x)
+    }
+
+    ceil(x: Float) -> Float {
+        return math_ceil(x)
+    }
+
+    round(x: Float) -> Float {
+        return math_round(x)
+    }
+
+    min(a: Float, b: Float) -> Float {
+        return math_min(a, b)
+    }
+
+    max(a: Float, b: Float) -> Float {
+        return math_max(a, b)
+    }
+
+    hypot(a: Float, b: Float) -> Float {
+        return math_hypot(a, b)
+    }
+
+    min_int(a: Int, b: Int) -> Int {
+        return math_min_int(a, b)
+    }
+
+    max_int(a: Int, b: Int) -> Int {
+        return math_max_int(a, b)
+    }
+
+    abs_int(x: Int) -> Int {
+        return math_abs_int(x)
+    }
+}

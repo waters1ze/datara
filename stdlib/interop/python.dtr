@@ -1,0 +1,11 @@
+class PythonBridge {
+    runtime_name: Str
+}
+
+behavior PythonBridge {
+    create_wrapper_spec(module_name: Str, functions_csv: Str) -> Str {
+        let header = "# Auto-generated Datara Python FFI Bridge for " + module_name + "\nimport ctypes\nimport os\n\n"
+        let dll_load = "_dll_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '" + module_name + ".dll'))\n_lib = ctypes.CDLL(_dll_path)\n\n"
+        return header + dll_load + "# Exported functions: " + functions_csv + "\n"
+    }
+}

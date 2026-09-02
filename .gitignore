@@ -1,0 +1,49 @@
+/target
+*.exe
+*.obj
+*.tmp.cs
+*.pdb
+*.lib
+*.a
+runtime/
+.forgen_profile/
+tmp_verify/
+
+# Scratch sources kept at the repo root by ad-hoc debug runs.
+/for_test.dtr
+/loop_test.dtr
+/unroll_correctness.dtr
+/while_ret.dtr
+
+# Compiler scratch backups produced by refactor scripts.
+*.bak
+
+
+# Per-run scratch sources in tests/
+tests/dbg_*.dtr
+tests/debug_*.dtr
+
+# Benchmark scratch workspace (kept locally, never committed)
+/bench_honest/
+/outputs/
+
+# Ad-hoc debug/run leftovers
+/tmp_diag/
+/tmp_recover/
+/tmp_verify/
+/tmp_*.dtr
+/tmp_*.txt
+/tmp_*.json
+/tmp_*.out
+/tests_tmp_*.dtr
+/test_baseline.txt
+/test_run_out.txt
+
+# Tool internal metadata
+/.workbuddy-ai/
+/.verdent/
+
+# Release dist & scratch directories
+/dist/
+/scratch/
+

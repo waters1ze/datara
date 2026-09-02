@@ -1,0 +1,73 @@
+use stdlib.net.socket
+
+class RedisClient {
+    host: Str
+    port: Int
+    stream: TcpStream
+    is_connected: Bool
+}
+
+behavior RedisClient {
+    connect(host: Str, port: Int) -> RedisClient {
+        let stream = TcpStream.connect(host, port)
+        if stream.is_closed {
+            return RedisClient {
+                host: host,
+                port: port,
+                stream: stream,
+                is_connected: false
+            }
+        }
+        return RedisClient {
+            host: host,
+            port: port,
+            stream: stream,
+            is_connected: true
+        }
+    }
+
+    ping() -> Str {
+        if !this.is_connected {
+            return "ERROR: Not connected"
+        }
+        let _ = this.stream.send("*1\r\n$4\r\nPING\r\n")
+        let reply = this.stream.recv(1024)
+        return str_trim(reply)
+    }
+
+    set(key: Str, val: Str) -> Str {
+        if !this.is_connected {
+            return "ERROR: Not connected"
+        }
+        let cmd = "*3\r\n$3\r\nSET\r\n$" + str_to_int("0") + key + "\r\n$" + str_to_int("0") + val + "\r\n"
+        let _ = this.stream.send(cmd)
+        let reply = this.stream.recv(1024)
+        return str_trim(reply)
+    }
+
+    get(key: Str) -> Str {
+        if !this.is_connected {
+            return ""
+        }
+        let cmd = "*2\r\n$3\r\nGET\r\n$" + str_to_int("0") + key + "\r\n"
+        let _ = this.stream.send(cmd)
+        let reply = this.stream.recv(4096)
+        return str_trim(reply)
+    }
+
+    del(key: Str) -> Int {
+        if !this.is_connected {
+            return 0
+        }
+        let cmd = "*2\r\n$3\r\nDEL\r\n$" + str_to_int("0") + key + "\r\n"
+        let _ = this.stream.send(cmd)
+        let reply = this.stream.recv(1024)
+        return 1
+    }
+
+    close() {
+        if this.is_connected {
+            this.stream.close()
+        }
+    }
+}

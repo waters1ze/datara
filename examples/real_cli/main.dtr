@@ -1,0 +1,38 @@
+use examples.real_cli.config.Config
+use examples.real_cli.parser.CliParser
+use examples.real_cli.files.FileInfo
+use examples.real_cli.files.FileScanner
+use examples.real_cli.output.Reporter
+
+class SearchApp {
+    name: Str
+    version: Str
+}
+
+behavior SearchApp {
+    run_search() -> Str {
+        let parser = CliParser { appName: "DataraFind" }
+        let cfg = parser.parse_default()
+        
+        let scanner = FileScanner { root_path: cfg.path }
+        let file_item = scanner.scan_simulated()
+        
+        let reporter = Reporter { format_name: "table" }
+        let header = reporter.render_header(this.name + " v" + this.version)
+        let entry = reporter.render_item(file_item)
+        
+        out header
+        out entry
+    }
+}
+
+fn main() {
+    let app = SearchApp {
+        name: "Datara Search CLI",
+        version: "1.0.0"
+    }
+
+    with session = app {
+        session.run_search()
+    }
+}

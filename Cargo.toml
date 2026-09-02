@@ -1,0 +1,25 @@
+[package]
+name = "forgen"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "High-performance compiler toolchain for the Datara programming language"
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+cranelift-codegen = "0.134.4"
+cranelift-frontend = "0.134.4"
+cranelift-module = "0.134.4"
+cranelift-object = "0.134.4"
+target-lexicon = "0.13.5"
+toml = "0.8"
+
+[build-dependencies]
+cc = "1.0"
+
+[profile.dev]
+# Incremental compilation repeatedly corrupted its cache on this machine
+# (access-denied during artifact copy, then rustc ICEs in rmeta encoding).
+# Rebuilds are slightly slower but deterministic.
+incremental = false

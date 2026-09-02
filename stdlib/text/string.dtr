@@ -1,0 +1,40 @@
+class StringUtils {
+    prefix: Str
+}
+
+behavior StringUtils {
+    wrap_brackets(content: Str) -> Str {
+        return "[" + content + "]"
+    }
+
+    quote(content: Str) -> Str {
+        return "'" + content + "'"
+    }
+
+    contains(s: Str, sub: Str) -> Bool {
+        let res = str_contains(s, sub)
+        return res == 1
+    }
+
+    starts_with(s: Str, prefix: Str) -> Bool {
+        let res = str_starts_with(s, prefix)
+        return res == 1
+    }
+
+    ends_with(s: Str, suffix: Str) -> Bool {
+        let res = str_ends_with(s, suffix)
+        return res == 1
+    }
+
+    index_of(s: Str, sub: Str) -> Int {
+        return str_index_of(s, sub)
+    }
+
+    trim(s: Str) -> Str {
+        return str_trim(s)
+    }
+
+    to_int(s: Str) -> Int {
+        return str_to_int(s)
+    }
+}

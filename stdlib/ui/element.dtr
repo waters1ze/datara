@@ -1,0 +1,24 @@
+class UIElement {
+    tag: Str
+    classes: Str
+    style_str: Str
+    content: Str
+}
+
+behavior UIElement {
+    render() -> Str {
+        mut out_str = "<" + this.tag
+        if this.classes != "" {
+            out_str = out_str + " class='" + this.classes + "'"
+        }
+        if this.style_str != "" {
+            out_str = out_str + " style='" + this.style_str + "'"
+        }
+        out_str = out_str + ">" + this.content + "</" + this.tag + ">"
+        return out_str
+    }
+
+    to_string() -> Str {
+        return this.render()
+    }
+}

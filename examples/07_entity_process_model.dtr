@@ -1,0 +1,77 @@
+// 07: Entity / Component / Role / Process model with `then` pipelines.
+//
+// This example demonstrates the Datara domain model:
+//   - `entity` declares a data-bearing type (alias of `class`)
+//   - `component` declares reusable state that is inlined into entities
+//     at compile time (no runtime objects, zero allocation)
+//   - `role` declares a method contract that the compiler verifies
+//   - `process` declares a named workflow (alias of `flow`)
+//   - `then` chains pipeline stages, reading like plain language; it lowers
+//     to the exact same IR as `|>`
+
+component Timestamped {
+    created_at: Int
+    updated_at: Int
+}
+
+role Payable {
+    pay(amount: Int) -> Int
+}
+
+entity User with Timestamped {
+    name: Str
+    balance: Int
+
+    is_adult(age: Int) -> Bool => age >= 18
+}
+
+entity Store with Timestamped {
+    title: Str
+    stock: Int
+}
+
+// Satisfies the Payable role contract: `pay(amount: Int) -> Int`.
+behavior User {
+    pay(amount: Int) -> Int {
+        this.balance = this.balance - amount
+        return this.balance
+    }
+}
+
+behavior Store {
+    release_stock() -> Int {
+        this.stock = this.stock - 1
+        return this.stock
+    }
+}
+
+fn find_product(store: Store) -> Int => store.stock
+
+fn report(balance: Int) -> Int => balance
+
+process purchase(user: User, store: Store, amount: Int) -> Int {
+    store
+    then find_product()
+    then user.pay(amount)
+    then report()
+}
+
+fn main() {
+    let user = User {
+        name: "Maria",
+        balance: 1000,
+        created_at: 1,
+        updated_at: 2,
+    }
+    let store = Store {
+        title: "Hardware",
+        stock: 7,
+        created_at: 3,
+        updated_at: 4,
+    }
+
+    let remaining = purchase(user, store, 250)
+    out "paid 250, balance: {remaining}"
+    out "adult: {user.is_adult(20)}"
+    out "stock left: {store.stock}"
+}

@@ -1,0 +1,9 @@
+class Formatter {
+    indent_size: Int
+}
+
+behavior Formatter {
+    indent_line(line: Str) -> Str {
+        return "  " + line
+    }
+}

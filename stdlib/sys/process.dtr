@@ -1,0 +1,15 @@
+// Process execution and OS command primitives for Datara
+
+class Process {
+    cmd: Str
+}
+
+behavior Process {
+    run(cmd: Str) -> Int {
+        return system(cmd)
+    }
+
+    output(cmd: Str) -> Str {
+        return exec(cmd)
+    }
+}

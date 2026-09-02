@@ -1,0 +1,13 @@
+class User {
+    name: Str
+    age: Int
+}
+
+behavior User {
+    greet() -> Str => "Hello {name} ({age})"
+}
+
+fn main() {
+    let user = User { name: "Maria", age: 25 }
+    out user.greet()
+}

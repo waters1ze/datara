@@ -1,0 +1,71 @@
+class Signal {
+    id: Int
+    name: Str
+    value: Str
+    is_dirty: Bool
+}
+
+behavior Signal {
+    get_value() -> Str {
+        return this.value
+    }
+
+    mark_dirty() -> Signal {
+        return Signal {
+            id: this.id,
+            name: this.name,
+            value: this.value,
+            is_dirty: true
+        }
+    }
+
+    update(new_val: Str) -> Signal {
+        return Signal {
+            id: this.id,
+            name: this.name,
+            value: new_val,
+            is_dirty: true
+        }
+    }
+}
+
+class Action {
+    event_type: Str
+    target_id: Str
+    callback_name: Str
+}
+
+behavior Action {
+    to_attr() -> Str {
+        return "data-on-" + this.event_type + "='" + this.callback_name + "' data-target='" + this.target_id + "'"
+    }
+}
+
+class ReactiveComponent {
+    name: Str
+    state_value: Str
+    dirty_mask: Int
+}
+
+behavior ReactiveComponent {
+    render_markup() -> Str {
+        mut dirty_attr = " data-dirty='0'"
+        if this.dirty_mask > 0 {
+            dirty_attr = " data-dirty='1'"
+        }
+        return "<div id='comp-" + this.name + "' class='reactive-component'" + dirty_attr + "><span class='comp-state'>" + this.state_value + "</span><button class='btn btn-primary' data-on-click='increment'>Increment</button></div>"
+    }
+
+    dispatch(event_type: Str, current_num: Int) -> ReactiveComponent {
+        if event_type == "increment" {
+            let next_num = current_num + 1
+            let next_str = "" + next_num
+            return ReactiveComponent {
+                name: this.name,
+                state_value: next_str,
+                dirty_mask: this.dirty_mask + 1
+            }
+        }
+        return this
+    }
+}

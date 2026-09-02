@@ -1,0 +1,74 @@
+component Audited {
+    audit_id: Str
+}
+
+role Serializable {
+    serialize() -> Str
+}
+
+class Entity {
+    id: Int
+    name: Str
+}
+
+class User with Serializable {
+    using Entity
+    using Audited
+    email: Str
+    role: Str
+    serialize() -> Str => "User(id=" + this.name + ", audit=" + this.audit_id + ")"
+}
+
+behavior User {
+    describe() -> Str => "User: " + this.name + " <" + this.email + ">"
+}
+
+class Admin {
+    using User
+    level: Int
+}
+
+behavior Admin {
+    replaces User.describe() -> Str => "ADMIN [" + this.name + "] Level " + this.audit_id
+}
+
+fn format_entity<T: Serializable>(item: T) -> Str {
+    return item.serialize()
+}
+
+fn process_transaction(user: Admin, amount: Int) -> Str {
+    const BASE_TAX: Int = 5
+    let fee = decide {
+        amount > 1000 => amount * 2 / 100,
+        amount > 500 => amount * 5 / 100,
+        else => BASE_TAX
+    }
+    
+    let total = amount + fee
+    
+    parallel {
+        let log_entry = user.describe()
+        let audit_tag = user.audit_id
+    }
+
+    let result = "Tx processed for " + user.name + ": Total " + total
+    return result
+}
+
+fn main() {
+    let admin = Admin {
+        id: 101,
+        name: "Arthur",
+        email: "arthur@datara.org",
+        role: "SuperAdmin",
+        audit_id: "AUD-8842",
+        level: 99
+    }
+
+    out admin.describe()
+    out format_entity(admin)
+    
+    let res = process_transaction(admin, 1500)
+    out res
+}
+

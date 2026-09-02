@@ -1,0 +1,10 @@
+use examples.real_cli.files.FileInfo
+
+class Reporter {
+    format_name: Str
+}
+
+behavior Reporter {
+    render_header(title: Str) -> Str => "=== " + title + " ==="
+    render_item(item: FileInfo) -> Str => "  -> " + item.format()
+}

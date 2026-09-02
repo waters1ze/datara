@@ -1,0 +1,49 @@
+class File {
+    path: Str
+}
+
+behavior File {
+    read() -> Str {
+        return file_read(this.path)
+    }
+
+    write(content: Str) -> Bool {
+        let res = file_write(this.path, content)
+        return res == 1
+    }
+
+    append(content: Str) -> Bool {
+        let res = file_append(this.path, content)
+        return res == 1
+    }
+
+    exists() -> Bool {
+        let res = file_exists(this.path)
+        return res == 1
+    }
+}
+
+class FileSystem {
+    base_dir: Str
+}
+
+behavior FileSystem {
+    read_text(path: Str) -> Str {
+        return file_read(path)
+    }
+
+    write_text(path: Str, content: Str) -> Bool {
+        let res = file_write(path, content)
+        return res == 1
+    }
+
+    append_text(path: Str, content: Str) -> Bool {
+        let res = file_append(path, content)
+        return res == 1
+    }
+
+    file_exists(path: Str) -> Bool {
+        let res = file_exists(path)
+        return res == 1
+    }
+}

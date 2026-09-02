@@ -1,0 +1,24 @@
+// Kernel: generic container specialized to Int.
+class Box<T> {
+    val T
+}
+
+fn compute(n Int) -> Int {
+    mut total = 0
+    mut i = 0
+    while i < n {
+        b = Box<Int> { val: i }
+        total = total + b.val
+        i = i + 1
+    }
+    return total
+}
+
+fn main() {
+    n = 200000000 + now_ms() / 10000000000000
+    a = now_ms()
+    r = compute(n)
+    b = now_ms()
+    out r
+    out b - a
+}

@@ -1,0 +1,23 @@
+extern "C" fn MessageBoxA(hwnd: Int, text: Str, caption: Str, utype: Int) -> Int
+
+class NativeDialog {
+    title: Str
+    message: Str
+}
+
+behavior NativeDialog {
+    show_info() -> Int {
+        let MB_ICONINFORMATION = 64
+        return MessageBoxA(0, this.message, this.title, MB_ICONINFORMATION)
+    }
+
+    show_alert() -> Int {
+        let MB_ICONWARNING = 48
+        return MessageBoxA(0, this.message, this.title, MB_ICONWARNING)
+    }
+
+    show_confirm() -> Int {
+        let MB_YESNO = 4
+        return MessageBoxA(0, this.message, this.title, MB_YESNO)
+    }
+}

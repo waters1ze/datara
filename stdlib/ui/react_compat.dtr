@@ -1,0 +1,43 @@
+class State {
+    key: Str
+    value: Str
+}
+
+behavior State {
+    get() -> Str {
+        return this.value
+    }
+}
+
+class ReactComponent {
+    name: Str
+    title: Str
+    state_val: Str
+    is_mounted: Bool
+}
+
+behavior ReactComponent {
+    set_state(new_val: Str) -> ReactComponent {
+        return ReactComponent {
+            name: this.name,
+            title: this.title,
+            state_val: new_val,
+            is_mounted: true
+        }
+    }
+
+    render() -> Str {
+        let card_header = "<div class='react-header'><h2>" + this.title + "</h2><span class='react-badge'>AOT React-Compat (Zero V-DOM)</span></div>"
+        let state_display = "<div class='react-body'><p>Current State (useState): <b class='state-val'>" + this.state_val + "</b></p></div>"
+        let actions = "<div class='react-actions'><button class='btn btn-primary' data-dispatch='increment'>Increment</button><button class='btn btn-secondary' data-dispatch='reset'>Reset</button></div>"
+        
+        return "<div id='react-root-" + this.name + "' class='react-component-container'>" + card_header + state_display + actions + "</div>"
+    }
+
+    to_html_page() -> Str {
+        let doctype = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>" + this.title + " (Datara React Engine)</title>"
+        let style = "<style>body{background:#0a0e17;color:#f3f4f6;font-family:sans-serif;display:flex;justify-content:center;padding:40px}.react-component-container{background:#131b2e;border:1px solid #202e4d;border-radius:14px;padding:24px;width:540px}.react-badge{background:#00f0ff22;color:#00f0ff;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:700}.state-val{color:#00f0ff;font-size:24px}.btn{padding:10px 18px;border-radius:8px;font-weight:700;border:none;cursor:pointer;margin-right:10px}.btn-primary{background:#00f0ff;color:#000}.btn-secondary{background:#1e293b;color:#fff}</style></head><body>"
+        let footer = "</body></html>"
+        return doctype + style + this.render() + footer
+    }
+}

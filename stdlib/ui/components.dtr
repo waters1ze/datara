@@ -1,0 +1,85 @@
+class Card {
+    title: Str
+    badge: Str
+    body_html: Str
+}
+
+behavior Card {
+    render() -> Str {
+        mut out_str = "<div class='card'>"
+        if this.badge != "" {
+            out_str = out_str + "<span class='badge'>" + this.badge + "</span>"
+        }
+        if this.title != "" {
+            out_str = out_str + "<h3>" + this.title + "</h3>"
+        }
+        out_str = out_str + this.body_html + "</div>"
+        return out_str
+    }
+}
+
+class Button {
+    text: Str
+    url: Str
+    variant: Str
+}
+
+behavior Button {
+    render() -> Str {
+        let cls = if this.variant == "secondary" { "btn btn-secondary" } else { "btn btn-primary" }
+        return "<a href='" + this.url + "' class='" + cls + "'>" + this.text + "</a>"
+    }
+}
+
+class MetricBadge {
+    label: Str
+    value: Str
+    delta: Str
+}
+
+behavior MetricBadge {
+    render() -> Str {
+        return "<div class='metric-card'><div class='metric-label'>" + this.label + "</div><div class='metric-value'>" + this.value + "</div><div class='metric-delta'>" + this.delta + "</div></div>"
+    }
+}
+
+class Column {
+    gap: Str
+    inner_html: Str
+}
+
+behavior Column {
+    render() -> Str {
+        let style = if this.gap != "" { "style='gap:" + this.gap + ";'" } else { "" }
+        return "<div class='column' " + style + ">" + this.inner_html + "</div>"
+    }
+}
+
+class Row {
+    gap: Str
+    inner_html: Str
+}
+
+behavior Row {
+    render() -> Str {
+        let style = if this.gap != "" { "style='gap:" + this.gap + ";'" } else { "" }
+        return "<div class='row' " + style + ">" + this.inner_html + "</div>"
+    }
+}
+
+class InteractiveTab {
+    tab_id: Str
+    label: Str
+    is_checked: Bool
+    content_html: Str
+}
+
+behavior InteractiveTab {
+    render() -> Str {
+        let chk = if this.is_checked { "checked" } else { "" }
+        let radio = "<input type='radio' name='nav_tabs' id='" + this.tab_id + "' class='tab-input' " + chk + ">"
+        let lbl = "<label for='" + this.tab_id + "' class='tab-label'>" + this.label + "</label>"
+        let body = "<div class='tab-content content-" + this.tab_id + "'>" + this.content_html + "</div>"
+        return radio + lbl + body
+    }
+}

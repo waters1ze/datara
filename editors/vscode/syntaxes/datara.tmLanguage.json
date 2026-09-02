@@ -1,0 +1,209 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Datara",
+  "scopeName": "source.datara",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#triad-declarations" },
+    { "include": "#interop-keywords" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#function-declarations" },
+    { "include": "#function-calls" },
+    { "include": "#operators" },
+    { "include": "#constants" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.doc.datara",
+          "match": "///.*$"
+        },
+        {
+          "name": "comment.line.double-slash.datara",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.datara",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.datara",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.datara",
+              "match": "\\\\([nrt\\\\\"0]|x[0-9a-fA-F]{2}|u\\{[0-9a-fA-F]+\\})"
+            },
+            {
+              "name": "variable.other.interpolated.datara",
+              "match": "\\{([a-zA-Z_][a-zA-Z0-9_.]*)\\}"
+            },
+            {
+              "name": "punctuation.definition.template-expression.begin.datara",
+              "begin": "\\$\\{",
+              "end": "\\}",
+              "patterns": [
+                { "include": "$self" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.hex.datara",
+          "match": "\\b0x[0-9a-fA-F_]+\\b"
+        },
+        {
+          "name": "constant.numeric.binary.datara",
+          "match": "\\b0b[01_]+\\b"
+        },
+        {
+          "name": "constant.numeric.float.datara",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9_]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.datara",
+          "match": "\\b[0-9][0-9_]*\\b"
+        }
+      ]
+    },
+    "triad-declarations": {
+      "patterns": [
+        {
+          "match": "\\b(let|mut|val)\\b",
+          "name": "storage.type.variable.datara"
+        }
+      ]
+    },
+    "interop-keywords": {
+      "patterns": [
+        {
+          "match": "\\b(use|import|export|as)\\b",
+          "name": "keyword.control.import.datara"
+        },
+        {
+          "match": "\\b(python|rust|cpp|cxx|js|ts|npm|stdlib)\\b",
+          "name": "support.class.module.datara"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "match": "\\b(fn|function|class|entity|behavior|component|role|packet|using|flow|process|task|actor)\\b",
+          "name": "keyword.declaration.datara"
+        },
+        {
+          "match": "\\b(if|else|while|for|in|return|match|break|continue|decide|when|or|with|assert|panic)\\b",
+          "name": "keyword.control.datara"
+        },
+        {
+          "match": "\\b(out|err|print|println|eprintln|input)\\b",
+          "name": "keyword.operator.io.datara"
+        },
+        {
+          "match": "\\b(pub|extern|async|await|const|view|mutView|mut_view)\\b",
+          "name": "storage.modifier.datara"
+        },
+        {
+          "match": "\\b(this|self|super)\\b",
+          "name": "variable.language.this.datara"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "match": "\\b(Int|Float|Str|String|Bool|Unit|Never|Val|Array|List|Map|Option|Result|Maybe|Outcome|I8|I16|I32|I64|U8|U16|U32|U64|F32|F64)\\b",
+          "name": "support.type.primitive.datara"
+        },
+        {
+          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b",
+          "name": "entity.name.type.class.datara"
+        }
+      ]
+    },
+    "function-declarations": {
+      "patterns": [
+        {
+          "match": "\\b(fn|function)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
+          "captures": {
+            "1": { "name": "keyword.declaration.datara" },
+            "2": { "name": "entity.name.function.datara" }
+          }
+        }
+      ]
+    },
+    "function-calls": {
+      "patterns": [
+        {
+          "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
+          "captures": {
+            "1": { "name": "entity.name.function.call.datara" }
+          }
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "match": "\\|>",
+          "name": "keyword.operator.pipeline.datara"
+        },
+        {
+          "match": "(->|=>)",
+          "name": "keyword.operator.arrow.datara"
+        },
+        {
+          "match": "(==|!=|<=|>=|<|>)",
+          "name": "keyword.operator.comparison.datara"
+        },
+        {
+          "match": "(&&|\\|\\||!)",
+          "name": "keyword.operator.logical.datara"
+        },
+        {
+          "match": "(\\+|-|\\*|/|%)",
+          "name": "keyword.operator.arithmetic.datara"
+        },
+        {
+          "match": "(&|\\||\\^|<<|>>)",
+          "name": "keyword.operator.bitwise.datara"
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.datara"
+        },
+        {
+          "match": "\\?",
+          "name": "keyword.operator.optional.datara"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "match": "\\b(true|false)\\b",
+          "name": "constant.language.boolean.datara"
+        },
+        {
+          "match": "\\b(None|null)\\b",
+          "name": "constant.language.null.datara"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,32 @@
+class LogEntry {
+    timestamp: Str
+    level: Str
+    message: Str
+    status_code: Int
+}
+
+behavior LogEntry {
+    is_error() -> Bool {
+        return this.level == "ERROR" || this.status_code >= 500
+    }
+
+    format_line() -> Str {
+        return "[" + this.timestamp + "] " + this.level + " (" + this.status_code + ") - " + this.message
+    }
+}
+
+class LogParser {
+    strict_mode: Bool
+}
+
+behavior LogParser {
+    parse_simulated(level: Str, code: Int, msg: Str) -> LogEntry {
+        let entry = LogEntry {
+            timestamp: "2026-08-30 15:00:00",
+            level: level,
+            message: msg,
+            status_code: code
+        }
+        return entry
+    }
+}

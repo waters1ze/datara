@@ -1,0 +1,20 @@
+// Kernel: sum of 0..n-1. The trip count is derived from the wall clock at run
+// time so neither compiler can constant-fold the loop away.
+fn compute(n Int) -> Int {
+    mut sum = 0
+    mut i = 0
+    while i < n {
+        sum = sum + i
+        i = i + 1
+    }
+    return sum
+}
+
+fn main() {
+    n = 500000000 + now_ms() / 10000000000000
+    a = now_ms()
+    r = compute(n)
+    b = now_ms()
+    out r
+    out b - a
+}

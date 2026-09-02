@@ -1,0 +1,13 @@
+class RustBridge {
+    crate_name: Str
+}
+
+behavior RustBridge {
+    cargo_binding_snippet(func_name: Str) -> Str {
+        return "#[no_mangle]\npub extern \"C\" fn " + func_name + "(a: i64, b: i64) -> i64 {\n    // Native Rust compute implementation\n    a + b\n}\n"
+    }
+
+    datara_extern_declaration(func_name: Str) -> Str {
+        return "extern \"C\" fn " + func_name + "(a: Int, b: Int) -> Int\n"
+    }
+}
