@@ -200,7 +200,7 @@ impl ScalarOptimizer {
                             first_val.0, _db.0
                         ),
                         "None (SSA value forwarding)",
-                        &"global CSE with dominance proof: definition block \
+                        "global CSE with dominance proof: definition block \
                           dominates use block, operands are single-assignment",
                     );
                 } else {

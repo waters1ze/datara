@@ -262,8 +262,10 @@ mod tests {
     #[test]
     fn counters_snapshot_restores() {
         use crate::optimizer::OptimizationReport;
-        let mut report = OptimizationReport::default();
-        report.constants_folded = 5;
+        let mut report = OptimizationReport {
+            constants_folded: 5,
+            ..OptimizationReport::default()
+        };
         let snapshot = CountersSnapshot::capture(&report);
         report.constants_folded = 9;
         report.allocations_eliminated = 3;

@@ -40,7 +40,7 @@ impl<'a> ClifEmitter<'a> {
         let mut total_insts = 0;
         let mut total_heap = 0;
 
-        for (_, f) in &module.functions {
+        for f in module.functions.values() {
             let finsp = self.inspect_function(f);
             total_insts += finsp.instruction_count;
             total_heap += finsp.heap_allocations;
@@ -116,17 +116,15 @@ impl<'a> ClifEmitter<'a> {
 
     pub fn emit_module(&self, module: &Module, _program: &Program, _types: &TypeChecker) -> String {
         let mut clif = String::new();
-        clif.push_str(&format!(
-            "; Auto-generated Cranelift IR (CLIF) by Forgen Native Backend\n"
-        ));
+        clif.push_str("; Auto-generated Cranelift IR (CLIF) by Forgen Native Backend\n");
         clif.push_str(&format!("; Target: {}\n\n", self.target.triple_string()));
 
         clif.push_str("test compile\n");
         clif.push_str(&format!("target {}\n\n", self.target.triple_string()));
 
-        for (_, f) in &module.functions {
+        for f in module.functions.values() {
             clif.push_str(&self.emit_function(f, module));
-            clif.push_str("\n");
+            clif.push('\n');
         }
 
         clif
@@ -163,11 +161,8 @@ impl<'a> ClifEmitter<'a> {
         let mut all_vars = HashSet::new();
         for b in &f.blocks {
             for inst in &b.instructions {
-                match inst {
-                    Inst::AssignVar { name, .. } => {
-                        all_vars.insert(name.clone());
-                    }
-                    _ => {}
+                if let Inst::AssignVar { name, .. } = inst {
+                    all_vars.insert(name.clone());
                 }
             }
         }
@@ -232,6 +227,12 @@ impl<'a> ClifEmitter<'a> {
                 format!(
                     "    ; get func addr '{}'\n    v{} = iconst.i64 0\n",
                     func_name, dest.0
+                )
+            }
+            Inst::Select { dest, cond, then_val, else_val, .. } => {
+                format!(
+                    "    v{} = select v{}, v{}, v{}\n",
+                    dest.0, cond.0, then_val.0, else_val.0
                 )
             }
             Inst::LoadVar { dest, name } => {

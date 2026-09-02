@@ -136,7 +136,7 @@ impl Optimizer {
                     opt.report.variables_promoted += promoted;
                     opt.trace.record(
                         "Mem2Reg",
-                        &format!("module:scalar_vars"),
+                        "module:scalar_vars",
                         "Applied",
                         &format!("{} named variables promoted", promoted),
                         "None (single linear pass)",
@@ -168,9 +168,9 @@ impl Optimizer {
                             .get(&name)
                             .map(|s| s.is_pure())
                             .unwrap_or(true);
-                        if is_pure {
-                            if let Some(f) = m.functions.get_mut(&name) {
-                                if recursion::eliminate_sibling_recursion(f) {
+                        if is_pure
+                            && let Some(f) = m.functions.get_mut(&name)
+                                && recursion::eliminate_sibling_recursion(f) {
                                     opt.trace.record(
                                         "TailRecursionElimination",
                                         &name,
@@ -180,8 +180,6 @@ impl Optimizer {
                                         "Additive binary recursion converted into single recursive loop; eliminates 50% call overhead",
                                     );
                                 }
-                            }
-                        }
                     }
                 });
             }
@@ -368,6 +366,18 @@ impl Optimizer {
                     f(ev);
                 }
             }
+            Inst::Select {
+                dest,
+                cond,
+                then_val,
+                else_val,
+                ..
+            } => {
+                f(dest);
+                f(cond);
+                f(then_val);
+                f(else_val);
+            }
             Inst::WhileLoop { cond_val, .. } => f(cond_val),
             Inst::TryCatch { .. } => {}
             Inst::Return { value } => {
@@ -405,6 +415,7 @@ impl Optimizer {
             | Inst::GetField { dest, .. }
             | Inst::FormatStr { dest, .. }
             | Inst::GetFuncAddr { dest, .. }
+            | Inst::Select { dest, .. }
             | Inst::Decide { dest, .. } => fix(dest),
             Inst::AssignVar { .. }
             | Inst::SetField { .. }
@@ -421,6 +432,16 @@ impl Optimizer {
                 fix(right);
             }
             Inst::UnOp { operand, .. } => fix(operand),
+            Inst::Select {
+                cond,
+                then_val,
+                else_val,
+                ..
+            } => {
+                fix(cond);
+                fix(then_val);
+                fix(else_val);
+            }
             Inst::Call { args, .. } => {
                 for a in args {
                     fix(a);
@@ -481,11 +502,7 @@ impl Optimizer {
                     Self::substitute_operands(ci, subst);
                 }
             }
-            Inst::Return { value } => {
-                if let Some(v) = value {
-                    fix(v);
-                }
-            }
+            Inst::Return { value: Some(v) } => fix(v),
             _ => {}
         }
     }
@@ -641,7 +658,20 @@ impl Optimizer {
             } => Some(Inst::Decide {
                 dest: lookup(dest),
                 arms: arms.iter().map(|(c, v)| (lookup(c), lookup(v))).collect(),
-                else_val: else_val.as_ref().map(|v| lookup(v)),
+                else_val: else_val.as_ref().map(&lookup),
+                ty: ty.clone(),
+            }),
+            Inst::Select {
+                dest,
+                cond,
+                then_val,
+                else_val,
+                ty,
+            } => Some(Inst::Select {
+                dest: lookup(dest),
+                cond: lookup(cond),
+                then_val: lookup(then_val),
+                else_val: lookup(else_val),
                 ty: ty.clone(),
             }),
             Inst::Return { .. } => None,
@@ -681,6 +711,7 @@ impl Optimizer {
                             | Inst::BinOp { .. }
                             | Inst::UnOp { .. }
                             | Inst::GetField { .. }
+                            | Inst::Select { .. }
                             | Inst::Decide { .. }
                             | Inst::Return { .. }
                     )
@@ -866,17 +897,15 @@ impl Optimizer {
                         let local_prefix = format!("__il{}_", fresh_base);
 
                         for c_inst in &callee.blocks[0].instructions {
-                            if let Inst::LoadVar { dest, name } = c_inst {
-                                if param_names.contains(name) && !inlined_args.is_empty() {
+                            if let Inst::LoadVar { dest, name } = c_inst
+                                && param_names.contains(name) && !inlined_args.is_empty() {
                                     // Bind the load straight to the argument.
                                     let idx = callee.params.iter().position(|(n, _, _)| n == name);
-                                    if let Some(i) = idx {
-                                        if let Some(arg) = inlined_args.get(i) {
+                                    if let Some(i) = idx
+                                        && let Some(arg) = inlined_args.get(i) {
                                             val_map.insert(*dest, *arg);
                                         }
-                                    }
                                 }
-                            }
                             if let Some(spliced) = self.splice_callee_inst(
                                 c_inst,
                                 &val_map,
@@ -1046,6 +1075,9 @@ impl Optimizer {
             if self.dead_code_elimination(f) {
                 changed = true;
             }
+            if self.convert_branches_to_select(f) {
+                changed = true;
+            }
             if self.merge_blocks(f) {
                 changed = true;
             }
@@ -1077,20 +1109,16 @@ impl Optimizer {
 
         let mut merge_candidate: Option<(usize, BasicBlockId)> = None;
         for (i, b) in f.blocks.iter().enumerate() {
-            if let Terminator::Branch { target, args } = &b.terminator {
-                if args.is_empty()
+            if let Terminator::Branch { target, args } = &b.terminator
+                && args.is_empty()
                     && *target != b.id
                     && *target != f.entry_block
                     && preds.get(target).copied().unwrap_or(0) == 1
-                {
-                    if let Some(target_b) = f.blocks.iter().find(|blk| blk.id == *target) {
-                        if target_b.params.is_empty() {
+                    && let Some(target_b) = f.blocks.iter().find(|blk| blk.id == *target)
+                        && target_b.params.is_empty() {
                             merge_candidate = Some((i, *target));
                             break;
                         }
-                    }
-                }
-            }
         }
 
         if let Some((a_idx, target_id)) = merge_candidate {
@@ -1100,6 +1128,204 @@ impl Optimizer {
             let a = &mut f.blocks[actual_a_idx];
             a.instructions.extend(target_b.instructions);
             a.terminator = target_b.terminator;
+            return true;
+        }
+
+        false
+    }
+
+    /// If-Conversion pass: detects diamond CFG patterns and collapses them into
+    /// branchless `Inst::Select` (lowering to CMOV / CSEL), eliminating branch
+    /// mispredictions.
+    fn convert_branches_to_select(&mut self, f: &mut Function) -> bool {
+        if f.blocks.len() <= 2 {
+            return false;
+        }
+
+        // Count predecessors
+        let mut preds: HashMap<BasicBlockId, usize> = HashMap::new();
+        for b in &f.blocks {
+            match &b.terminator {
+                Terminator::Branch { target, .. } => {
+                    *preds.entry(*target).or_insert(0) += 1;
+                }
+                Terminator::CondBranch {
+                    then_block,
+                    else_block,
+                    ..
+                } => {
+                    *preds.entry(*then_block).or_insert(0) += 1;
+                    *preds.entry(*else_block).or_insert(0) += 1;
+                }
+                _ => {}
+            }
+        }
+
+        let mut candidate: Option<(usize, BasicBlockId, BasicBlockId, BasicBlockId, ValueId)> = None;
+
+        for (b_idx, b) in f.blocks.iter().enumerate() {
+            if let Terminator::CondBranch {
+                cond,
+                then_block,
+                then_args,
+                else_block,
+                else_args,
+            } = &b.terminator
+            {
+                if !then_args.is_empty() || !else_args.is_empty() {
+                    continue;
+                }
+                if then_block == else_block {
+                    continue;
+                }
+                if preds.get(then_block).copied().unwrap_or(0) != 1
+                    || preds.get(else_block).copied().unwrap_or(0) != 1
+                {
+                    continue;
+                }
+
+                let then_b = match f.blocks.iter().find(|blk| blk.id == *then_block) {
+                    Some(blk) if blk.params.is_empty() && blk.instructions.len() <= 4 => blk,
+                    _ => continue,
+                };
+                let else_b = match f.blocks.iter().find(|blk| blk.id == *else_block) {
+                    Some(blk) if blk.params.is_empty() && blk.instructions.len() <= 4 => blk,
+                    _ => continue,
+                };
+
+                let (then_target, then_branch_args) = match &then_b.terminator {
+                    Terminator::Branch { target, args } => (*target, args.clone()),
+                    _ => continue,
+                };
+                let (else_target, else_branch_args) = match &else_b.terminator {
+                    Terminator::Branch { target, args } => (*target, args.clone()),
+                    _ => continue,
+                };
+
+                // Both must merge to the same target block with matching argument counts
+                if then_target != else_target || then_branch_args.len() != else_branch_args.len() {
+                    continue;
+                }
+
+                // Check that all instructions in both blocks are pure
+                let is_pure = |inst: &Inst| matches!(
+                    inst,
+                    Inst::ConstInt { .. }
+                        | Inst::ConstFloat { .. }
+                        | Inst::ConstBool { .. }
+                        | Inst::ConstStr { .. }
+                        | Inst::BinOp { .. }
+                        | Inst::UnOp { .. }
+                        | Inst::Select { .. }
+                );
+
+                if !then_b.instructions.iter().all(is_pure) || !else_b.instructions.iter().all(is_pure) {
+                    continue;
+                }
+
+                candidate = Some((b_idx, *then_block, *else_block, then_target, *cond));
+                break;
+            }
+        }
+
+        if let Some((b_idx, then_id, else_id, merge_target, cond)) = candidate {
+            let head_id = f.blocks[b_idx].id;
+
+            // A diamond whose merge point is one of the removed blocks or the
+            // head block itself is a loop, not a straight-line select: leave
+            // it alone.
+            if merge_target == head_id || merge_target == then_id || merge_target == else_id {
+                return false;
+            }
+
+            let mut max_id = self.max_value_id_in_function(f);
+
+            let then_pos = f.blocks.iter().position(|b| b.id == then_id).unwrap();
+            let then_b = f.blocks[then_pos].clone();
+
+            let else_pos = f.blocks.iter().position(|b| b.id == else_id).unwrap();
+            let else_b = f.blocks[else_pos].clone();
+
+            let (then_args, else_args) = match (&then_b.terminator, &else_b.terminator) {
+                (
+                    Terminator::Branch { args: t_args, .. },
+                    Terminator::Branch { args: e_args, .. },
+                ) => (t_args.clone(), e_args.clone()),
+                _ => return false,
+            };
+
+            // Infer the select operand type from constant-producing arm
+            // instructions so a Float/String diamond is not mislabelled "Int".
+            let mut val_ty: HashMap<ValueId, &'static str> = HashMap::new();
+            for inst in then_b.instructions.iter().chain(else_b.instructions.iter()) {
+                match inst {
+                    Inst::ConstInt { dest, .. } => {
+                        val_ty.insert(*dest, "Int");
+                    }
+                    Inst::ConstFloat { dest, .. } => {
+                        val_ty.insert(*dest, "Float");
+                    }
+                    Inst::ConstBool { dest, .. } => {
+                        val_ty.insert(*dest, "Bool");
+                    }
+                    Inst::ConstStr { dest, .. } => {
+                        val_ty.insert(*dest, "String");
+                    }
+                    _ => {}
+                }
+            }
+
+            let block = &mut f.blocks[b_idx];
+
+            // Append instructions from both arms
+            block.instructions.extend(then_b.instructions);
+            block.instructions.extend(else_b.instructions);
+
+            let mut merged_args = Vec::new();
+            for (t_val, e_val) in then_args.iter().zip(else_args.iter()) {
+                if t_val == e_val {
+                    merged_args.push(*t_val);
+                } else {
+                    max_id += 1;
+                    let sel_dest = ValueId(max_id);
+                    let sel_ty = val_ty
+                        .get(t_val)
+                        .or_else(|| val_ty.get(e_val))
+                        .copied()
+                        .unwrap_or("Int");
+                    block.instructions.push(Inst::Select {
+                        dest: sel_dest,
+                        cond,
+                        then_val: *t_val,
+                        else_val: *e_val,
+                        ty: sel_ty.into(),
+                    });
+                    merged_args.push(sel_dest);
+                }
+            }
+
+            block.terminator = Terminator::Branch {
+                target: merge_target,
+                args: merged_args,
+            };
+
+            // Remove the then and else blocks (in reverse index order)
+            let mut remove_indices = [then_pos, else_pos];
+            remove_indices.sort();
+            f.blocks.remove(remove_indices[1]);
+            f.blocks.remove(remove_indices[0]);
+
+            // b_idx may have shifted after the removals above; the head block
+            // itself is unchanged, so report by its stable id.
+            self.trace.record(
+                "IfConversion",
+                &format!("bb{}", head_id.0),
+                "Applied",
+                "Diamond control flow collapsed to branchless Select",
+                "1 Select instruction",
+                "Eliminated conditional branch and 2 basic blocks; zero branch mispredictions",
+            );
+
             return true;
         }
 
@@ -1125,28 +1351,28 @@ impl Optimizer {
                     Inst::StructInit { dest, fields, .. } => {
                         let mut map = HashMap::new();
                         for (fname, fval) in fields {
-                            map.insert(fname.clone(), fval.clone());
+                            map.insert(fname.clone(), *fval);
                             if let Some(s_id) = val_to_struct.get(fval) {
-                                escaping_structs.insert(s_id.clone());
+                                escaping_structs.insert(*s_id);
                             }
                         }
-                        struct_inits.insert(dest.clone(), map);
-                        val_to_struct.insert(dest.clone(), dest.clone());
+                        struct_inits.insert(*dest, map);
+                        val_to_struct.insert(*dest, *dest);
                     }
                     Inst::AssignVar { name, value } => {
                         if let Some(s_id) = val_to_struct.get(value) {
                             if var_to_struct.contains_key(name) {
                                 var_ambiguous.insert(name.clone());
-                                escaping_structs.insert(var_to_struct[name].clone());
-                                escaping_structs.insert(s_id.clone());
+                                escaping_structs.insert(var_to_struct[name]);
+                                escaping_structs.insert(*s_id);
                             } else {
-                                var_to_struct.insert(name.clone(), s_id.clone());
+                                var_to_struct.insert(name.clone(), *s_id);
                             }
                         } else if var_to_struct.contains_key(name) {
                             // Reassigned to a non-struct value: later LoadVars
                             // must read the scalar, so disqualify the variable.
                             var_ambiguous.insert(name.clone());
-                            escaping_structs.insert(var_to_struct[name].clone());
+                            escaping_structs.insert(var_to_struct[name]);
                             var_to_struct.remove(name);
                         }
                     }
@@ -1155,55 +1381,55 @@ impl Optimizer {
                     // escape so the allocation (and honest field reads) survive.
                     Inst::SetField { object, value, .. } => {
                         if let Some(s_id) = val_to_struct.get(object) {
-                            escaping_structs.insert(s_id.clone());
+                            escaping_structs.insert(*s_id);
                         }
                         if let Some(s_id) = val_to_struct.get(value) {
-                            escaping_structs.insert(s_id.clone());
+                            escaping_structs.insert(*s_id);
                         }
                     }
                     Inst::LoadVar { dest, name } => {
                         if let Some(s_id) = var_to_struct.get(name) {
-                            val_to_struct.insert(dest.clone(), s_id.clone());
+                            val_to_struct.insert(*dest, *s_id);
                         }
                     }
                     Inst::UnOp {
                         dest, op, operand, ..
                     } if op == "copy" => {
                         if let Some(s_id) = val_to_struct.get(operand) {
-                            val_to_struct.insert(dest.clone(), s_id.clone());
+                            val_to_struct.insert(*dest, *s_id);
                         }
                     }
                     Inst::MethodCall { object, args, .. } => {
                         if let Some(s_id) = val_to_struct.get(object) {
-                            escaping_structs.insert(s_id.clone());
+                            escaping_structs.insert(*s_id);
                         }
                         for a in args {
                             if let Some(s_id) = val_to_struct.get(a) {
-                                escaping_structs.insert(s_id.clone());
+                                escaping_structs.insert(*s_id);
                             }
                         }
                     }
                     Inst::Call { args, .. } => {
                         for a in args {
                             if let Some(s_id) = val_to_struct.get(a) {
-                                escaping_structs.insert(s_id.clone());
+                                escaping_structs.insert(*s_id);
                             }
                         }
                     }
                     Inst::Out { value } | Inst::Err { value } => {
                         if let Some(s_id) = val_to_struct.get(value) {
-                            escaping_structs.insert(s_id.clone());
+                            escaping_structs.insert(*s_id);
                         }
                     }
                     Inst::Return { value: Some(v) } => {
                         if let Some(s_id) = val_to_struct.get(v) {
-                            escaping_structs.insert(s_id.clone());
+                            escaping_structs.insert(*s_id);
                         }
                     }
                     Inst::FormatStr { values, .. } => {
                         for v in values {
                             if let Some(s_id) = val_to_struct.get(v) {
-                                escaping_structs.insert(s_id.clone());
+                                escaping_structs.insert(*s_id);
                             }
                         }
                     }
@@ -1216,14 +1442,10 @@ impl Optimizer {
             // `instructions`, so the old instruction-only scan never saw
             // them and this pass deleted returned objects outright — the
             // caller then read freed/undefined memory as the "result".
-            match &block.terminator {
-                Terminator::Return { value: Some(v) } => {
-                    if let Some(s_id) = val_to_struct.get(v) {
-                        escaping_structs.insert(s_id.clone());
-                    }
+            if let Terminator::Return { value: Some(v) } = &block.terminator
+                && let Some(s_id) = val_to_struct.get(v) {
+                    escaping_structs.insert(*s_id);
                 }
-                _ => {}
-            }
         }
 
         // Retain only non-escaping struct initializations
@@ -1269,9 +1491,9 @@ impl Optimizer {
                         let actual_struct_id = val_to_struct
                             .get(object)
                             .or_else(|| struct_inits.get(object).map(|_| object));
-                        if let Some(s_id) = actual_struct_id {
-                            if let Some(field_map) = struct_inits.get(s_id) {
-                                if let Some(actual_val) = field_map.get(field) {
+                        if let Some(s_id) = actual_struct_id
+                            && let Some(field_map) = struct_inits.get(s_id)
+                                && let Some(actual_val) = field_map.get(field) {
                                     // Register copy with an explicit dest: the
                                     // forwarded value must stay bound to the
                                     // GetField's ValueId. The old synthetic
@@ -1287,8 +1509,6 @@ impl Optimizer {
                                     changed = true;
                                     continue;
                                 }
-                            }
-                        }
                         new_instructions.push(inst.clone());
                     }
                     _ => {
@@ -1317,15 +1537,15 @@ impl Optimizer {
             for inst in &block.instructions {
                 match inst {
                     Inst::ConstInt { dest, value } => {
-                        int_constants.insert(dest.clone(), *value);
+                        int_constants.insert(*dest, *value);
                         new_instructions.push(inst.clone());
                     }
                     Inst::ConstStr { dest, value } => {
-                        str_constants.insert(dest.clone(), value.clone());
+                        str_constants.insert(*dest, value.clone());
                         new_instructions.push(inst.clone());
                     }
                     Inst::ConstBool { dest, value } => {
-                        bool_constants.insert(dest.clone(), *value);
+                        bool_constants.insert(*dest, *value);
                         new_instructions.push(inst.clone());
                     }
                     Inst::AssignVar { name, value } => {
@@ -1348,13 +1568,13 @@ impl Optimizer {
                     }
                     Inst::LoadVar { dest, name } => {
                         if let Some(v) = block_var_ints.get(name) {
-                            int_constants.insert(dest.clone(), *v);
+                            int_constants.insert(*dest, *v);
                         }
                         if let Some(v) = block_var_strs.get(name) {
-                            str_constants.insert(dest.clone(), v.clone());
+                            str_constants.insert(*dest, v.clone());
                         }
                         if let Some(v) = block_var_bools.get(name) {
-                            bool_constants.insert(dest.clone(), *v);
+                            bool_constants.insert(*dest, *v);
                         }
                         new_instructions.push(inst.clone());
                     }
@@ -1377,9 +1597,9 @@ impl Optimizer {
                                 _ => None,
                             };
                             if let Some(res) = folded {
-                                int_constants.insert(dest.clone(), res);
+                                int_constants.insert(*dest, res);
                                 new_instructions.push(Inst::ConstInt {
-                                    dest: dest.clone(),
+                                    dest: *dest,
                                     value: res,
                                 });
                                 self.report.constants_folded += 1;
@@ -1397,9 +1617,9 @@ impl Optimizer {
                                 _ => None,
                             };
                             if let Some(res) = bool_folded {
-                                bool_constants.insert(dest.clone(), res);
+                                bool_constants.insert(*dest, res);
                                 new_instructions.push(Inst::ConstBool {
-                                    dest: dest.clone(),
+                                    dest: *dest,
                                     value: res,
                                 });
                                 self.report.constants_folded += 1;
@@ -1439,27 +1659,67 @@ impl Optimizer {
 
                         if let Some(res_vid) = resolved {
                             if let Some(ival) = int_constants.get(&res_vid).copied() {
-                                int_constants.insert(dest.clone(), ival);
+                                int_constants.insert(*dest, ival);
                                 new_instructions.push(Inst::ConstInt {
-                                    dest: dest.clone(),
+                                    dest: *dest,
                                     value: ival,
                                 });
                                 self.report.constants_folded += 1;
                                 changed = true;
                                 continue;
                             } else if let Some(sval) = str_constants.get(&res_vid).cloned() {
-                                str_constants.insert(dest.clone(), sval.clone());
+                                str_constants.insert(*dest, sval.clone());
                                 new_instructions.push(Inst::ConstStr {
-                                    dest: dest.clone(),
+                                    dest: *dest,
                                     value: sval,
                                 });
                                 self.report.constants_folded += 1;
                                 changed = true;
                                 continue;
                             } else if let Some(bval) = bool_constants.get(&res_vid).copied() {
-                                bool_constants.insert(dest.clone(), bval);
+                                bool_constants.insert(*dest, bval);
                                 new_instructions.push(Inst::ConstBool {
-                                    dest: dest.clone(),
+                                    dest: *dest,
+                                    value: bval,
+                                });
+                                self.report.constants_folded += 1;
+                                changed = true;
+                                continue;
+                            }
+                        }
+                        new_instructions.push(inst.clone());
+                    }
+                    Inst::Select {
+                        dest,
+                        cond,
+                        then_val,
+                        else_val,
+                        ty: _,
+                    } => {
+                        if let Some(b) = bool_constants.get(cond) {
+                            let chosen = if *b { *then_val } else { *else_val };
+                            if let Some(ival) = int_constants.get(&chosen).copied() {
+                                int_constants.insert(*dest, ival);
+                                new_instructions.push(Inst::ConstInt {
+                                    dest: *dest,
+                                    value: ival,
+                                });
+                                self.report.constants_folded += 1;
+                                changed = true;
+                                continue;
+                            } else if let Some(sval) = str_constants.get(&chosen).cloned() {
+                                str_constants.insert(*dest, sval.clone());
+                                new_instructions.push(Inst::ConstStr {
+                                    dest: *dest,
+                                    value: sval,
+                                });
+                                self.report.constants_folded += 1;
+                                changed = true;
+                                continue;
+                            } else if let Some(bval) = bool_constants.get(&chosen).copied() {
+                                bool_constants.insert(*dest, bval);
+                                new_instructions.push(Inst::ConstBool {
+                                    dest: *dest,
                                     value: bval,
                                 });
                                 self.report.constants_folded += 1;
@@ -1494,9 +1754,9 @@ impl Optimizer {
                                     }
                                 }
                             }
-                            str_constants.insert(dest.clone(), res_str.clone());
+                            str_constants.insert(*dest, res_str.clone());
                             new_instructions.push(Inst::ConstStr {
-                                dest: dest.clone(),
+                                dest: *dest,
                                 value: res_str,
                             });
                             self.report.constants_folded += 1;
@@ -1520,61 +1780,71 @@ impl Optimizer {
     fn collect_used_values(&self, inst: &Inst, used_values: &mut HashSet<ValueId>) {
         match inst {
             Inst::AssignVar { value, .. } => {
-                used_values.insert(value.clone());
+                used_values.insert(*value);
             }
             Inst::BinOp { left, right, .. } => {
-                used_values.insert(left.clone());
-                used_values.insert(right.clone());
+                used_values.insert(*left);
+                used_values.insert(*right);
             }
             Inst::UnOp { operand, .. } => {
-                used_values.insert(operand.clone());
+                used_values.insert(*operand);
             }
             Inst::Call { args, .. } => {
                 for a in args {
-                    used_values.insert(a.clone());
+                    used_values.insert(*a);
                 }
             }
             Inst::MethodCall { object, args, .. } => {
-                used_values.insert(object.clone());
+                used_values.insert(*object);
                 for a in args {
-                    used_values.insert(a.clone());
+                    used_values.insert(*a);
                 }
             }
             Inst::StructInit { fields, .. } => {
                 for (_, fval) in fields {
-                    used_values.insert(fval.clone());
+                    used_values.insert(*fval);
                 }
             }
             Inst::GetField { object, .. } => {
-                used_values.insert(object.clone());
+                used_values.insert(*object);
             }
             Inst::SetField { object, value, .. } => {
-                used_values.insert(object.clone());
-                used_values.insert(value.clone());
+                used_values.insert(*object);
+                used_values.insert(*value);
             }
             Inst::Out { value } | Inst::Err { value } => {
-                used_values.insert(value.clone());
+                used_values.insert(*value);
             }
             Inst::FormatStr { values, .. } => {
                 for v in values {
-                    used_values.insert(v.clone());
+                    used_values.insert(*v);
                 }
             }
             Inst::Decide { arms, else_val, .. } => {
                 for (c, v) in arms {
-                    used_values.insert(c.clone());
-                    used_values.insert(v.clone());
+                    used_values.insert(*c);
+                    used_values.insert(*v);
                 }
                 if let Some(ev) = else_val {
-                    used_values.insert(ev.clone());
+                    used_values.insert(*ev);
                 }
+            }
+            Inst::Select {
+                cond,
+                then_val,
+                else_val,
+                ..
+            } => {
+                used_values.insert(*cond);
+                used_values.insert(*then_val);
+                used_values.insert(*else_val);
             }
             Inst::WhileLoop {
                 condition_insts,
                 cond_val,
                 body_insts,
             } => {
-                used_values.insert(cond_val.clone());
+                used_values.insert(*cond_val);
                 for ci in condition_insts {
                     self.collect_used_values(ci, used_values);
                 }
@@ -1594,10 +1864,8 @@ impl Optimizer {
                     self.collect_used_values(ci, used_values);
                 }
             }
-            Inst::Return { value } => {
-                if let Some(v) = value {
-                    used_values.insert(v.clone());
-                }
+            Inst::Return { value: Some(v) } => {
+                used_values.insert(*v);
             }
             _ => {}
         }
@@ -1628,7 +1896,7 @@ impl Optimizer {
             match &block.terminator {
                 Terminator::Branch { args, .. } => {
                     for v in args {
-                        used_values.insert(v.clone());
+                        used_values.insert(*v);
                     }
                 }
                 Terminator::CondBranch {
@@ -1637,13 +1905,13 @@ impl Optimizer {
                     else_args,
                     ..
                 } => {
-                    used_values.insert(cond.clone());
+                    used_values.insert(*cond);
                     for v in then_args.iter().chain(else_args) {
-                        used_values.insert(v.clone());
+                        used_values.insert(*v);
                     }
                 }
                 Terminator::Return { value: Some(v) } => {
-                    used_values.insert(v.clone());
+                    used_values.insert(*v);
                 }
                 _ => {}
             }

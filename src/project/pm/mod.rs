@@ -30,6 +30,12 @@ pub struct HyperGridRegistry {
     pub packages: HashMap<String, HyperGridPackage>,
 }
 
+impl Default for HyperGridRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HyperGridRegistry {
     pub fn new() -> Self {
         let store_path = Self::resolve_store_dir();
@@ -440,8 +446,8 @@ entry = "src/main.dtr"
             return;
         }
 
-        if let Ok(content) = fs::read_to_string(&manifest_path) {
-            if !content.contains(&format!("{} =", pkg_name))
+        if let Ok(content) = fs::read_to_string(&manifest_path)
+            && !content.contains(&format!("{} =", pkg_name))
                 && !content.contains(&format!("\"{}\" =", pkg_name))
             {
                 let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
@@ -454,7 +460,6 @@ entry = "src/main.dtr"
                 }
                 let _ = fs::write(&manifest_path, lines.join("\n"));
             }
-        }
     }
 
     /// Publishes a local package to the registry.
@@ -532,11 +537,10 @@ entry = "src/main.dtr"
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    if let Some(n) = path.file_name().and_then(|s| s.to_str()) {
-                        if n.starts_with('.') || n == "target" || n == "packages" {
+                    if let Some(n) = path.file_name().and_then(|s| s.to_str())
+                        && (n.starts_with('.') || n == "target" || n == "packages") {
                             continue;
                         }
-                    }
                     Self::collect_files_recursive(base, &path, files)?;
                 } else if path.extension().and_then(|s| s.to_str()) == Some("dtr") {
                     let rel = path

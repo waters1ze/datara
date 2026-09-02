@@ -56,7 +56,7 @@ fn test_parallel_batch_map_execution() {
     let items: Vec<u64> = (0..8).map(|i| (i + 1) * 2_000_000).collect();
 
     let t_start = Instant::now();
-    let results = runtime.par_map(items.clone(), |n| heavy_compute(n));
+    let results = runtime.par_map(items.clone(), heavy_compute);
     let duration = t_start.elapsed();
 
     assert_eq!(results.len(), items.len());

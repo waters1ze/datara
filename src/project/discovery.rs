@@ -26,11 +26,10 @@ impl ProjectLayout {
     /// Returns the target binary name derived from manifest target, package name, or entry file stem
     pub fn binary_name(&self) -> String {
         if let Some(ref m) = self.manifest {
-            if let Some(ref t) = m.target {
-                if let Some(ref bin) = t.bin_name {
+            if let Some(ref t) = m.target
+                && let Some(ref bin) = t.bin_name {
                     return bin.clone();
                 }
-            }
             if !m.package.name.is_empty() {
                 return m.package.name.clone();
             }
@@ -180,16 +179,15 @@ impl ProjectDiscovery {
                 let path = entry.path();
                 if path.is_dir() {
                     // Ignore target and hidden directories
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if name.starts_with('.')
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str())
+                        && (name.starts_with('.')
                             || name == "target"
                             || name == "tests"
                             || name == "examples"
-                            || name == "benches"
+                            || name == "benches")
                         {
                             continue;
                         }
-                    }
                     Self::collect_dtr_files(&path, files)?;
                 } else if path.extension().and_then(|s| s.to_str()) == Some("dtr") {
                     files.push(path);

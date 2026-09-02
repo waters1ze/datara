@@ -110,7 +110,7 @@ impl ParallelRuntime {
         }
 
         let num_workers = self.workers.len().max(1);
-        let chunk_size = (items.len() + num_workers - 1) / num_workers;
+        let chunk_size = items.len().div_ceil(num_workers);
         let mut handles = Vec::new();
 
         for chunk in items.chunks(chunk_size) {
@@ -119,7 +119,7 @@ impl ParallelRuntime {
             let handle = self.spawn(move || {
                 chunk_vec
                     .into_iter()
-                    .map(|item| f_clone(item))
+                    .map(f_clone)
                     .collect::<Vec<R>>()
             });
             handles.push(handle);

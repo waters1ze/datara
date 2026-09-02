@@ -36,6 +36,7 @@ pub struct ForgenCompiler {
     pub locale: String,
     pub codegen: CraneliftBackend,
     pub cranelift: CraneliftBackend,
+    pub use_llvm: bool,
 }
 
 pub struct CompilationResult {
@@ -48,6 +49,7 @@ pub struct CompilationResult {
     pub optimization_report: Option<OptimizationReport>,
     pub diagnostics: String,
     pub clif_source: Option<String>,
+    pub llvm_source: Option<String>,
     pub timings: CompilationTimings,
 }
 
@@ -59,7 +61,13 @@ impl ForgenCompiler {
             locale: "en".to_string(),
             codegen: CraneliftBackend::for_host(),
             cranelift: backend,
+            use_llvm: false,
         }
+    }
+
+    pub fn with_llvm(mut self, use_llvm: bool) -> Self {
+        self.use_llvm = use_llvm;
+        self
     }
 
     pub fn compile_source(
@@ -89,6 +97,7 @@ impl ForgenCompiler {
                 optimization_report: None,
                 diagnostics: diag.format_all(),
                 clif_source: None,
+                llvm_source: None,
                 timings,
             };
         }
@@ -109,6 +118,7 @@ impl ForgenCompiler {
                 optimization_report: None,
                 diagnostics: diag.format_all(),
                 clif_source: None,
+                llvm_source: None,
                 timings,
             };
         }
@@ -142,6 +152,7 @@ impl ForgenCompiler {
                 optimization_report: None,
                 diagnostics: diag.format_all(),
                 clif_source: None,
+                llvm_source: None,
                 timings,
             };
         }
@@ -162,6 +173,7 @@ impl ForgenCompiler {
                 optimization_report: None,
                 diagnostics: diag.format_all(),
                 clif_source: None,
+                llvm_source: None,
                 timings,
             };
         }
@@ -189,6 +201,7 @@ impl ForgenCompiler {
                 optimization_report: None,
                 diagnostics: diag.format_all(),
                 clif_source: None,
+                llvm_source: None,
                 timings,
             };
         }
@@ -210,6 +223,7 @@ impl ForgenCompiler {
                 optimization_report: None,
                 diagnostics: diag.format_all(),
                 clif_source: None,
+                llvm_source: None,
                 timings,
             };
         }
@@ -241,6 +255,7 @@ impl ForgenCompiler {
             optimization_report: None,
             diagnostics: diag.format_all(),
             clif_source: None,
+            llvm_source: None,
             timings,
         }
     }
@@ -258,6 +273,7 @@ impl ForgenCompiler {
                 optimization_report: None,
                 diagnostics: format!("IO error: {}", e),
                 clif_source: None,
+                llvm_source: None,
                 timings: CompilationTimings::default(),
             },
         }
@@ -310,6 +326,7 @@ impl ForgenCompiler {
                 optimization_report: None,
                 diagnostics: diag.format_all(),
                 clif_source: None,
+                llvm_source: None,
                 timings,
             };
         }
@@ -331,6 +348,7 @@ impl ForgenCompiler {
                 optimization_report: None,
                 diagnostics: diag.format_all(),
                 clif_source: None,
+                llvm_source: None,
                 timings,
             };
         }
@@ -358,6 +376,7 @@ impl ForgenCompiler {
                 optimization_report: None,
                 diagnostics: diag.format_all(),
                 clif_source: None,
+                llvm_source: None,
                 timings,
             };
         }
@@ -406,7 +425,7 @@ impl ForgenCompiler {
             g.attach_optimization_report(&optimizer.report, &dmir_module);
         }
 
-        // 10. Native Cranelift Codegen & Linking (COFF .obj -> MSVC link.exe -> PE .exe)
+        // 10. Native Codegen & Linking (Cranelift or LLVM)
         let codegen_start = Instant::now();
         let target_exe = if let Some(p) = output_path {
             p.to_path_buf()
@@ -417,7 +436,48 @@ impl ForgenCompiler {
         let clif_code = self
             .cranelift
             .emit_clif(&dmir_module, &program, &type_checker);
-        let compile_res = self.cranelift.compile_native(&dmir_module, &target_exe);
+
+        let llvm_emitter = crate::codegen::llvm::LlvmEmitter::new(&self.cranelift.target);
+        let llvm_code = llvm_emitter.emit_module(&dmir_module, &program, &type_checker);
+
+        let ll_path = target_exe.with_extension("ll");
+        if self.use_llvm {
+            let _ = std::fs::write(&ll_path, &llvm_code);
+        }
+
+        let compile_res = if self.use_llvm {
+            if crate::codegen::linker::find_clang().is_some() || crate::codegen::linker::find_llc().is_some() {
+                let rt_path = PathBuf::from("src/runtime/datara_runtime.c");
+                let rt_opt = if rt_path.exists() {
+                    Some(rt_path.as_path())
+                } else {
+                    None
+                };
+                let abs_target = if target_exe.is_absolute() {
+                    target_exe.clone()
+                } else {
+                    std::env::current_dir()
+                        .map(|c| c.join(&target_exe))
+                        .unwrap_or_else(|_| target_exe.clone())
+                };
+                match crate::codegen::linker::compile_with_clang(&ll_path, rt_opt, &abs_target, "3") {
+                    Ok(()) => Ok(abs_target),
+                    Err(e) => {
+                        eprintln!("[Forgen LLVM Warning] LLVM compilation failed: {}. Falling back to native Cranelift backend.", e);
+                        self.cranelift.compile_native(&dmir_module, &target_exe)
+                    }
+                }
+            } else {
+                eprintln!("[Forgen LLVM Notice] Neither Clang nor LLC was found on PATH or in system toolchain.");
+                eprintln!("  -> LLVM IR successfully generated and saved to: {}", ll_path.display());
+                eprintln!("  -> To compile with LLVM, install Clang or run 'rustup component add llvm-tools'.");
+                eprintln!("  -> Compiling executable via high-speed native Cranelift backend instead.");
+                self.cranelift.compile_native(&dmir_module, &target_exe)
+            }
+        } else {
+            self.cranelift.compile_native(&dmir_module, &target_exe)
+        };
+
         timings.codegen_ms = codegen_start.elapsed().as_millis();
         timings.link_ms = 0;
         timings.total_ms = total_start.elapsed().as_millis();
@@ -433,6 +493,7 @@ impl ForgenCompiler {
                 optimization_report: Some(optimizer.report),
                 diagnostics: diag.format_all(),
                 clif_source: Some(clif_code),
+                llvm_source: Some(llvm_code),
                 timings,
             },
             Err(e) => CompilationResult {
@@ -445,6 +506,7 @@ impl ForgenCompiler {
                 optimization_report: Some(optimizer.report),
                 diagnostics: diag.format_all(),
                 clif_source: Some(clif_code),
+                llvm_source: Some(llvm_code),
                 timings,
             },
         }
@@ -520,6 +582,7 @@ impl ForgenCompiler {
                 optimization_report: None,
                 diagnostics: e,
                 clif_source: None,
+                llvm_source: None,
                 timings: CompilationTimings::default(),
             },
         }
@@ -567,6 +630,7 @@ impl ForgenCompiler {
                         optimization_report: None,
                         diagnostics: format!("Failed to read '{}': {}", p.display(), e),
                         clif_source: None,
+                llvm_source: None,
                         timings,
                     };
                 }
@@ -587,6 +651,7 @@ impl ForgenCompiler {
                     optimization_report: None,
                     diagnostics: diag.format_all(),
                     clif_source: None,
+                llvm_source: None,
                     timings,
                 };
             }
@@ -605,6 +670,7 @@ impl ForgenCompiler {
                     optimization_report: None,
                     diagnostics: diag.format_all(),
                     clif_source: None,
+                llvm_source: None,
                     timings,
                 };
             }
@@ -643,16 +709,14 @@ impl ForgenCompiler {
     /// the importing file's directory, then the current directory.
     fn module_base_dirs(&self, source_file: &Path) -> Vec<PathBuf> {
         let mut base_dirs = Vec::new();
-        if let Some(parent) = source_file.parent() {
-            if !parent.as_os_str().is_empty() {
+        if let Some(parent) = source_file.parent()
+            && !parent.as_os_str().is_empty() {
                 base_dirs.push(parent.to_path_buf());
-                if let Some(grandparent) = parent.parent() {
-                    if !grandparent.as_os_str().is_empty() {
+                if let Some(grandparent) = parent.parent()
+                    && !grandparent.as_os_str().is_empty() {
                         base_dirs.push(grandparent.to_path_buf());
                     }
-                }
             }
-        }
         if let Ok(cwd) = std::env::current_dir() {
             base_dirs.push(cwd);
         }
@@ -682,8 +746,8 @@ impl ForgenCompiler {
         }
 
         // 3. Relative to compiler executable (installed or development target)
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(exe_dir) = exe.parent() {
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(exe_dir) = exe.parent() {
                 candidates.push(exe_dir.join("stdlib"));
                 if let Some(p1) = exe_dir.parent() {
                     candidates.push(p1.join("stdlib"));
@@ -695,7 +759,6 @@ impl ForgenCompiler {
                     }
                 }
             }
-        }
 
         // 4. User profile or Unix standard share
         if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
@@ -891,8 +954,8 @@ impl ForgenCompiler {
         }
 
         // 2. Global npm root resolution on Windows
-        if cfg!(windows) {
-            if let Ok(appdata) = std::env::var("APPDATA") {
+        if cfg!(windows)
+            && let Ok(appdata) = std::env::var("APPDATA") {
                 let global_npm = PathBuf::from(appdata)
                     .join("npm")
                     .join("node_modules")
@@ -901,7 +964,6 @@ impl ForgenCompiler {
                     return Some(global_npm.display().to_string());
                 }
             }
-        }
 
         // 3. Query node -e "console.log(require.resolve('...'))"
         let node_cmd = std::process::Command::new("node")
@@ -911,14 +973,13 @@ impl ForgenCompiler {
                 pkg_name
             ))
             .output();
-        if let Ok(out) = node_cmd {
-            if out.status.success() {
+        if let Ok(out) = node_cmd
+            && out.status.success() {
                 let res = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !res.is_empty() {
                     return Some(res);
                 }
             }
-        }
 
         None
     }
@@ -1156,7 +1217,7 @@ impl ForgenCompiler {
                         // A non-stdlib use that maps to no project file is
                         // an unreachable module, not a silent no-op.
                         let key = u.path.join(".");
-                        if u.path.len() >= 1 && errored_uses.insert(key.clone()) {
+                        if !u.path.is_empty() && errored_uses.insert(key.clone()) {
                             let hint = if crate::project::HyperGridRegistry::new()
                                 .lookup(&key)
                                 .is_some()
@@ -1316,6 +1377,7 @@ impl ForgenCompiler {
                     optimization_report: None,
                     diagnostics: format!("Failed to read file '{}': {}", path.display(), e),
                     clif_source: None,
+                llvm_source: None,
                     timings: CompilationTimings::default(),
                 };
             }

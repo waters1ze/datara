@@ -55,10 +55,10 @@ impl DataraManifest {
     pub fn from_file(path: &Path) -> Result<Self, String> {
         let content = fs::read_to_string(path)
             .map_err(|e| format!("Failed to read manifest '{}': {}", path.display(), e))?;
-        Self::from_str(&content)
+        Self::parse(&content)
     }
 
-    pub fn from_str(content: &str) -> Result<Self, String> {
+    pub fn parse(content: &str) -> Result<Self, String> {
         toml::from_str(content).map_err(|e| format!("Invalid datara.toml manifest format: {}", e))
     }
 

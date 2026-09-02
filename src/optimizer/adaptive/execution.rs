@@ -67,7 +67,7 @@ impl ExecutionAdapter {
             0.0,
             0.0,
             &rationale,
-            &format!(
+            format!(
                 "pure={}, io_effects={}, cores={}, iterations={}",
                 is_pure_computation, has_io_effects, cpu_cores, estimated_iterations
             ),

@@ -5,11 +5,13 @@ use std::path::{Path, PathBuf};
 
 pub mod cranelift;
 pub mod linker;
+pub mod llvm;
 pub mod target;
 
 pub use cranelift::{
     CraneliftBackend, FunctionCodegenInspection, ModuleCodegenInspection, RealCraneliftBackend,
 };
+pub use llvm::{LlvmBackend, LlvmEmitter};
 pub use target::TargetInfo;
 
 /// Common trait implemented by native code generation backends in Forgen.

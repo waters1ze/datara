@@ -74,7 +74,7 @@ impl StrategyAdapter {
                         body_instruction_count
                     ),
                 ));
-                return CallDispatchStrategy::DirectInlined;
+                CallDispatchStrategy::DirectInlined
             } else {
                 log.record(AdaptationRecord::new(
                     AdaptationCategory::Strategy,
@@ -85,7 +85,7 @@ impl StrategyAdapter {
                     "Monomorphic call target candidate; callsite remains unchanged by this adapter",
                     "Single concrete implementer proven by semantic hierarchy analysis",
                 ));
-                return CallDispatchStrategy::DirectStaticCall;
+                CallDispatchStrategy::DirectStaticCall
             }
         } else if implementer_count <= 3 {
             log.record(AdaptationRecord::new(

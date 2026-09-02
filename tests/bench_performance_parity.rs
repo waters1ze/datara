@@ -108,7 +108,8 @@ fn test_official_performance_parity_matrix() {
     let compiler = ForgenCompiler::new("domain");
     let runs = 5;
 
-    let workloads: Vec<(&str, &str, Box<dyn Fn() -> f64>)> = vec![
+    type Workload = (&'static str, &'static str, Box<dyn Fn() -> f64>);
+    let workloads: Vec<Workload> = vec![
         (
             "1. Integer Loop (10M)",
             r#"
@@ -268,7 +269,7 @@ fn main() {
         let rust_time = rust_fn();
         let ratio = datara_in_proc / rust_time.max(0.001);
 
-        let status = if ratio >= 0.85 && ratio <= 1.25 {
+        let status = if (0.85..=1.25).contains(&ratio) {
             "PARITY [OK]"
         } else if ratio < 0.85 {
             "FASTER [OK]"

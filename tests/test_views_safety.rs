@@ -51,7 +51,7 @@ fn main() {
     );
     assert!(
         res.diagnostics
-            .contains(&ErrorCode::BorrowUseAfterMove.as_str()),
+            .contains(ErrorCode::BorrowUseAfterMove.as_str()),
         "Expected BorrowUseAfterMove diagnostic, got:\n{}",
         res.diagnostics
     );
@@ -78,7 +78,7 @@ fn main() {
     );
     assert!(
         res.diagnostics
-            .contains(&ErrorCode::BorrowConflictActiveView.as_str()),
+            .contains(ErrorCode::BorrowConflictActiveView.as_str()),
         "Expected BorrowConflictActiveView diagnostic, got:\n{}",
         res.diagnostics
     );
@@ -102,7 +102,7 @@ fn get_local_view() -> Record {
     assert!(!res.success, "Expected failure when returning local view");
     assert!(
         res.diagnostics
-            .contains(&ErrorCode::BorrowEscapingView.as_str()),
+            .contains(ErrorCode::BorrowEscapingView.as_str()),
         "Expected BorrowEscapingView diagnostic, got:\n{}",
         res.diagnostics
     );

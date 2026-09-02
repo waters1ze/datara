@@ -63,7 +63,7 @@ fn main() {
 
     // Verify ledger contains honest records
     assert!(
-        report1.decision_trace.len() > 0,
+        !report1.decision_trace.is_empty(),
         "Ledger must record optimization decisions"
     );
     for r in &report1.decision_trace {
@@ -76,6 +76,6 @@ fn main() {
     }
 
     // Verify graph contains typed nodes and edges
-    assert!(graph1.nodes.len() > 0, "Semantic graph must contain nodes");
-    assert!(graph1.edges.len() > 0, "Semantic graph must contain edges");
+    assert!(!graph1.nodes.is_empty(), "Semantic graph must contain nodes");
+    assert!(!graph1.edges.is_empty(), "Semantic graph must contain edges");
 }

@@ -226,9 +226,9 @@ impl MemoryOptimizer {
                         }
                     }
 
-                    if !escaping_structs.contains(&object_root) {
-                        if let Some((_, field_map)) = struct_defs.get(object) {
-                            if let Some(&field_val) = field_map.get(field) {
+                    if !escaping_structs.contains(&object_root)
+                        && let Some((_, field_map)) = struct_defs.get(object)
+                            && let Some(&field_val) = field_map.get(field) {
                                 // Direct scalar register copy, bypassing object allocation
                                 new_instructions.push(Inst::UnOp {
                                     dest: *dest,
@@ -239,8 +239,6 @@ impl MemoryOptimizer {
                                 eliminated += 1;
                                 continue;
                             }
-                        }
-                    }
                     new_instructions.push(inst.clone());
                 }
                 _ => {

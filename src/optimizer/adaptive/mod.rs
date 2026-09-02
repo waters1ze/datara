@@ -30,7 +30,7 @@ impl SemanticAdaptationEngine {
             return;
         }
 
-        for (_, f) in module.functions.iter_mut() {
+        for f in module.functions.values_mut() {
             // 1. Data representation adaptation (Scalar vs Stack vs Heap)
             RepresentationAdapter::adapt_representation(f, &mut self.log);
 

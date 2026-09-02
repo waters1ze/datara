@@ -63,6 +63,12 @@ pub struct Resolver {
     pub extern_functions: HashMap<String, ExternFnDecl>,
 }
 
+impl Default for Resolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Resolver {
     pub fn new() -> Self {
         let mut global_scope = Scope::new("global");
@@ -156,6 +162,23 @@ impl Resolver {
             "math_min_int",
             "math_max_int",
             "math_abs_int",
+            "math_ctz",
+            "ctz",
+            "math_shr",
+            "shr",
+            "math_shl",
+            "shl",
+            "math_xor",
+            "xor",
+            "math_and",
+            "and",
+            "math_or",
+            "or",
+            "float4",
+            "int4",
+            "min4",
+            "max4",
+            "dot",
         ];
         for b in &builtins {
             global_scope.define(
@@ -491,9 +514,9 @@ impl Resolver {
                     .unwrap_or_default();
 
                 // Inherit from base_class
-                if let Some(base_name) = &base_class {
-                    if let Some(base_sym) = self.classes.get(base_name).cloned() {
-                        if let Some(cls_sym) = self.classes.get_mut(cls_name) {
+                if let Some(base_name) = &base_class
+                    && let Some(base_sym) = self.classes.get(base_name).cloned()
+                        && let Some(cls_sym) = self.classes.get_mut(cls_name) {
                             for (f_name, f_sym) in &base_sym.fields {
                                 if !cls_sym.fields.contains_key(f_name) {
                                     cls_sym.fields.insert(f_name.clone(), f_sym.clone());
@@ -507,8 +530,6 @@ impl Resolver {
                                 }
                             }
                         }
-                    }
-                }
 
                 // Inline components or used classes
                 for comp_name in &compositions {
@@ -517,8 +538,8 @@ impl Resolver {
                         .get(comp_name)
                         .cloned()
                         .or_else(|| self.classes.get(comp_name).cloned());
-                    if let Some(comp_sym) = comp_sym {
-                        if let Some(cls_sym) = self.classes.get_mut(cls_name) {
+                    if let Some(comp_sym) = comp_sym
+                        && let Some(cls_sym) = self.classes.get_mut(cls_name) {
                             for (f_name, f_sym) in &comp_sym.fields {
                                 if !cls_sym.fields.contains_key(f_name) {
                                     cls_sym.fields.insert(f_name.clone(), f_sym.clone());
@@ -532,7 +553,6 @@ impl Resolver {
                                 }
                             }
                         }
-                    }
                 }
             }
             if !changed {
@@ -594,7 +614,7 @@ impl Resolver {
 
             for comp_name in &compositions {
                 if let Some(role_sym) = self.roles.get(comp_name).cloned() {
-                    for (req_method, _) in &role_sym.methods {
+                    for req_method in role_sym.methods.keys() {
                         if !methods.contains_key(req_method) {
                             diag.error(ErrorCode::TypeMismatch, format!("[E-ROLE-UNSATISFIED] Class '{}' declares role '{}' but does not implement required method '{}'", cls_name, comp_name, req_method), Some(span.clone()));
                         }
@@ -693,13 +713,25 @@ impl Resolver {
             Stmt::Assign { target, value, span, .. } => {
                 if let Expr::Identifier(name, id_span) = target {
                     if self.resolve_symbol(name).is_none() {
-                        diag.error(
+                        let mut candidates: Vec<&str> = Vec::new();
+                        for s in self.scopes.iter().rev() {
+                            for k in s.symbols.keys() {
+                                candidates.push(k.as_str());
+                            }
+                        }
+                        let help_msg = if let Some(similar) = crate::diagnostics::suggestions::find_best_match(name, candidates) {
+                            format!("a variable with a similar name exists: '{}'. Or declare with 'let {} = ...' / 'mut {} = ...'", similar, name, name)
+                        } else {
+                            format!("declare '{}' with 'let' (immutable) or 'mut' (mutable) before assigning to it", name)
+                        };
+                        diag.error_with_help(
                             ErrorCode::ResolveUndefinedSymbol,
                             format!(
-                                "Assignment to undeclared variable '{}'. Declare it with let/mut/val first.",
+                                "Assignment to undeclared variable '{}'",
                                 name
                             ),
                             Some(id_span.clone()),
+                            Some(help_msg),
                         );
                     }
                 } else {
@@ -797,7 +829,7 @@ impl Resolver {
                 if self.resolve_symbol(name).is_none() {
                     let has_field = self.scopes.iter().any(|s| {
                         if s.get("this").is_some() {
-                            for (_, cls) in &self.classes {
+                            for cls in self.classes.values() {
                                 if cls.fields.contains_key(name) {
                                     return true;
                                 }
@@ -807,10 +839,30 @@ impl Resolver {
                     });
 
                     if !has_field {
-                        diag.error(
+                        let mut candidates: Vec<&str> = Vec::new();
+                        for s in self.scopes.iter().rev() {
+                            for k in s.symbols.keys() {
+                                candidates.push(k.as_str());
+                            }
+                        }
+                        for f in self.functions.keys() {
+                            candidates.push(f.as_str());
+                        }
+                        for c in self.classes.keys() {
+                            candidates.push(c.as_str());
+                        }
+
+                        let help_msg = if let Some(similar) = crate::diagnostics::suggestions::find_best_match(name, candidates) {
+                            format!("a symbol with a similar name exists: '{}'", similar)
+                        } else {
+                            format!("ensure '{}' is declared with 'let'/'mut' or imported via 'use'", name)
+                        };
+
+                        diag.error_with_help(
                             ErrorCode::ResolveUndefinedSymbol,
                             format!("Undefined symbol '{}'", name),
                             Some(span.clone()),
+                            Some(help_msg),
                         );
                     }
                 }
@@ -838,14 +890,20 @@ impl Resolver {
                 ..
             } => {
                 if !self.classes.contains_key(class_name) {
-                    diag.error(
+                    let candidates: Vec<&str> = self.classes.keys().map(|s| s.as_str()).collect();
+                    let help_msg = if let Some(similar) = crate::diagnostics::suggestions::find_best_match(class_name, candidates) {
+                        format!("a class with a similar name exists: '{}'", similar)
+                    } else {
+                        format!("define class '{}' or import it via 'use'", class_name)
+                    };
+                    diag.error_with_help(
                         ErrorCode::ResolveUndefinedSymbol,
                         format!(
-                            "Unknown class '{}' in initialization \
-                             (is a matching 'use' import missing?)",
+                            "Unknown class '{}' in initialization (is a matching 'use' import missing?)",
                             class_name
                         ),
                         Some(span.clone()),
+                        Some(help_msg),
                     );
                 }
                 for (_, f_expr) in fields {

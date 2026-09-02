@@ -517,8 +517,8 @@ Usage: forgen <command> [arguments] [options]
 
 ### Primary Commands
 
-- `forgen run [file|dir]`: Compile and immediately execute a Datara program.
-- `forgen build [file|dir]`: Compile standalone native binary (`.exe` on Windows, ELF on Linux/macOS).
+- `forgen run [file|dir] [--llvm]`: Compile and immediately execute a Datara program.
+- `forgen build [file|dir] [--llvm]`: Compile standalone native binary (`.exe` on Windows, ELF on Linux/macOS). Passing `--llvm` emits clean LLVM IR (`.ll`) and compiles via `clang -O3 -flto -march=native` with whole-program Link-Time Optimization and dead-code elimination.
 - `forgen check [file|dir]`: Perform fast static verification (types, ownership, effects) with zero code generation.
 - `forgen test [dir]`: Discover and execute all integration tests in `tests/`.
 - `forgen bench [dir]`: Run benchmark suites in `benches/`.
@@ -527,9 +527,12 @@ Usage: forgen <command> [arguments] [options]
 - `forgen package`: Verify, test, and bundle library package for distribution.
 - `forgen lsp`: Launch the official Language Server Protocol daemon (stdio).
 - `forgen fmt [file|dir]`: Automatically format Datara source code according to official style guidelines.
-- `forgen domain`: Run whole-program specialization and print the Semantic Adaptation Engine (SAE) report.
+- `forgen domain [file|dir] [--llvm]`: Run whole-program specialization, dead-symbol stripping, and print the Semantic Adaptation Engine (SAE) report. Supports `--llvm` for maximum release optimization.
 - `forgen why <symbol>`: Explain why an optimization pass was applied or rejected for a function.
-- `forgen inspect <query> <file>`: Inspect intermediate representations (`clif`, `dmir`, `effects`, `ast`).
+- `forgen inspect <query> <file>`: Inspect intermediate representations (`clif`, `llvm`, `dmir`, `effects`, `ast`).
+
+> [!TIP]
+> **Dual Backend Strategy**: Cranelift is the default backend, prioritizing sub-second compilation speed (0.1s) for daily development. The `--llvm` flag is designed for production releases, leveraging LLVM's advanced auto-vectorizer (AVX2/AVX-512) and LTO while maintaining compact binary sizes (~50–90 KB).
 
 ---
 

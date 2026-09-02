@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
+#include "datara_runtime.h"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -587,6 +588,9 @@ int64_t now_ms(void) {
 int64_t datara_rt_now_ms(void) {
     return now_ms();
 }
+int64_t datara_rt_now_precise_ms(void) {
+    return now_ms();
+}
 #else
 #include <time.h>
 int64_t now_ms(void) {
@@ -595,6 +599,9 @@ int64_t now_ms(void) {
     return (int64_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 int64_t datara_rt_now_ms(void) {
+    return now_ms();
+}
+int64_t datara_rt_now_precise_ms(void) {
     return now_ms();
 }
 #endif
@@ -928,6 +935,21 @@ double datara_rt_math_hypot(double a, double b) { return hypot(a, b); }
 int64_t datara_rt_math_min_int(int64_t a, int64_t b) { return a < b ? a : b; }
 int64_t datara_rt_math_max_int(int64_t a, int64_t b) { return a > b ? a : b; }
 int64_t datara_rt_math_abs_int(int64_t x) { return x < 0 ? -x : x; }
+int64_t datara_rt_math_ctz(int64_t v) {
+    if (v == 0) return 64;
+#if defined(_MSC_VER) && !defined(__clang__)
+    unsigned long idx;
+    _BitScanForward64(&idx, (unsigned __int64)v);
+    return (int64_t)idx;
+#else
+    return (int64_t)__builtin_ctzll((unsigned long long)v);
+#endif
+}
+int64_t datara_rt_math_shr(int64_t v, int64_t s) { return v >> s; }
+int64_t datara_rt_math_shl(int64_t v, int64_t s) { return v << s; }
+int64_t datara_rt_math_xor(int64_t a, int64_t b) { return a ^ b; }
+int64_t datara_rt_math_and(int64_t a, int64_t b) { return a & b; }
+int64_t datara_rt_math_or(int64_t a, int64_t b) { return a | b; }
 
 // ---------------------------------------------------------------------------
 // Cryptography: SHA-256 & Base64
@@ -1436,4 +1458,55 @@ void datara_rt_parallel_invoke(void (*fn1)(void* ctx1), void* ctx1, void (*fn2)(
 #endif
 }
 
+// ---------------------------------------------------------------------------
+// Effect-Driven Ephemeral Frame Arena
+// ---------------------------------------------------------------------------
+#define DATARA_ARENA_SIZE (2 * 1024 * 1024) // 2MB thread-local ephemeral bump arena
+#if defined(_MSC_VER)
+static __declspec(thread) char g_datara_arena[DATARA_ARENA_SIZE];
+static __declspec(thread) int64_t g_datara_arena_top = 0;
+#else
+static __thread char g_datara_arena[DATARA_ARENA_SIZE];
+static __thread int64_t g_datara_arena_top = 0;
+#endif
+
+void* datara_rt_arena_alloc(int64_t bytes) {
+    if (bytes <= 0) return NULL;
+    int64_t aligned = (bytes + 7) & ~7;
+    if (g_datara_arena_top + aligned > DATARA_ARENA_SIZE) {
+        return malloc((size_t)bytes);
+    }
+    void* ptr = (void*)&g_datara_arena[g_datara_arena_top];
+    g_datara_arena_top += aligned;
+    return ptr;
+}
+
+int64_t datara_rt_arena_checkpoint(void) {
+    return g_datara_arena_top;
+}
+
+void datara_rt_arena_reset(int64_t saved_top) {
+    if (saved_top >= 0 && saved_top <= g_datara_arena_top) {
+        g_datara_arena_top = saved_top;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// First-Class SIMD 4D Vector Math
+// ---------------------------------------------------------------------------
+DataraFloat4 datara_rt_float4(double x, double y, double z, double w) {
+    DataraFloat4 v;
+    v.x = (float)x; v.y = (float)y; v.z = (float)z; v.w = (float)w;
+    return v;
+}
+
+DataraInt4 datara_rt_int4(int64_t x, int64_t y, int64_t z, int64_t w) {
+    DataraInt4 v;
+    v.x = (int32_t)x; v.y = (int32_t)y; v.z = (int32_t)z; v.w = (int32_t)w;
+    return v;
+}
+
+double datara_rt_float4_dot(DataraFloat4 a, DataraFloat4 b) {
+    return (double)(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
+}
 

@@ -19,6 +19,7 @@ use std::env;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkerFlavor {
@@ -339,3 +340,187 @@ pub fn describe(spec: &LinkerSpec) -> String {
     }
     out
 }
+
+/// Locate `clang` / `clang.exe` on PATH or standard system toolchain locations.
+pub fn find_clang() -> Option<PathBuf> {
+    which(if cfg!(windows) { "clang.exe" } else { "clang" })
+        .or_else(|| {
+            if cfg!(windows) {
+                let p1 = PathBuf::from(r"C:\Program Files\LLVM\bin\clang.exe");
+                if p1.exists() {
+                    return Some(p1);
+                }
+                let p2 = PathBuf::from(r"C:\Program Files (x86)\LLVM\bin\clang.exe");
+                if p2.exists() {
+                    return Some(p2);
+                }
+                if let Some(root) = vs_install_root() {
+                    let p3 = root.join("VC/Tools/Llvm/x64/bin/clang.exe");
+                    if p3.exists() {
+                        return Some(p3);
+                    }
+                    let p4 = root.join("VC/Tools/Llvm/bin/clang.exe");
+                    if p4.exists() {
+                        return Some(p4);
+                    }
+                }
+            }
+            None
+        })
+}
+
+pub fn linker_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// Locate `llc` / `llc.exe` on PATH or in Rust's toolchain directory.
+pub fn find_llc() -> Option<PathBuf> {
+    which(if cfg!(windows) { "llc.exe" } else { "llc" })
+        .or_else(|| {
+            let home = env::var("USERPROFILE").or_else(|_| env::var("HOME")).ok()?;
+            let toolchains = PathBuf::from(home).join(".rustup").join("toolchains");
+            if let Ok(entries) = std::fs::read_dir(toolchains) {
+                let bin_name = if cfg!(windows) { "llc.exe" } else { "llc" };
+                for e in entries.flatten() {
+                    let rustlib_dir = e.path().join("lib").join("rustlib");
+                    if let Ok(targets) = std::fs::read_dir(&rustlib_dir) {
+                        for t in targets.flatten() {
+                            let llc = t.path().join("bin").join(bin_name);
+                            if llc.exists() {
+                                return Some(llc);
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        })
+}
+
+/// Compile an LLVM IR file (.ll) using LLC and link into a native executable.
+pub fn compile_with_llc(
+    llc: &Path,
+    ll_path: &Path,
+    output_exe: &Path,
+    opt_level: &str,
+) -> Result<(), String> {
+    let opt_flag = match opt_level {
+        "0" | "debug" => "-O0",
+        "1" => "-O1",
+        "2" => "-O2",
+        _ => "-O3",
+    };
+    let opt_bin = llc.with_file_name(if cfg!(windows) { "opt.exe" } else { "opt" });
+    let bc_path = output_exe.with_extension("bc");
+    let input_for_llc = if opt_bin.exists() {
+        let mut opt_cmd = Command::new(&opt_bin);
+        opt_cmd.arg(opt_flag);
+        opt_cmd.arg(ll_path);
+        opt_cmd.arg("-o").arg(&bc_path);
+        let opt_res = opt_cmd.output();
+        if opt_res.as_ref().map(|r| r.status.success()).unwrap_or(false) {
+            bc_path.clone()
+        } else {
+            ll_path.to_path_buf()
+        }
+    } else {
+        ll_path.to_path_buf()
+    };
+
+    let obj_path = output_exe.with_extension("obj");
+    let mut cmd = Command::new(llc);
+    cmd.arg(opt_flag);
+    cmd.arg("-filetype=obj");
+    cmd.arg("-relocation-model=pic");
+    cmd.arg(&input_for_llc);
+    cmd.arg("-o").arg(&obj_path);
+    let res = cmd.output().map_err(|e| format!("Failed to run llc: {}", e))?;
+    if !res.status.success() {
+        return Err(format!(
+            "LLC compilation failed:\n{}",
+            String::from_utf8_lossy(&res.stderr)
+        ));
+    }
+    let _ = std::fs::remove_file(&bc_path);
+
+    let spec = discover();
+    let runtime_lib = crate::runtime::runtime_lib_path();
+    if !runtime_lib.exists() {
+        return Err(format!(
+            "Datara runtime library is missing at '{}'. Rebuild the compiler (`cargo build`).",
+            runtime_lib.display()
+        ));
+    }
+
+    let abs_out = if output_exe.is_absolute() {
+        output_exe.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(output_exe)
+    };
+    let args = link_args(&spec, &obj_path, &runtime_lib, &abs_out, &[]);
+    let _guard = linker_lock().lock().unwrap_or_else(|e| e.into_inner());
+    let mut link_cmd = Command::new(&spec.program);
+    link_cmd.args(&args);
+    let link_res = link_cmd.output().map_err(|e| format!("Linker execution failed: {}", e))?;
+    if !link_res.status.success() {
+        return Err(format!(
+            "LLVM Link step failed:\n{}",
+            String::from_utf8_lossy(&link_res.stderr)
+        ));
+    }
+    let _ = std::fs::remove_file(&obj_path);
+    Ok(())
+}
+
+/// Compile an LLVM IR file (.ll) directly into an executable with Clang LTO or LLC.
+pub fn compile_with_clang(
+    ll_path: &Path,
+    runtime_c_path: Option<&Path>,
+    output_exe: &Path,
+    opt_level: &str,
+) -> Result<(), String> {
+    if let Some(clang) = find_clang() {
+        let opt_flag = match opt_level {
+            "0" | "debug" => "-O0",
+            "1" => "-O1",
+            "2" => "-O2",
+            _ => "-O3",
+        };
+        let mut cmd = Command::new(&clang);
+        cmd.arg(opt_flag);
+        cmd.arg("-flto");
+        cmd.arg("-march=native");
+        cmd.arg(ll_path);
+        if let Some(rt) = runtime_c_path
+            && rt.exists() {
+                cmd.arg(rt);
+            }
+        cmd.arg("-o").arg(output_exe);
+        if cfg!(windows) {
+            cmd.arg("-lws2_32");
+            cmd.arg("-luser32");
+            cmd.arg("-lkernel32");
+        } else {
+            cmd.arg("-lm");
+            cmd.arg("-lpthread");
+        }
+        let res = cmd.output().map_err(|e| format!("Failed to run clang: {}", e))?;
+        if !res.status.success() {
+            return Err(format!(
+                "Clang compilation failed:\n{}",
+                String::from_utf8_lossy(&res.stderr)
+            ));
+        }
+        return Ok(());
+    }
+
+    if let Some(llc) = find_llc() {
+        return compile_with_llc(&llc, ll_path, output_exe, opt_level);
+    }
+
+    Err("Neither Clang nor LLC found on system toolchain".to_string())
+}
+

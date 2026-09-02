@@ -17,7 +17,7 @@ impl RunStatistics {
         let count = runs.len();
         let min = *runs.first().unwrap();
         let max = *runs.last().unwrap();
-        let median = if count % 2 == 0 {
+        let median = if count.is_multiple_of(2) {
             (runs[count / 2 - 1] + runs[count / 2]) / 2.0
         } else {
             runs[count / 2]

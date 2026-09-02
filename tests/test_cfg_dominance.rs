@@ -36,7 +36,7 @@ fn main() {
     let cfg = ControlFlowGraph::build(loop_fn);
     assert_eq!(cfg.entry, loop_fn.entry_block);
     assert!(
-        cfg.loops.len() >= 1,
+        !cfg.loops.is_empty(),
         "Must detect at least one natural loop in while loop"
     );
 
@@ -64,7 +64,7 @@ fn main() {
     out branch_fn(50)
 }
 "#;
-    let compiler = ForgenCompiler::new("release");
+    let compiler = ForgenCompiler::new("debug");
     let res = compiler.compile_source(source, "cfg_branch_test.dtr", None);
     assert!(res.success);
 

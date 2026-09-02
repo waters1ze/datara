@@ -161,6 +161,13 @@ pub enum Inst {
         dest: ValueId,
         func_name: String,
     },
+    Select {
+        dest: ValueId,
+        cond: ValueId,
+        then_val: ValueId,
+        else_val: ValueId,
+        ty: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -300,8 +307,23 @@ impl<'a> Lowering<'a> {
             "math_min_int", "datara_rt_math_min_int",
             "math_max_int", "datara_rt_math_max_int",
             "math_abs_int", "datara_rt_math_abs_int",
+            "math_ctz", "datara_rt_math_ctz", "ctz",
+            "math_shr", "datara_rt_math_shr", "shr",
+            "math_shl", "datara_rt_math_shl", "shl",
+            "math_xor", "datara_rt_math_xor", "xor",
+            "math_and", "datara_rt_math_and", "and",
+            "math_or", "datara_rt_math_or", "or",
         ] {
             function_return_types.insert((*f).into(), "Int".into());
+        }
+        for f in &["int4", "datara_rt_int4"] {
+            function_return_types.insert((*f).into(), "Int4".into());
+        }
+        for f in &["float4", "datara_rt_float4", "min4", "max4"] {
+            function_return_types.insert((*f).into(), "Float4".into());
+        }
+        for f in &["dot", "datara_rt_float4_dot"] {
+            function_return_types.insert((*f).into(), "Float".into());
         }
 
         Self {
@@ -322,15 +344,14 @@ impl<'a> Lowering<'a> {
         if let Some(ty) = self.local_var_types.get(var_name) {
             return Some(ty.clone());
         }
-        if !self.current_fn_name.is_empty() {
-            if let Some(ty) = self
+        if !self.current_fn_name.is_empty()
+            && let Some(ty) = self
                 .types
                 .fn_symbol_types
                 .get(&(self.current_fn_name.clone(), var_name.to_string()))
             {
                 return Some(ty.clone());
             }
-        }
         if let Some(ty) = self.types.symbol_types.get(var_name) {
             return Some(ty.clone());
         }
@@ -443,14 +464,13 @@ impl<'a> Lowering<'a> {
                 }
             } else if let Decl::Component(c) = decl {
                 for item in &c.body_items {
-                    if let ClassItem::Field(f) = item {
-                        if let Some(t) = &f.type_node {
+                    if let ClassItem::Field(f) = item
+                        && let Some(t) = &f.type_node {
                             self.class_field_types
                                 .insert(format!("{}.{}", c.name, f.name), t.full_type_name());
                             self.class_field_types
                                 .insert(f.name.clone(), t.full_type_name());
                         }
-                    }
                 }
             } else if let Decl::Behavior(b) = decl {
                 for item in &b.body_items {
@@ -551,8 +571,8 @@ impl<'a> Lowering<'a> {
                 self.class_field_types
                     .insert(p.name.clone(), "Float".into());
             }
-            params.push((p.name.clone(), ty_str, p_val.clone()));
-            self.symbol_values.insert(p.name.clone(), p_val.clone());
+            params.push((p.name.clone(), ty_str, p_val));
+            self.symbol_values.insert(p.name.clone(), p_val);
         }
 
         let (cur_block, ret_val) = self.lower_stmt_cfg(&f.body, entry_id);
@@ -563,7 +583,7 @@ impl<'a> Lowering<'a> {
             Terminator::Unreachable | Terminator::Return { value: None }
         ) {
             cur.terminator = Terminator::Return {
-                value: ret_val.clone(),
+                value: ret_val,
             };
         }
         if !cur
@@ -600,20 +620,18 @@ impl<'a> Lowering<'a> {
         for item in &c.body_items {
             if let ClassItem::Using(other_name, _) = item {
                 for decl in &program.declarations {
-                    if let Decl::Class(oc) = decl {
-                        if oc.name == *other_name {
+                    if let Decl::Class(oc) = decl
+                        && oc.name == *other_name {
                             for o_item in &oc.body_items {
-                                if let ClassItem::Method(m) = o_item {
-                                    if !c.body_items.iter().any(|it| matches!(it, ClassItem::Method(my_m) if my_m.name == m.name)) {
+                                if let ClassItem::Method(m) = o_item
+                                    && !c.body_items.iter().any(|it| matches!(it, ClassItem::Method(my_m) if my_m.name == m.name)) {
                                         let lowered = self.lower_method(m, &c.name);
                                         module
                                             .functions
                                             .insert(format!("{}_{}", c.name, m.name), lowered);
                                     }
-                                }
                             }
                         }
-                    }
                 }
             }
         }
@@ -639,7 +657,7 @@ impl<'a> Lowering<'a> {
         let entry_id = self.create_block("entry");
 
         let this_val = self.next_val();
-        let mut params = vec![("this".to_string(), class_name.to_string(), this_val.clone())];
+        let mut params = vec![("this".to_string(), class_name.to_string(), this_val)];
         self.symbol_values.insert("this".to_string(), this_val);
 
         for p in &m.params {
@@ -649,7 +667,7 @@ impl<'a> Lowering<'a> {
                 .as_ref()
                 .map(|t| t.full_type_name())
                 .unwrap_or_else(|| "Int".into());
-            params.push((p.name.clone(), ty_str, p_val.clone()));
+            params.push((p.name.clone(), ty_str, p_val));
             self.symbol_values.insert(p.name.clone(), p_val);
         }
 
@@ -665,7 +683,7 @@ impl<'a> Lowering<'a> {
             Terminator::Unreachable | Terminator::Return { value: None }
         ) {
             cur.terminator = Terminator::Return {
-                value: ret_val.clone(),
+                value: ret_val,
             };
         }
         if !cur
@@ -716,12 +734,12 @@ impl<'a> Lowering<'a> {
                 }
                 let val = self.lower_expr(init, &mut cur_block);
                 if let Some(v) = val {
-                    self.symbol_values.insert(name.clone(), v.clone());
+                    self.symbol_values.insert(name.clone(), v);
                     self.get_block_mut(cur_block)
                         .instructions
                         .push(Inst::AssignVar {
                             name: name.clone(),
-                            value: v.clone(),
+                            value: v,
                         });
                 }
                 (cur_block, val)
@@ -731,12 +749,12 @@ impl<'a> Lowering<'a> {
                 if let Some(v) = val {
                     match target {
                         Expr::Identifier(name, _) => {
-                            self.symbol_values.insert(name.clone(), v.clone());
+                            self.symbol_values.insert(name.clone(), v);
                             self.get_block_mut(cur_block)
                                 .instructions
                                 .push(Inst::AssignVar {
                                     name: name.clone(),
-                                    value: v.clone(),
+                                    value: v,
                                 });
                         }
                         // `this.field = v` / `obj.field = v`.
@@ -756,22 +774,21 @@ impl<'a> Lowering<'a> {
                                     .push(Inst::SetField {
                                         object: obj_val,
                                         field: member.clone(),
-                                        value: v.clone(),
+                                        value: v,
                                     });
                             }
                         }
                         Expr::IndexAccess { object, index, .. } => {
-                            if let Some(obj_val) = self.lower_expr(object, &mut cur_block) {
-                                if let Some(idx_val) = self.lower_expr(index, &mut cur_block) {
+                            if let Some(obj_val) = self.lower_expr(object, &mut cur_block)
+                                && let Some(idx_val) = self.lower_expr(index, &mut cur_block) {
                                     let ret_val = self.next_val();
                                     self.get_block_mut(cur_block).instructions.push(Inst::Call {
                                         dest: ret_val,
                                         func: "datara_rt_list_set".into(),
-                                        args: vec![obj_val, idx_val, v.clone()],
+                                        args: vec![obj_val, idx_val, v],
                                         ty: "List".into(),
                                     });
                                 }
-                            }
                         }
                         _ => {}
                     }
@@ -780,13 +797,13 @@ impl<'a> Lowering<'a> {
             }
             Stmt::Expr(e, _) => {
                 let val = self.lower_expr(e, &mut cur_block);
-                if let Expr::Call { callee, .. } = e {
-                    if let Expr::MemberAccess { object, member, .. } = &**callee {
-                        if matches!(
+                if let Expr::Call { callee, .. } = e
+                    && let Expr::MemberAccess { object, member, .. } = &**callee
+                        && matches!(
                             member.as_str(),
                             "push" | "append" | "add" | "set" | "insert"
-                        ) {
-                            if let Expr::Identifier(var_name, _) = &**object {
+                        )
+                            && let Expr::Identifier(var_name, _) = &**object {
                                 let is_collection = if let Some(ty) =
                                     self.lookup_var_type(var_name)
                                 {
@@ -802,21 +819,17 @@ impl<'a> Lowering<'a> {
                                 } else {
                                     false
                                 };
-                                if is_collection {
-                                    if let Some(v) = val.clone() {
+                                if is_collection
+                                    && let Some(v) = val {
                                         self.get_block_mut(cur_block).instructions.push(
                                             Inst::AssignVar {
                                                 name: var_name.clone(),
-                                                value: v.clone(),
+                                                value: v,
                                             },
                                         );
                                         self.symbol_values.insert(var_name.clone(), v);
                                     }
-                                }
                             }
-                        }
-                    }
-                }
                 (cur_block, val)
             }
             Stmt::Out(e, _) => {
@@ -842,8 +855,8 @@ impl<'a> Lowering<'a> {
                     None
                 };
                 let b = self.get_block_mut(cur_block);
-                b.instructions.push(Inst::Return { value: val.clone() });
-                b.terminator = Terminator::Return { value: val.clone() };
+                b.instructions.push(Inst::Return { value: val });
+                b.terminator = Terminator::Return { value: val };
                 (cur_block, val)
             }
             Stmt::If {
@@ -1069,7 +1082,7 @@ impl<'a> Lowering<'a> {
                                 self.get_block_mut(cur_block)
                                     .instructions
                                     .push(Inst::ConstInt {
-                                        dest: zero.clone(),
+                                        dest: zero,
                                         value: 0,
                                     });
                                 self.get_block_mut(cur_block)
@@ -1080,7 +1093,7 @@ impl<'a> Lowering<'a> {
                                     });
                                 let len_val = self.next_val();
                                 self.get_block_mut(cur_block).instructions.push(Inst::Call {
-                                    dest: len_val.clone(),
+                                    dest: len_val,
                                     func: "datara_rt_list_len".into(),
                                     args: vec![lv],
                                     ty: "Int".into(),
@@ -1135,7 +1148,7 @@ impl<'a> Lowering<'a> {
                                     });
                                 let item_val = self.next_val();
                                 self.get_block_mut(body_id).instructions.push(Inst::Call {
-                                    dest: item_val.clone(),
+                                    dest: item_val,
                                     func: "datara_rt_list_get".into(),
                                     args: vec![lv, fetch_idx],
                                     ty: "Int".into(),
@@ -1277,20 +1290,20 @@ impl<'a> Lowering<'a> {
                         _ => None,
                     };
 
-                    if let Some(fn_name) = worker_opt {
-                        if let (Some(s_val), Some(e_val)) = (
+                    if let Some(fn_name) = worker_opt
+                        && let (Some(s_val), Some(e_val)) = (
                             self.lower_expr(start, &mut cur_block),
                             self.lower_expr(end, &mut cur_block),
                         ) {
                             let fn_addr = self.next_val();
                             self.get_block_mut(cur_block).instructions.push(Inst::GetFuncAddr {
-                                dest: fn_addr.clone(),
+                                dest: fn_addr,
                                 func_name: fn_name,
                             });
                             let zero = self.next_val();
                             self.get_block_mut(cur_block)
                                 .instructions
-                                .push(Inst::ConstInt { dest: zero.clone(), value: 0 });
+                                .push(Inst::ConstInt { dest: zero, value: 0 });
                             let dummy = self.next_val();
                             self.get_block_mut(cur_block).instructions.push(Inst::Call {
                                 dest: dummy,
@@ -1300,7 +1313,6 @@ impl<'a> Lowering<'a> {
                             });
                             return (cur_block, None);
                         }
-                    }
                 }
                 let for_stmt = Stmt::For {
                     var_name: var_name.clone(),
@@ -1329,7 +1341,7 @@ impl<'a> Lowering<'a> {
                 if self.block_falls_through(body_end) {
                     let res_val = self.next_val();
                     self.get_block_mut(body_end).instructions.push(Inst::LoadVar {
-                        dest: res_val.clone(),
+                        dest: res_val,
                         name: resource_name.clone(),
                     });
                     let close_dest = self.next_val();
@@ -1353,27 +1365,27 @@ impl<'a> Lowering<'a> {
                 let b = self.get_block_mut(*cur_block);
                 match lit {
                     LiteralValue::Int(v) => b.instructions.push(Inst::ConstInt {
-                        dest: dest.clone(),
+                        dest,
                         value: *v,
                     }),
                     LiteralValue::Float(v) => b.instructions.push(Inst::ConstFloat {
-                        dest: dest.clone(),
+                        dest,
                         value: *v,
                     }),
                     LiteralValue::String(v) => b.instructions.push(Inst::ConstStr {
-                        dest: dest.clone(),
+                        dest,
                         value: v.clone(),
                     }),
                     LiteralValue::Bool(v) => b.instructions.push(Inst::ConstBool {
-                        dest: dest.clone(),
+                        dest,
                         value: *v,
                     }),
                     LiteralValue::Char(v) => b.instructions.push(Inst::ConstInt {
-                        dest: dest.clone(),
+                        dest,
                         value: *v as u32 as i64,
                     }),
                     LiteralValue::None => b.instructions.push(Inst::ConstInt {
-                        dest: dest.clone(),
+                        dest,
                         value: 0,
                     }),
                 }
@@ -1385,7 +1397,7 @@ impl<'a> Lowering<'a> {
                     self.get_block_mut(*cur_block)
                         .instructions
                         .push(Inst::LoadVar {
-                            dest: dest.clone(),
+                            dest,
                             name: name.clone(),
                         });
                     return Some(dest);
@@ -1415,7 +1427,7 @@ impl<'a> Lowering<'a> {
                     self.get_block_mut(*cur_block)
                         .instructions
                         .push(Inst::GetField {
-                            dest: dest.clone(),
+                            dest,
                             object: this_val,
                             field: name.clone(),
                             ty: field_ty,
@@ -1425,7 +1437,7 @@ impl<'a> Lowering<'a> {
                 if !self.symbol_values.contains_key(name) && self.function_return_types.contains_key(name) {
                     let dest = self.next_val();
                     self.get_block_mut(*cur_block).instructions.push(Inst::GetFuncAddr {
-                        dest: dest.clone(),
+                        dest,
                         func_name: name.clone(),
                     });
                     return Some(dest);
@@ -1434,7 +1446,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::LoadVar {
-                        dest: dest.clone(),
+                        dest,
                         name: name.clone(),
                     });
                 Some(dest)
@@ -1452,7 +1464,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::FormatStr {
-                        dest: dest.clone(),
+                        dest,
                         parts: parts.clone(),
                         values: vals,
                     });
@@ -1578,7 +1590,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::BinOp {
-                        dest: dest.clone(),
+                        dest,
                         op: op.clone(),
                         left: l,
                         right: r,
@@ -1616,7 +1628,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::UnOp {
-                        dest: dest.clone(),
+                        dest,
                         op: op.clone(),
                         operand,
                         ty: if is_float {
@@ -1643,7 +1655,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::ConstInt {
-                                dest: dest.clone(),
+                                dest,
                                 value: 0,
                             });
                         return Some(dest);
@@ -1657,7 +1669,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::ConstInt {
-                                dest: dest.clone(),
+                                dest,
                                 value: 0,
                             });
                         return Some(dest);
@@ -1668,7 +1680,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: "datara_rt_print".into(),
                                 args: vec![arg_val],
                                 ty: "Unit".into(),
@@ -1684,7 +1696,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::ConstInt {
-                                dest: dest.clone(),
+                                dest,
                                 value: 0,
                             });
                         return Some(dest);
@@ -1700,7 +1712,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: func.into(),
                                 args: vec![arg_val],
                                 ty: "Int".into(),
@@ -1712,7 +1724,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: "datara_rt_now_ms".into(),
                                 args: vec![],
                                 ty: "Int".into(),
@@ -1725,7 +1737,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: "datara_rt_panic".into(),
                                 args: vec![arg_val],
                                 ty: "Never".into(),
@@ -1741,7 +1753,7 @@ impl<'a> Lowering<'a> {
                             self.get_block_mut(*cur_block)
                                 .instructions
                                 .push(Inst::ConstStr {
-                                    dest: m.clone(),
+                                    dest: m,
                                     value: "Assertion failed".into(),
                                 });
                             m
@@ -1750,7 +1762,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: "datara_rt_assert".into(),
                                 args: vec![cond_val, msg_val],
                                 ty: "Unit".into(),
@@ -1763,7 +1775,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: "datara_rt_exit".into(),
                                 args: vec![arg_val],
                                 ty: "Never".into(),
@@ -1778,7 +1790,7 @@ impl<'a> Lowering<'a> {
                             self.get_block_mut(*cur_block)
                                 .instructions
                                 .push(Inst::ConstStr {
-                                    dest: empty.clone(),
+                                    dest: empty,
                                     value: "".into(),
                                 });
                             empty
@@ -1787,7 +1799,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: "datara_rt_input".into(),
                                 args: vec![prompt_val],
                                 ty: "String".into(),
@@ -1802,7 +1814,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: "datara_rt_str_to_float".into(),
                                 args: vec![arg_val],
                                 ty: "Float".into(),
@@ -1819,7 +1831,7 @@ impl<'a> Lowering<'a> {
                             self.get_block_mut(*cur_block)
                                 .instructions
                                 .push(Inst::ConstInt {
-                                    dest: dummy_this.clone(),
+                                    dest: dummy_this,
                                     value: 0,
                                 });
                             let mut call_args = vec![dummy_this];
@@ -1837,7 +1849,7 @@ impl<'a> Lowering<'a> {
                             self.get_block_mut(*cur_block)
                                 .instructions
                                 .push(Inst::Call {
-                                    dest: dest.clone(),
+                                    dest,
                                     func: static_func_name,
                                     args: call_args,
                                     ty: ret_ty,
@@ -1855,7 +1867,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: "datara_rt_list_pop".into(),
                                 args: vec![obj_val],
                                 ty: "Int".into(),
@@ -1869,7 +1881,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: "datara_rt_map_insert".into(),
                                 args: vec![obj_val, k, v],
                                 ty: "Map".into(),
@@ -1908,7 +1920,7 @@ impl<'a> Lowering<'a> {
                     self.get_block_mut(*cur_block)
                         .instructions
                         .push(Inst::MethodCall {
-                            dest: dest.clone(),
+                            dest,
                             object: obj_val,
                             method: member.clone(),
                             args: arg_vals,
@@ -1989,7 +2001,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::Call {
-                        dest: dest.clone(),
+                        dest,
                         func: func_name,
                         args: arg_vals,
                         ty: ret_ty,
@@ -2040,7 +2052,7 @@ impl<'a> Lowering<'a> {
                     self.get_block_mut(*cur_block)
                         .instructions
                         .push(Inst::BinOp {
-                            dest: dest.clone(),
+                            dest,
                             op: "&".into(),
                             left: shifted,
                             right: mask_val,
@@ -2066,7 +2078,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::GetField {
-                        dest: dest.clone(),
+                        dest,
                         object: obj_val,
                         field: member.clone(),
                         ty: field_ty,
@@ -2088,8 +2100,8 @@ impl<'a> Lowering<'a> {
                     }
                     let mut acc_val: Option<ValueId> = None;
                     for (fname, fexpr) in fields {
-                        if let Some(fval) = self.lower_expr(fexpr, cur_block) {
-                            if let Some(&(offset, bits)) = bit_offsets.get(fname) {
+                        if let Some(fval) = self.lower_expr(fexpr, cur_block)
+                            && let Some(&(offset, bits)) = bit_offsets.get(fname) {
                                 let mask = if bits >= 64 {
                                     -1i64
                                 } else {
@@ -2151,7 +2163,6 @@ impl<'a> Lowering<'a> {
                                     }
                                 };
                             }
-                        }
                     }
                     return if let Some(res) = acc_val {
                         Some(res)
@@ -2223,7 +2234,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::StructInit {
-                        dest: dest.clone(),
+                        dest,
                         class_name: specialized_name,
                         fields: field_vals,
                     });
@@ -2249,7 +2260,7 @@ impl<'a> Lowering<'a> {
                             self.get_block_mut(*cur_block)
                                 .instructions
                                 .push(Inst::MethodCall {
-                                    dest: dest.clone(),
+                                    dest,
                                     object: obj_val,
                                     method: member.clone(),
                                     args: m_args,
@@ -2273,7 +2284,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: fn_name,
                                 args: all_args,
                                 ty: "Int".into(),
@@ -2284,7 +2295,7 @@ impl<'a> Lowering<'a> {
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
-                                dest: dest.clone(),
+                                dest,
                                 func: fn_name.clone(),
                                 args: vec![current],
                                 ty: "Int".into(),
@@ -2315,7 +2326,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::Decide {
-                        dest: dest.clone(),
+                        dest,
                         arms: lowered_arms,
                         else_val,
                         ty: if is_str {
@@ -2339,15 +2350,15 @@ impl<'a> Lowering<'a> {
                                 self.get_block_mut(*cur_block)
                                     .instructions
                                     .push(Inst::BinOp {
-                                        dest: eq_dest.clone(),
+                                        dest: eq_dest,
                                         op: "==".into(),
-                                        left: val.clone(),
+                                        left: val,
                                         right: lit_val,
                                         ty: "Bool".into(),
                                     });
                                 eq_dest
                             } else {
-                                val.clone()
+                                val
                             }
                         }
                         Pattern::Identifier(name, _) if name == "_" => {
@@ -2355,24 +2366,24 @@ impl<'a> Lowering<'a> {
                             self.get_block_mut(*cur_block)
                                 .instructions
                                 .push(Inst::ConstBool {
-                                    dest: true_val.clone(),
+                                    dest: true_val,
                                     value: true,
                                 });
                             true_val
                         }
                         Pattern::Identifier(name, _) => {
-                            self.symbol_values.insert(name.clone(), val.clone());
+                            self.symbol_values.insert(name.clone(), val);
                             self.get_block_mut(*cur_block)
                                 .instructions
                                 .push(Inst::AssignVar {
                                     name: name.clone(),
-                                    value: val.clone(),
+                                    value: val,
                                 });
                             let true_val = self.next_val();
                             self.get_block_mut(*cur_block)
                                 .instructions
                                 .push(Inst::ConstBool {
-                                    dest: true_val.clone(),
+                                    dest: true_val,
                                     value: true,
                                 });
                             true_val
@@ -2382,7 +2393,7 @@ impl<'a> Lowering<'a> {
                             self.get_block_mut(*cur_block)
                                 .instructions
                                 .push(Inst::ConstBool {
-                                    dest: true_val.clone(),
+                                    dest: true_val,
                                     value: true,
                                 });
                             true_val
@@ -2395,7 +2406,7 @@ impl<'a> Lowering<'a> {
                             self.get_block_mut(*cur_block)
                                 .instructions
                                 .push(Inst::BinOp {
-                                    dest: and_dest.clone(),
+                                    dest: and_dest,
                                     op: "&&".into(),
                                     left: cond,
                                     right: g_val,
@@ -2416,7 +2427,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::Decide {
-                        dest: dest.clone(),
+                        dest,
                         arms: lowered_arms,
                         else_val: None,
                         ty: if is_str {
@@ -2448,7 +2459,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::Decide {
-                        dest: dest.clone(),
+                        dest,
                         arms: lowered_arms,
                         else_val,
                         ty: if is_str {
@@ -2472,7 +2483,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::Call {
-                        dest: dest.clone(),
+                        dest,
                         func: func_name,
                         args: vals,
                         ty: "List".into(),
@@ -2482,19 +2493,18 @@ impl<'a> Lowering<'a> {
             Expr::MapLiteral(entries, _) => {
                 let mut vals = Vec::new();
                 for (k, v) in entries {
-                    if let Some(kv) = self.lower_expr(k, cur_block) {
-                        if let Some(vv) = self.lower_expr(v, cur_block) {
+                    if let Some(kv) = self.lower_expr(k, cur_block)
+                        && let Some(vv) = self.lower_expr(v, cur_block) {
                             vals.push(kv);
                             vals.push(vv);
                         }
-                    }
                 }
                 let dest = self.next_val();
                 let func_name = format!("datara_rt_map_create_{}", entries.len());
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::Call {
-                        dest: dest.clone(),
+                        dest,
                         func: func_name,
                         args: vals,
                         ty: "Map".into(),
@@ -2510,7 +2520,7 @@ impl<'a> Lowering<'a> {
                     self.get_block_mut(*cur_block)
                         .instructions
                         .push(Inst::Call {
-                            dest: dest.clone(),
+                            dest,
                             func: "datara_rt_slice".into(),
                             args: vec![obj, s, e],
                             ty: "List".into(),
@@ -2528,7 +2538,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::Call {
-                        dest: dest.clone(),
+                        dest,
                         func: func_name.into(),
                         args: vec![obj, idx],
                         ty: "Int".into(),
@@ -2542,7 +2552,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::Call {
-                        dest: dest.clone(),
+                        dest,
                         func: "datara_rt_range_str".into(),
                         args: vec![s, e],
                         ty: "String".into(),
@@ -2561,7 +2571,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::Call {
-                        dest: dest.clone(),
+                        dest,
                         func: func_name,
                         args: vals,
                         ty: "Tuple".into(),
@@ -2603,7 +2613,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::GetField {
-                        dest: flag.clone(),
+                        dest: flag,
                         object: val,
                         field: site.kind.flag_field().into(),
                         ty: "Bool".into(),
@@ -2631,7 +2641,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(ok_block)
                     .instructions
                     .push(Inst::GetField {
-                        dest: payload.clone(),
+                        dest: payload,
                         object: val,
                         field: site.kind.payload_field().into(),
                         ty: site.payload_repr.clone(),
@@ -2650,14 +2660,14 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::ConstInt {
-                        dest: count_val.clone(),
+                        dest: count_val,
                         value: *count as i64,
                     });
                 let list_val = self.next_val();
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::Call {
-                        dest: list_val.clone(),
+                        dest: list_val,
                         func: "datara_rt_list_create_repeat".into(),
                         args: vec![elem_val, count_val],
                         ty: "List".into(),
@@ -2690,8 +2700,8 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::GetField {
-                        dest: flag.clone(),
-                        object: val.clone(),
+                        dest: flag,
+                        object: val,
                         field: flag_field.into(),
                         ty: "Bool".into(),
                     });
@@ -2707,8 +2717,8 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(ok_block)
                     .instructions
                     .push(Inst::GetField {
-                        dest: payload.clone(),
-                        object: val.clone(),
+                        dest: payload,
+                        object: val,
                         field: payload_field.into(),
                         ty: payload_repr,
                     });
@@ -2746,7 +2756,7 @@ impl<'a> Lowering<'a> {
                 self.get_block_mut(merge_block)
                     .instructions
                     .push(Inst::LoadVar {
-                        dest: result_val.clone(),
+                        dest: result_val,
                         name: res_var,
                     });
                 *cur_block = merge_block;
@@ -2771,13 +2781,11 @@ impl<'a> Lowering<'a> {
             DataraType::GenericInstance { name, args } => {
                 let (params, t_fields) = self.types.generic_templates.get(&name)?;
                 let field_type = t_fields.get(member)?;
-                if let DataraType::TypeParam(p) = field_type {
-                    if let Some(idx) = params.iter().position(|param| param == p) {
-                        if idx < args.len() {
+                if let DataraType::TypeParam(p) = field_type
+                    && let Some(idx) = params.iter().position(|param| param == p)
+                        && idx < args.len() {
                             return Some(args[idx].to_string());
                         }
-                    }
-                }
                 Some(field_type.to_string())
             }
             DataraType::Class(cls_name) => {
@@ -2803,11 +2811,10 @@ impl<'a> Lowering<'a> {
                     || member.contains("str")
             }
             Expr::Identifier(name, ..) => {
-                if let Some(ty) = self.lookup_var_type(name) {
-                    if ty == crate::types::DataraType::String {
+                if let Some(ty) = self.lookup_var_type(name)
+                    && ty == crate::types::DataraType::String {
                         return true;
                     }
-                }
                 self.class_field_types
                     .get(name)
                     .map(|t| t == "String" || t == "Str")
@@ -2859,11 +2866,10 @@ impl<'a> Lowering<'a> {
     }
 
     fn find_packet_for_member(&self, object: &Expr, member: &str) -> Option<(usize, usize)> {
-        if let Expr::Identifier(var_name, _) = object {
-            if let Some(crate::types::DataraType::Class(cls_name)) =
+        if let Expr::Identifier(var_name, _) = object
+            && let Some(crate::types::DataraType::Class(cls_name)) =
                 self.lookup_var_type(var_name)
-            {
-                if let Some(pkt) = self.resolver.packets.get(&cls_name) {
+                && let Some(pkt) = self.resolver.packets.get(&cls_name) {
                     let mut off = 0;
                     for f in &pkt.fields {
                         if f.name == member {
@@ -2872,8 +2878,6 @@ impl<'a> Lowering<'a> {
                         off += f.bits;
                     }
                 }
-            }
-        }
         for pkt in self.resolver.packets.values() {
             let mut off = 0;
             for f in &pkt.fields {

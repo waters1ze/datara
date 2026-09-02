@@ -20,6 +20,12 @@ pub struct EffectSet {
     pub effects: HashSet<Effect>,
 }
 
+impl Default for EffectSet {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EffectSet {
     pub fn new() -> Self {
         Self {
@@ -80,6 +86,12 @@ pub struct EffectAnalyzer {
     pub function_effects: HashMap<String, EffectSet>,
 }
 
+impl Default for EffectAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EffectAnalyzer {
     pub fn new() -> Self {
         let mut builtins = HashMap::new();
@@ -125,8 +137,8 @@ impl EffectAnalyzer {
                 }
                 Decl::Class(c) => {
                     for item in &c.body_items {
-                        if let ClassItem::Method(m) = item {
-                            if let Some(body) = &m.body {
+                        if let ClassItem::Method(m) = item
+                            && let Some(body) = &m.body {
                                 let mut effects = EffectSet::pure();
                                 let mut local_vars: HashSet<String> =
                                     m.params.iter().map(|p| p.name.clone()).collect();
@@ -134,13 +146,12 @@ impl EffectAnalyzer {
                                 self.function_effects
                                     .insert(format!("{}.{}", c.name, m.name), effects);
                             }
-                        }
                     }
                 }
                 Decl::Behavior(b) => {
                     for item in &b.body_items {
-                        if let ClassItem::Method(m) = item {
-                            if let Some(body) = &m.body {
+                        if let ClassItem::Method(m) = item
+                            && let Some(body) = &m.body {
                                 let mut effects = EffectSet::pure();
                                 let mut local_vars: HashSet<String> =
                                     m.params.iter().map(|p| p.name.clone()).collect();
@@ -148,7 +159,6 @@ impl EffectAnalyzer {
                                 self.function_effects
                                     .insert(format!("{}.{}", b.target_type, m.name), effects);
                             }
-                        }
                     }
                 }
                 _ => {}
@@ -261,14 +271,13 @@ impl EffectAnalyzer {
                     } else if name == "rand" || name == "random" || name == "timestamp" {
                         effects.add(Effect::Nondeterministic);
                     }
-                } else if let Expr::MemberAccess { object, member, .. } = &**callee {
-                    if let Expr::Identifier(obj_name, _) = &**object {
+                } else if let Expr::MemberAccess { object, member, .. } = &**callee
+                    && let Expr::Identifier(obj_name, _) = &**object {
                         let method_key = format!("{}.{}", obj_name, member);
                         if let Some(eff) = self.function_effects.get(&method_key) {
                             effects.union(eff);
                         }
                     }
-                }
             }
             Expr::Binary { left, right, .. } => {
                 self.analyze_expr(left, effects);

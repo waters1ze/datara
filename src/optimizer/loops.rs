@@ -181,6 +181,7 @@ impl LoopOptimizer {
             | Inst::StructInit { dest, .. }
             | Inst::FormatStr { dest, .. }
             | Inst::GetFuncAddr { dest, .. }
+            | Inst::Select { dest, .. }
             | Inst::Decide { dest, .. } => Some(*dest),
             Inst::AssignVar { .. }
             | Inst::SetField { .. }
@@ -322,13 +323,11 @@ impl LoopOptimizer {
                 for bid in Self::ordered_loop_blocks(&cfg, lp) {
                     if let Some(blk) = f.get_block(bid) {
                         for inst in &blk.instructions {
-                            if Self::is_hoistable(inst, &facts) {
-                                if let Some(d) = Self::dest(inst) {
-                                    if invariant.contains(&d) {
+                            if Self::is_hoistable(inst, &facts)
+                                && let Some(d) = Self::dest(inst)
+                                    && invariant.contains(&d) {
                                         hoisted.push(inst.clone());
                                     }
-                                }
-                            }
                         }
                     }
                 }
@@ -351,7 +350,7 @@ impl LoopOptimizer {
 
             // Remove the hoisted instructions from the loop blocks.
             let hoisted_dests: HashSet<ValueId> =
-                hoisted.iter().filter_map(|i| Self::dest(i)).collect();
+                hoisted.iter().filter_map(Self::dest).collect();
             for bid in &lp.blocks {
                 if let Some(blk) = f.get_block_mut(*bid) {
                     blk.instructions.retain(
@@ -413,13 +412,11 @@ impl LoopOptimizer {
             .map(|b| b.id)
             .collect();
 
-        if entering.len() == 1 {
-            if let Some(b) = f.get_block(entering[0]) {
-                if matches!(&b.terminator, Terminator::Branch { .. }) {
+        if entering.len() == 1
+            && let Some(b) = f.get_block(entering[0])
+                && matches!(&b.terminator, Terminator::Branch { .. }) {
                     return entering[0];
                 }
-            }
-        }
 
         let next_id = f
             .blocks
@@ -588,6 +585,18 @@ impl LoopOptimizer {
                 if let Some(v) = else_val {
                     f(v);
                 }
+            }
+            Inst::Select {
+                dest,
+                cond,
+                then_val,
+                else_val,
+                ..
+            } => {
+                f(dest);
+                f(cond);
+                f(then_val);
+                f(else_val);
             }
             Inst::AssignVar { value, .. } => f(value),
             Inst::Out { value } | Inst::Err { value } => f(value),
@@ -780,19 +789,16 @@ impl LoopOptimizer {
                 right,
                 ..
             } = inst
-            {
-                if op == "*" {
+                && op == "*" {
                     if *left == p_i {
                         if let Some(k) = Self::const_int_value(f, *right) {
                             scaled_terms.insert(*dest, k);
                         }
-                    } else if *right == p_i {
-                        if let Some(k) = Self::const_int_value(f, *left) {
+                    } else if *right == p_i
+                        && let Some(k) = Self::const_int_value(f, *left) {
                             scaled_terms.insert(*dest, k);
                         }
-                    }
                 }
-            }
         }
 
         let mut acc: Option<(ValueId, ValueId)> = None; // (sum_next, operand)
@@ -974,11 +980,10 @@ impl LoopOptimizer {
     fn const_int_value(f: &Function, vid: ValueId) -> Option<i64> {
         for b in &f.blocks {
             for inst in &b.instructions {
-                if let Inst::ConstInt { dest, value } = inst {
-                    if *dest == vid {
+                if let Inst::ConstInt { dest, value } = inst
+                    && *dest == vid {
                         return Some(*value);
                     }
-                }
             }
         }
         None
@@ -1322,10 +1327,25 @@ impl LoopOptimizer {
                         *v = to;
                     }
                 }
-                if let Some(v) = else_val {
-                    if *v == from {
+                if let Some(v) = else_val
+                    && *v == from {
                         *v = to;
                     }
+            }
+            Inst::Select {
+                cond,
+                then_val,
+                else_val,
+                ..
+            } => {
+                if *cond == from {
+                    *cond = to;
+                }
+                if *then_val == from {
+                    *then_val = to;
+                }
+                if *else_val == from {
+                    *else_val = to;
                 }
             }
             Inst::AssignVar { value, .. } => {
@@ -1338,11 +1358,10 @@ impl LoopOptimizer {
                     *value = to;
                 }
             }
-            Inst::Return { value: Some(v) } => {
-                if *v == from {
+            Inst::Return { value: Some(v) }
+                if *v == from => {
                     *v = to;
                 }
-            }
             _ => {}
         }
     }
@@ -1391,6 +1410,7 @@ impl LoopOptimizer {
     ///   3. the list operand resolves to a `datara_rt_list_create_repeat`
     ///      allocation whose count value is the same SSA value (or constant)
     ///      as the header bound.
+    ///
     /// Anything unproven keeps the checked runtime call.
     pub fn bce_pass(
         f: &mut Function,
@@ -1510,11 +1530,10 @@ impl LoopOptimizer {
                 Terminator::CondBranch { cond, .. } => {
                     let mut found = None;
                     for inst in &header_block.instructions {
-                        if let Inst::BinOp { dest, op, left, right, .. } = inst {
-                            if dest == cond && op == "<" {
+                        if let Inst::BinOp { dest, op, left, right, .. } = inst
+                            && dest == cond && op == "<" {
                                 found = Some((*left, *right));
                             }
-                        }
                     }
                     match found {
                         Some(v) => v,
@@ -1581,8 +1600,8 @@ impl LoopOptimizer {
             for &block_id in &lp.blocks {
                 if let Some(block) = f.get_block_mut(block_id) {
                     for inst in &mut block.instructions {
-                        if let Inst::Call { func, args, .. } = inst {
-                            if (func == "datara_rt_list_get" || func == "datara_rt_list_set")
+                        if let Inst::Call { func, args, .. } = inst
+                            && (func == "datara_rt_list_get" || func == "datara_rt_list_set")
                                 && args.len() >= 2
                             {
                                 // The index must be the counter variable.
@@ -1605,7 +1624,6 @@ impl LoopOptimizer {
                                     eliminated += 1;
                                 }
                             }
-                        }
                     }
                 }
             }
@@ -1632,11 +1650,10 @@ impl LoopOptimizer {
     fn binop_add_one_source(f: &Function, vid: ValueId) -> Option<ValueId> {
         for block in &f.blocks {
             for inst in &block.instructions {
-                if let Inst::BinOp { dest, op, left, right, .. } = inst {
-                    if *dest == vid && op == "+" && Self::const_int_value(f, *right) == Some(1) {
+                if let Inst::BinOp { dest, op, left, right, .. } = inst
+                    && *dest == vid && op == "+" && Self::const_int_value(f, *right) == Some(1) {
                         return Some(*left);
                     }
-                }
             }
         }
         None

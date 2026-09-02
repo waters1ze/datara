@@ -407,13 +407,12 @@ impl<'a> Parser<'a> {
         if self.match_token(&TokenType::Less) {
             while !self.check(&TokenType::Greater) && !self.is_at_end() {
                 if let Some(param) = self.consume_ident("Expected generic parameter name") {
-                    if self.match_token(&TokenType::Colon) {
-                        if let Some(constraint) =
+                    if self.match_token(&TokenType::Colon)
+                        && let Some(constraint) =
                             self.consume_ident("Expected role constraint name")
                         {
                             generic_constraints.push((param.clone(), constraint));
                         }
-                    }
                     generic_params.push(param);
                 }
                 if !self.match_token(&TokenType::Comma) {
@@ -966,12 +965,9 @@ impl<'a> Parser<'a> {
                 if !is_pipe && !is_then {
                     break;
                 }
-                // Support `data |> flow PipelineName` or `data |> PipelineName`
-                let stage = if self.match_token(&TokenType::Flow) {
-                    self.parse_logical_or()?
-                } else {
-                    self.parse_logical_or()?
-                };
+                // Optional `flow` keyword: `data |> flow Name` or `data |> Name`
+                self.match_token(&TokenType::Flow);
+                let stage = self.parse_logical_or()?;
                 stages.push(stage);
             }
             let start = stages[0].span().clone();
@@ -1365,7 +1361,7 @@ impl<'a> Parser<'a> {
                 }
 
                 // Check if ObjectInit `User { ... }` or `Box<Int> { ... }`
-                let is_capital = name.chars().next().map_or(false, |c| c.is_uppercase());
+                let is_capital = name.chars().next().is_some_and(|c| c.is_uppercase());
                 let mut generic_args = Vec::new();
 
                 if is_capital && self.match_token(&TokenType::Less) {
@@ -1771,7 +1767,7 @@ impl<'a> Parser<'a> {
             }
             TokenType::None => Some(Pattern::Literal(LiteralValue::None, token.span)),
             TokenType::Identifier(ref name) => {
-                let is_capital = name.chars().next().map_or(false, |c| c.is_uppercase());
+                let is_capital = name.chars().next().is_some_and(|c| c.is_uppercase());
                 if is_capital {
                     let mut enum_name = None;
                     let mut variant_name = name.clone();
@@ -1910,10 +1906,12 @@ impl<'a> Parser<'a> {
                 let parsed_expr = sub_parser.parse_expression();
                 let has_errors = sub_parser.diag.has_errors();
                 let is_end = sub_parser.is_at_end();
-                if !has_errors && parsed_expr.is_some() && is_end {
+                if !has_errors && is_end
+                    && let Some(expr) = parsed_expr
+                {
                     parts.push(current_lit.clone());
                     current_lit.clear();
-                    expressions.push(parsed_expr.unwrap());
+                    expressions.push(expr);
                 } else {
                     // Not a Datara expression (e.g. CSS, JSON, regex, plain text); preserve as literal text
                     current_lit.push('{');

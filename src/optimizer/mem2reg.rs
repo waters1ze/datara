@@ -37,7 +37,7 @@ pub fn promote_module(module: &mut Module) -> usize {
     let mut next = max_id + 1;
 
     let mut total = 0;
-    for (_, function) in module.functions.iter_mut() {
+    for function in module.functions.values_mut() {
         total += promote_function(function, &mut next);
     }
     total
@@ -144,6 +144,18 @@ fn visit_vids(inst: &Inst, f: &mut dyn FnMut(&ValueId)) {
                 f(v);
             }
         }
+        Inst::Select {
+            dest,
+            cond,
+            then_val,
+            else_val,
+            ..
+        } => {
+            f(dest);
+            f(cond);
+            f(then_val);
+            f(else_val);
+        }
         Inst::AssignVar { value, .. } => f(value),
         Inst::Out { value } | Inst::Err { value } => f(value),
         Inst::Return { value: Some(v) } => f(v),
@@ -157,7 +169,8 @@ fn visit_vids(inst: &Inst, f: &mut dyn FnMut(&ValueId)) {
 pub fn promote_function(function: &mut Function, next: &mut usize) -> usize {
     let mut original = Some(function.clone());
 
-    let promoted = match promote_function_inner(function, next) {
+    
+    match promote_function_inner(function, next) {
         Ok(count) => {
             if count > 0 {
                 // Self-check before committing: a pass that cannot prove its
@@ -174,8 +187,7 @@ pub fn promote_function(function: &mut Function, next: &mut usize) -> usize {
             *function = original.take().unwrap();
             0
         }
-    };
-    promoted
+    }
 }
 
 fn promote_function_inner(function: &mut Function, next: &mut usize) -> Result<usize, String> {
@@ -282,23 +294,21 @@ fn promote_function_inner(function: &mut Function, next: &mut usize) -> Result<u
                                     var_type.insert(name.clone(), t.clone());
                                     changed = true;
                                 }
-                                Some(prev) if prev != t => {
-                                    if !bad_names.contains(name) {
+                                Some(prev) if prev != t
+                                    && !bad_names.contains(name) => {
                                         bad_names.insert(name.clone());
                                         changed = true;
                                     }
-                                }
                                 _ => {}
                             }
                         }
                     }
                     Inst::LoadVar { dest, name } => {
-                        if let Some(t) = var_type.get(name) {
-                            if !def_type.contains_key(dest) {
+                        if let Some(t) = var_type.get(name)
+                            && !def_type.contains_key(dest) {
                                 def_type.insert(*dest, t.clone());
                                 changed = true;
                             }
-                        }
                     }
                     other => seed_def_types(other, &mut def_type, &var_type),
                 }
@@ -666,6 +676,16 @@ fn substitute_inst(
             if let Some(v) = else_val {
                 map(v);
             }
+        }
+        Inst::Select {
+            cond,
+            then_val,
+            else_val,
+            ..
+        } => {
+            map(cond);
+            map(then_val);
+            map(else_val);
         }
         Inst::Out { value } | Inst::Err { value } => map(value),
         Inst::Return { value } => {

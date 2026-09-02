@@ -156,6 +156,7 @@ fn instruction_dest(instruction: &Inst) -> Option<ValueId> {
         | Inst::GetField { dest, .. }
         | Inst::FormatStr { dest, .. }
         | Inst::GetFuncAddr { dest, .. }
+        | Inst::Select { dest, .. }
         | Inst::Decide { dest, .. } => Some(*dest),
         _ => None,
     }
@@ -192,6 +193,11 @@ fn instruction_uses(instruction: &Inst) -> Vec<ValueId> {
             uses.push(*value);
         }
         Inst::FormatStr { values, .. } => uses.extend(values.iter().copied()),
+        Inst::Select { cond, then_val, else_val, .. } => {
+            uses.push(*cond);
+            uses.push(*then_val);
+            uses.push(*else_val);
+        }
         Inst::Decide { arms, else_val, .. } => {
             for (condition, value) in arms {
                 uses.push(*condition);

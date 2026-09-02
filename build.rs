@@ -32,6 +32,38 @@ fn main() {
         // Keep the runtime out of forgen.exe itself.
         .cargo_metadata(false);
 
+    if cfg!(target_os = "windows") {
+        let pf = env::var("ProgramFiles(x86)").unwrap_or_else(|_| "C:\\Program Files (x86)".into());
+        let msvc_base = PathBuf::from(&pf).join("Microsoft Visual Studio");
+        if let Ok(entries) = std::fs::read_dir(&msvc_base) {
+            for e in entries.flatten() {
+                let vctools = e.path().join("BuildTools\\VC\\Tools\\MSVC");
+                if let Ok(sub) = std::fs::read_dir(&vctools) {
+                    for s in sub.flatten() {
+                        let inc = s.path().join("include");
+                        if inc.exists() {
+                            build.include(inc);
+                        }
+                    }
+                }
+            }
+        }
+        let wk_base = PathBuf::from(&pf).join("Windows Kits\\10\\Include");
+        if let Ok(entries) = std::fs::read_dir(&wk_base) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    let ucrt = p.join("ucrt");
+                    let shared = p.join("shared");
+                    let um = p.join("um");
+                    if ucrt.exists() { build.include(ucrt); }
+                    if shared.exists() { build.include(shared); }
+                    if um.exists() { build.include(um); }
+                }
+            }
+        }
+    }
+
     if build.get_compiler().is_like_msvc() {
         build.flag_if_supported("/O2").flag_if_supported("/W3");
     } else {

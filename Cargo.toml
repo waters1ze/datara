@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "High-performance compiler toolchain for the Datara programming language"
+autobins = false
 
 [[bin]]
 name = "forgen"
@@ -11,7 +12,7 @@ path = "src/main.rs"
 
 [[bin]]
 name = "datara"
-path = "src/main.rs"
+path = "src/bin/datara.rs"
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }

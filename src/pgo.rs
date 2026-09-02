@@ -87,8 +87,8 @@ impl ProfileData {
     }
 
     pub fn is_branch_heavily_biased(&self, branch_id: &str) -> Option<(bool, f64)> {
-        if let Some(&(taken, total)) = self.branch_frequencies.get(branch_id) {
-            if total >= 10 {
+        if let Some(&(taken, total)) = self.branch_frequencies.get(branch_id)
+            && total >= 10 {
                 let ratio = taken as f64 / total as f64;
                 if ratio >= 0.8 {
                     return Some((true, ratio));
@@ -96,7 +96,6 @@ impl ProfileData {
                     return Some((false, 1.0 - ratio));
                 }
             }
-        }
         None
     }
 }
@@ -160,17 +159,13 @@ impl ProfileGuidedOptimizer {
             // If branch is heavily biased towards hot path, optimize block layout
             for block in &mut f.blocks {
                 if let crate::dmir::Terminator::CondBranch {
-                    cond: _,
-                    then_block: _,
-                    else_block: _,
                     ..
                 } = &mut block.terminator
                 {
                     let branch_id = format!("{}_{}", name, block.id.0);
                     if let Some((always_taken, confidence)) =
                         profile.is_branch_heavily_biased(&branch_id)
-                    {
-                        if confidence > 0.95 && always_taken {
+                        && confidence > 0.95 && always_taken {
                             optimizer.trace.record(
                                 "PGO_BranchPredict",
                                 &branch_id,
@@ -183,7 +178,6 @@ impl ProfileGuidedOptimizer {
                                 ),
                             );
                         }
-                    }
                 }
             }
         }

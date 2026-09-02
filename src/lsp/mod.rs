@@ -21,6 +21,12 @@ pub struct JsonRpcResponse {
 
 pub struct LspServer;
 
+impl Default for LspServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LspServer {
     pub fn new() -> Self {
         Self
@@ -45,11 +51,10 @@ impl LspServer {
                 if trimmed.is_empty() {
                     break; // Header section finished
                 }
-                if let Some(rest) = trimmed.strip_prefix("Content-Length:") {
-                    if let Ok(len) = rest.trim().parse::<usize>() {
+                if let Some(rest) = trimmed.strip_prefix("Content-Length:")
+                    && let Ok(len) = rest.trim().parse::<usize>() {
                         content_length = Some(len);
                     }
-                }
             }
 
             let len = match content_length {
@@ -246,13 +251,13 @@ impl LspServer {
             result,
         };
         let val =
-            serde_json::to_value(resp).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            serde_json::to_value(resp).map_err(io::Error::other)?;
         self.send_payload(&val, writer)
     }
 
     fn send_payload<W: Write>(&self, val: &Value, writer: &mut W) -> io::Result<()> {
         let body =
-            serde_json::to_string(val).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            serde_json::to_string(val).map_err(io::Error::other)?;
         let header = format!("Content-Length: {}\r\n\r\n", body.len());
         writer.write_all(header.as_bytes())?;
         writer.write_all(body.as_bytes())?;

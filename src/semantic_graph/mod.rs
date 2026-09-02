@@ -107,6 +107,12 @@ pub struct SemanticGraph {
     pub root_entry_points: Vec<String>,
 }
 
+impl Default for SemanticGraph {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SemanticGraph {
     pub fn new() -> Self {
         Self {
@@ -193,7 +199,7 @@ impl SemanticGraph {
                 },
             );
 
-            for (m_name, _m_sym) in &sym.methods {
+            for m_name in sym.methods.keys() {
                 let m_id = format!("method:{}.{}", name, m_name);
                 let eff_str = effects
                     .function_effects

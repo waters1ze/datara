@@ -18,6 +18,10 @@ tmp_verify/
 # Compiler scratch backups produced by refactor scripts.
 *.bak
 
+# Ad-hoc LLVM IR / bitcode build artifacts from debug runs.
+*.ll
+*.bc
+
 
 # Per-run scratch sources in tests/
 tests/dbg_*.dtr
