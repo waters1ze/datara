@@ -8,8 +8,8 @@ class HttpRequest {
 
 behavior HttpRequest {
     parse(raw: Str) -> HttpRequest {
-        let mut method = "GET"
-        let mut path = "/"
+        mut method = "GET"
+        mut path = "/"
         
         if str_starts_with(raw, "GET ") {
             method = "GET"
@@ -26,7 +26,7 @@ behavior HttpRequest {
         }
 
         let body_idx = str_index_of(raw, "\r\n\r\n")
-        let mut body = ""
+        mut body = ""
         if body_idx > 0 {
             body = raw
         }
@@ -73,7 +73,7 @@ behavior HttpResponse {
     }
 
     to_raw() -> Str {
-        let mut status_line = "HTTP/1.1 200 OK\r\n"
+        mut status_line = "HTTP/1.1 200 OK\r\n"
         if this.status == 404 {
             status_line = "HTTP/1.1 404 Not Found\r\n"
         }

@@ -26,7 +26,10 @@ class Button {
 
 behavior Button {
     render() -> Str {
-        let cls = if this.variant == "secondary" { "btn btn-secondary" } else { "btn btn-primary" }
+        mut cls = "btn btn-primary"
+        if this.variant == "secondary" {
+            cls = "btn btn-secondary"
+        }
         return "<a href='" + this.url + "' class='" + cls + "'>" + this.text + "</a>"
     }
 }
@@ -50,7 +53,10 @@ class Column {
 
 behavior Column {
     render() -> Str {
-        let style = if this.gap != "" { "style='gap:" + this.gap + ";'" } else { "" }
+        mut style = ""
+        if this.gap != "" {
+            style = "style='gap:" + this.gap + ";'"
+        }
         return "<div class='column' " + style + ">" + this.inner_html + "</div>"
     }
 }
@@ -62,7 +68,10 @@ class Row {
 
 behavior Row {
     render() -> Str {
-        let style = if this.gap != "" { "style='gap:" + this.gap + ";'" } else { "" }
+        mut style = ""
+        if this.gap != "" {
+            style = "style='gap:" + this.gap + ";'"
+        }
         return "<div class='row' " + style + ">" + this.inner_html + "</div>"
     }
 }
@@ -76,7 +85,10 @@ class InteractiveTab {
 
 behavior InteractiveTab {
     render() -> Str {
-        let chk = if this.is_checked { "checked" } else { "" }
+        mut chk = ""
+        if this.is_checked {
+            chk = "checked"
+        }
         let radio = "<input type='radio' name='nav_tabs' id='" + this.tab_id + "' class='tab-input' " + chk + ">"
         let lbl = "<label for='" + this.tab_id + "' class='tab-label'>" + this.label + "</label>"
         let body = "<div class='tab-content content-" + this.tab_id + "'>" + this.content_html + "</div>"

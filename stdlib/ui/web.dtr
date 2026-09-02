@@ -6,7 +6,10 @@ class HtmlTag {
 
 behavior HtmlTag {
     render() -> Str {
-        let class_attr = if this.class_name == "" { "" } else { " class='" + this.class_name + "'" }
+        mut class_attr = ""
+        if this.class_name != "" {
+            class_attr = " class='" + this.class_name + "'"
+        }
         return "<" + this.name + class_attr + ">" + this.content + "</" + this.name + ">"
     }
 }

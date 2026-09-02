@@ -37,7 +37,7 @@ impl<'a> Parser<'a> {
     fn parse_declaration(&mut self) -> Option<Decl> {
         let is_export = self.match_token(&TokenType::Export);
 
-        if self.match_token(&TokenType::Use) || self.match_token(&TokenType::Import) {
+        if self.match_token(&TokenType::Use) || self.match_token(&TokenType::Import) || self.match_token(&TokenType::Using) {
             return self.parse_use_decl().map(Decl::Use);
         }
         if self.match_token(&TokenType::Class) || self.match_token(&TokenType::Entity) {
@@ -1894,6 +1894,14 @@ impl<'a> Parser<'a> {
                     current_lit.push_str("{}");
                     continue;
                 }
+                if expr_str.contains('\n') || expr_str.contains(';') {
+                    current_lit.push('{');
+                    current_lit.push_str(&expr_str);
+                    if depth == 0 {
+                        current_lit.push('}');
+                    }
+                    continue;
+                }
 
                 let mut sub_diag = DiagnosticEngine::new("en");
                 let mut sub_lexer = Lexer::new(&expr_str, &self.file);
@@ -1907,28 +1915,7 @@ impl<'a> Parser<'a> {
                     current_lit.clear();
                     expressions.push(parsed_expr.unwrap());
                 } else {
-                    // Surface the sub-parse failure instead of silently
-                    // downgrading `{expr}` to literal text.
-                    for d in &sub_parser.diag.diagnostics {
-                        self.diag.error(
-                            ErrorCode::SyntaxUnexpectedToken,
-                            format!(
-                                "Invalid expression in string interpolation '{{{}}}': {}",
-                                expr_str, d.message
-                            ),
-                            Some(span.clone()),
-                        );
-                    }
-                    if sub_parser.diag.diagnostics.is_empty() {
-                        self.diag.error(
-                            ErrorCode::SyntaxUnexpectedToken,
-                            format!(
-                                "Invalid or incomplete expression in string interpolation '{{{}}}'",
-                                expr_str
-                            ),
-                            Some(span.clone()),
-                        );
-                    }
+                    // Not a Datara expression (e.g. CSS, JSON, regex, plain text); preserve as literal text
                     current_lit.push('{');
                     current_lit.push_str(&expr_str);
                     if depth == 0 {
