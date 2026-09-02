@@ -40,7 +40,8 @@ if (-not (Test-Path $SourceExe)) {
 
 if (Test-Path $SourceExe) {
     Copy-Item -Force $SourceExe "$BinDir\forgen.exe"
-    Write-Host "  [OK] Installed compiler binary: $BinDir\forgen.exe" -ForegroundColor Green
+    Copy-Item -Force $SourceExe "$BinDir\datara.exe"
+    Write-Host "  [OK] Installed toolchain binaries: $BinDir\forgen.exe and $BinDir\datara.exe" -ForegroundColor Green
 } else {
     Write-Host "  [ERROR] forgen.exe not found. Build release binary first ('cargo build --release')." -ForegroundColor Red
     exit 1

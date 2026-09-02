@@ -5,6 +5,14 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "High-performance compiler toolchain for the Datara programming language"
 
+[[bin]]
+name = "forgen"
+path = "src/main.rs"
+
+[[bin]]
+name = "datara"
+path = "src/main.rs"
+
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

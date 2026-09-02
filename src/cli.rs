@@ -18,6 +18,13 @@ pub fn run_cli() {
         return;
     }
 
+    if args.len() >= 2 && (args[1] == "--version" || args[1] == "-v" || args[1] == "version") {
+        println!("Datara Toolchain & Forgen AOT Native Compiler v0.1.0");
+        println!("Target Architecture: x86_64-pc-windows-msvc (Cranelift Backend)");
+        println!("Datara Language Specification 2026 Edition");
+        return;
+    }
+
     let command = &args[1];
 
     if args.iter().any(|a| a == "--auto-install" || a == "-y") {
