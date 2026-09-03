@@ -20,4 +20,3 @@ if exist "Datara-Setup.exe" (
 ) else (
     echo [ERROR] Failed to compile Datara-Setup.exe
 )
-pause
