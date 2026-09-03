@@ -75,7 +75,13 @@ fn main() {
     if build.get_compiler().is_like_msvc() {
         build.flag_if_supported("/O2").flag_if_supported("/W3");
     } else {
-        build.flag_if_supported("-O2").flag_if_supported("-Wall");
+        build
+            .define("_GNU_SOURCE", None)
+            .define("_DEFAULT_SOURCE", None)
+            .define("_POSIX_C_SOURCE", Some("200809L"))
+            .flag_if_supported("-O2")
+            .flag_if_supported("-w")
+            .flag_if_supported("-pthread");
     }
 
     build
