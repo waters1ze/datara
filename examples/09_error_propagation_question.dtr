@@ -1,0 +1,61 @@
+use stdlib.result.result.Outcome
+use stdlib.result.option.Maybe
+
+// 1. Функция с возвратом Result-типа Outcome<Int>
+fn parse_port(s: String) -> Outcome<Int> {
+    if s == "8080" {
+        return Outcome<Int> { is_success: true, value: 8080, error_msg: "" }
+    }
+    if s == "443" {
+        return Outcome<Int> { is_success: true, value: 443, error_msg: "" }
+    }
+    return Outcome<Int> { is_success: false, value: 0, error_msg: "неверный номер порта" }
+}
+
+// 2. Функция использует оператор `?` для безопасного проброса ошибок
+fn start_server(port_str: String) -> Outcome<Int> {
+    // Оператор ? распаковывает Int при успехе,
+    // либо МГНОВЕННО делает early return ошибки наружу!
+    let port = parse_port(port_str)?
+
+    println(fmt"  [OK] Сетевой сокет инициализирован на порту: {port}")
+    return Outcome<Int> { is_success: true, value: port, error_msg: "" }
+}
+
+// 3. Функция работы с Option / Maybe через `?`
+fn find_user_id(username: String) -> Maybe<Int> {
+    if username == "admin" {
+        return Maybe<Int> { is_some: true, value: 1001 }
+    }
+    return Maybe<Int> { is_some: false, value: 0 }
+}
+
+fn calculate_permission_level(username: String) -> Maybe<Int> {
+    let uid = find_user_id(username)?
+    return Maybe<Int> { is_some: true, value: uid * 2 }
+}
+
+fn main() {
+    println("==================================================")
+    println("  Демонстрация оператора `?` и обработки ошибок   ")
+    println("==================================================")
+
+    println("--- Тест 1: Успешный проброс Result (?) ---")
+    let s1 = start_server("8080")
+    println(fmt"Результат: статус={s1.is_success}, значение={s1.value}")
+
+    println("--- Тест 2: Ошибка и ранний выход Result (?) ---")
+    let s2 = start_server("не_порт")
+    println(fmt"Результат: статус={s2.is_success}, текст ошибки='{s2.error_msg}'")
+
+    println("--- Тест 3: Работа с Maybe / Option (?) ---")
+    let p1 = calculate_permission_level("admin")
+    println(fmt"Пользователь 'admin': найдено={p1.is_some}, уровень={p1.value}")
+
+    let p2 = calculate_permission_level("guest")
+    println(fmt"Пользователь 'guest': найдено={p2.is_some}")
+
+    println("--- Тест 4: Оператор запасного значения 'or' ---")
+    let fallback_port = parse_port("неверно") or 3000
+    println(fmt"Порт с запасным значением (or 3000): {fallback_port}")
+}

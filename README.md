@@ -771,11 +771,21 @@ fn parse_port(input: Str) -> Int! {
 ```
 
 #### Error Propagation Operator (`?`)
-Propagate errors up the call stack with zero boilerplate:
+Propagate errors up the call stack with zero boilerplate (identical to Rust's `?` operator). When an expression produces a `Result` (`Outcome<T>`) or `Option` (`Maybe<T>`), the postfix `?` operator automatically unwraps the inner value on success, or executes a zero-copy early return of the error if failed:
+
 ```datara
-fn setup_server(port_str: Str) -> Int! {
-    let port = parse_port(port_str)?  // Propagates error if failed
-    return port
+use stdlib.result.result.Outcome
+
+fn parse_port(s: String) -> Outcome<Int> {
+    if s == "8080" {
+        return Outcome<Int> { is_success: true, value: 8080, error_msg: "" }
+    }
+    return Outcome<Int> { is_success: false, value: 0, error_msg: "invalid port" }
+}
+
+fn setup_server(port_str: String) -> Outcome<Int> {
+    let port = parse_port(port_str)?  // Unwraps port on success; early-returns on error!
+    return Outcome<Int> { is_success: true, value: port, error_msg: "" }
 }
 ```
 

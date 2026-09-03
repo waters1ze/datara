@@ -1064,43 +1064,65 @@ impl<'a> Parser<'a> {
         let mut result_expr = expr;
         if self.match_token(&TokenType::OrKeyword) {
             let start_span = result_expr.span().clone();
-            self.consume(&TokenType::LBrace, "Expected '{' after 'or'")?;
-            let mut arms = Vec::new();
-            while !self.check(&TokenType::RBrace) && !self.is_at_end() {
-                let pattern = self.parse_pattern()?;
-                let mut guard = None;
-                if self.match_token(&TokenType::If) || self.match_token(&TokenType::When) {
-                    guard = self.parse_expression();
+            if self.match_token(&TokenType::LBrace) {
+                let mut arms = Vec::new();
+                while !self.check(&TokenType::RBrace) && !self.is_at_end() {
+                    let pattern = self.parse_pattern()?;
+                    let mut guard = None;
+                    if self.match_token(&TokenType::If) || self.match_token(&TokenType::When) {
+                        guard = self.parse_expression();
+                    }
+                    self.consume(&TokenType::FatArrow, "Expected '=>' in or arm")?;
+                    let body = self.parse_expression()?;
+                    let span = SourceSpan::new(
+                        pattern.span().start_line,
+                        pattern.span().start_col,
+                        body.span().end_line,
+                        body.span().end_col,
+                        self.file.clone(),
+                    );
+                    arms.push(MatchArm {
+                        pattern,
+                        guard,
+                        body,
+                        span,
+                    });
+                    self.match_token(&TokenType::Comma);
                 }
-                self.consume(&TokenType::FatArrow, "Expected '=>' in or arm")?;
-                let body = self.parse_expression()?;
-                let span = SourceSpan::new(
-                    pattern.span().start_line,
-                    pattern.span().start_col,
-                    body.span().end_line,
-                    body.span().end_col,
-                    self.file.clone(),
-                );
-                arms.push(MatchArm {
-                    pattern,
-                    guard,
-                    body,
-                    span,
-                });
-                self.match_token(&TokenType::Comma);
+                let end_token = self.consume(&TokenType::RBrace, "Expected '}' after or block")?;
+                result_expr = Expr::OrRecovery {
+                    expr: Box::new(result_expr),
+                    arms,
+                    span: SourceSpan::new(
+                        start_span.start_line,
+                        start_span.start_col,
+                        end_token.span.end_line,
+                        end_token.span.end_col,
+                        self.file.clone(),
+                    ),
+                };
+            } else {
+                let default_body = self.parse_expression()?;
+                let wildcard_pat = Pattern::Wildcard(default_body.span().clone());
+                let arm_span = default_body.span().clone();
+                let arms = vec![MatchArm {
+                    pattern: wildcard_pat,
+                    guard: None,
+                    body: default_body,
+                    span: arm_span,
+                }];
+                result_expr = Expr::OrRecovery {
+                    expr: Box::new(result_expr),
+                    arms,
+                    span: SourceSpan::new(
+                        start_span.start_line,
+                        start_span.start_col,
+                        self.previous().span.end_line,
+                        self.previous().span.end_col,
+                        self.file.clone(),
+                    ),
+                };
             }
-            let end_token = self.consume(&TokenType::RBrace, "Expected '}' after or block")?;
-            result_expr = Expr::OrRecovery {
-                expr: Box::new(result_expr),
-                arms,
-                span: SourceSpan::new(
-                    start_span.start_line,
-                    start_span.start_col,
-                    end_token.span.end_line,
-                    end_token.span.end_col,
-                    self.file.clone(),
-                ),
-            };
         }
 
         Some(result_expr)
