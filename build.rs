@@ -75,10 +75,15 @@ fn main() {
     if cfg!(target_env = "msvc") {
         build.flag_if_supported("/O2").flag_if_supported("/W3");
     } else {
+        if cfg!(target_os = "macos") {
+            build.define("_DARWIN_C_SOURCE", None);
+        } else {
+            build
+                .define("_GNU_SOURCE", None)
+                .define("_DEFAULT_SOURCE", None)
+                .define("_POSIX_C_SOURCE", Some("200809L"));
+        }
         build
-            .define("_GNU_SOURCE", None)
-            .define("_DEFAULT_SOURCE", None)
-            .define("_POSIX_C_SOURCE", Some("200809L"))
             .flag_if_supported("-O2")
             .flag_if_supported("-w")
             .flag_if_supported("-pthread");

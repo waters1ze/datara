@@ -1,3 +1,8 @@
+#if defined(__APPLE__)
+#ifndef _DARWIN_C_SOURCE
+#define _DARWIN_C_SOURCE 1
+#endif
+#else
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -6,6 +11,7 @@
 #endif
 #ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L
+#endif
 #endif
 
 #include <stdio.h>
@@ -32,6 +38,13 @@
 #include <fcntl.h>
 #include <time.h>
 #include <pthread.h>
+#if defined(__APPLE__)
+#include <sys/sysctl.h>
+#endif
+#endif
+
+#ifndef INADDR_NONE
+#define INADDR_NONE ((unsigned long)0xffffffff)
 #endif
 
 void datara_rt_out_int(int64_t v) {
@@ -64,7 +77,11 @@ const char* datara_rt_float_to_str(double v) {
     }
     char* buf = (char*)malloc(64);
     if (!buf) return "";
-    for (int prec = 1; prec < 17; prec++) {
+    if (v == floor(v) && fabs(v) < 1e15) {
+        snprintf(buf, 64, "%.1f", v);
+        return buf;
+    }
+    for (int prec = 4; prec < 17; prec++) {
         snprintf(buf, 64, "%.*g", prec, v);
         if (strtod(buf, NULL) == v) {
             return buf;
@@ -476,7 +493,12 @@ void datara_rt_print_float(double v) {
         return;
     }
     char buf[64];
-    for (int prec = 1; prec < 17; prec++) {
+    if (v == floor(v) && fabs(v) < 1e15) {
+        int len = snprintf(buf, sizeof(buf), "%.1f", v);
+        datara_rt_buf_write(buf, (size_t)len);
+        return;
+    }
+    for (int prec = 4; prec < 17; prec++) {
         snprintf(buf, sizeof(buf), "%.*g", prec, v);
         if (strtod(buf, NULL) == v) {
             datara_rt_buf_write(buf, strlen(buf));
@@ -1590,6 +1612,11 @@ void datara_rt_thread_pool_init(int64_t workers) {
         SYSTEM_INFO sys;
         GetSystemInfo(&sys);
         workers = (int64_t)sys.dwNumberOfProcessors;
+#elif defined(__APPLE__)
+        int count = 0;
+        size_t count_len = sizeof(count);
+        sysctlbyname("hw.logicalcpu", &count, &count_len, NULL, 0);
+        workers = count > 0 ? (int64_t)count : 4;
 #else
         workers = (int64_t)sysconf(_SC_NPROCESSORS_ONLN);
 #endif
