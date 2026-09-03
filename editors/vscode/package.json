@@ -4,7 +4,7 @@
   "description": "Rich syntax highlighting, language configuration, and file icons for the Datara programming language (.dtr).",
   "version": "0.1.0",
   "publisher": "datara-project",
-  "icon": "icon.svg",
+  "icon": "icon.png",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -59,5 +59,10 @@
         }
       }
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/waters1ze/datara.git"
+  },
+  "license": "Apache-2.0 OR MIT"
 }

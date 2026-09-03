@@ -49,7 +49,8 @@ jobs:
 
       - name: Test
         # -j 2 reduces concurrent linking, which is unreliable on Windows.
-        run: cargo test --release -j 2 --no-fail-fast
+        # Skip heavy comparative benchmarks in standard PR/push matrix to avoid timeouts.
+        run: cargo test --release -j 2 --no-fail-fast -- --skip bench
 
   clippy-count:
     name: Clippy warning count

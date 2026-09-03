@@ -285,10 +285,14 @@ impl<'a> LlvmEmitter<'a> {
 
         // Track local variable types and allocas
         let mut local_vars: HashSet<String> = HashSet::new();
+        let mut struct_inits: Vec<(ValueId, usize)> = Vec::new();
         for b in &f.blocks {
             for inst in &b.instructions {
                 if let Inst::AssignVar { name, .. } = inst {
                     local_vars.insert(name.clone());
+                } else if let Inst::StructInit { dest, fields, .. } = inst {
+                    let byte_size = (fields.len() * 8).max(8);
+                    struct_inits.push((*dest, byte_size));
                 }
             }
         }
@@ -331,7 +335,8 @@ impl<'a> LlvmEmitter<'a> {
         }
 
         // Allocate local variables in entry block if any
-        let has_allocas = !local_vars.is_empty() || !f.params.is_empty();
+        let has_allocas =
+            !local_vars.is_empty() || !f.params.is_empty() || !struct_inits.is_empty();
         if has_allocas {
             out.push_str("entry_allocas:\n");
             for (pname, pty, pval) in &f.params {
@@ -349,6 +354,12 @@ impl<'a> LlvmEmitter<'a> {
                 if !f.params.iter().any(|(p, _, _)| p == vname) {
                     out.push_str(&format!("  %var_{} = alloca [16 x i8], align 16\n", vname));
                 }
+            }
+            for (s_id, s_size) in &struct_inits {
+                out.push_str(&format!(
+                    "  %v{} = alloca [{} x i8], align 8\n",
+                    s_id.0, s_size
+                ));
             }
             if let Some(first_block) = f.blocks.first() {
                 out.push_str(&format!("  br label %bb{}\n\n", first_block.id.0));
@@ -1056,11 +1067,6 @@ impl<'a> LlvmEmitter<'a> {
                 fields,
             } => {
                 value_types.insert(*dest, "ptr");
-                let byte_size = (fields.len() * 8).max(8);
-                out.push_str(&format!(
-                    "  %v{} = alloca [{} x i8], align 8\n",
-                    dest.0, byte_size
-                ));
                 for (idx, (_, val_id)) in fields.iter().enumerate() {
                     let f_ty = value_types.get(val_id).copied().unwrap_or("i64");
                     let gep_reg = format!("%gep_{}_{}", dest.0, idx);

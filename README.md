@@ -123,27 +123,67 @@ source ~/.zshrc    # On macOS / Zsh
 
 ---
 
-### Package Managers
+### Package Managers & Ecosystem Distributions
 
-Install Datara seamlessly via your operating system's native package manager:
+Install and run Datara seamlessly across developer ecosystems:
 
-#### Windows: Winget (Microsoft Official)
-```powershell
-winget install waters1ze.Datara
+#### ⚡ NPM & NPX (Zero-Install Execution)
+Run Datara files or launch the REPL instantly with `npx`:
+```bash
+# Instant run with zero local installation:
+npx @waters1ze/datara run main.dtr
+
+# Interactive REPL:
+npx @waters1ze/datara repl
+
+# Global installation:
+npm install -g @waters1ze/datara
 ```
 
-#### Windows: Scoop
+#### 🐍 Python PyPI (`pip install datara`)
+Install CLI runners and Python FFI bindings via `pip`:
+```bash
+pip install datara
+```
+Use as CLI (`forgen`, `datara`, `dpm`) or embed inside Python:
+```python
+import datara
+datara.run("algorithm.dtr")
+```
+
+#### 🦀 Rust Crates.io (`cargo install forgen`)
+Compile and install the latest Forgen compiler directly from crates.io:
+```bash
+cargo install forgen
+```
+
+#### 🎨 VS Code & Cursor Extension (.vsix)
+Install syntax highlighting, type hover, and icon themes in 1 command:
+```bash
+code --install-extension dist/datara-language-0.1.0.vsix
+```
+
+#### 🐧 Linux Native Packages (.deb & .rpm)
+Install native system packages on Debian/Ubuntu or Fedora/RHEL:
+```bash
+# Debian / Ubuntu / Pop!_OS / Linux Mint:
+sudo dpkg -i datara_0.1.0_amd64.deb
+
+# Fedora / RHEL / CentOS / openSUSE:
+sudo rpm -ivh datara-0.1.0-1.x86_64.rpm
+```
+
+#### Windows: Winget & Scoop
 ```powershell
+winget install waters1ze.Datara
+# or Scoop:
 scoop install https://raw.githubusercontent.com/waters1ze/datara/main/packaging/scoop/datara.json
 ```
 
-#### macOS & Linux: Homebrew
+#### macOS & Linux: Homebrew & AUR
 ```bash
 brew install waters1ze/tap/datara
-```
-
-#### Arch Linux: AUR
-```bash
+# or Arch Linux:
 yay -S datara-bin
 ```
 

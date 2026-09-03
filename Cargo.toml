@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "High-performance compiler toolchain for the Datara programming language"
+repository = "https://github.com/waters1ze/datara"
+homepage = "https://github.com/waters1ze/datara"
+readme = "README.md"
+keywords = ["compiler", "datara", "language", "jit", "aot"]
+categories = ["compilers", "development-tools", "command-line-utilities"]
+exclude = ["dist/*", "installer/*", "bench_honest/*", "target/*", ".github/*"]
 autobins = false
 
 [[bin]]

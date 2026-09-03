@@ -4,12 +4,49 @@ use crate::driver::ForgenCompiler;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
 
+/// Calculates the delta of unclosed braces in a line, ignoring string literals and comments.
+pub fn count_brace_delta(line: &str) -> i32 {
+    let mut delta = 0;
+    let mut in_string = false;
+    let mut escaped = false;
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        let ch = chars[i];
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+        } else {
+            // Line comment //: ignore rest of line
+            if ch == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
+                break;
+            }
+            if ch == '"' {
+                in_string = true;
+            } else if ch == '{' {
+                delta += 1;
+            } else if ch == '}' {
+                delta -= 1;
+            }
+        }
+        i += 1;
+    }
+    delta
+}
+
 /// Configuration and session state for the interactive REPL
 pub struct ReplSession {
     pub history: Vec<String>,
     pub top_level_declarations: Vec<String>,
     pub main_statements: Vec<String>,
     pub variable_names: Vec<String>,
+    pub buffer: String,
+    pub brace_depth: i32,
     compiler: ForgenCompiler,
     session_exe: PathBuf,
 }
@@ -33,14 +70,62 @@ impl ReplSession {
             top_level_declarations: Vec::new(),
             main_statements: Vec::new(),
             variable_names: Vec::new(),
+            buffer: String::new(),
+            brace_depth: 0,
             compiler: ForgenCompiler::new("repl"),
             session_exe,
         }
     }
 
-    /// Evaluates a single line or command in the REPL session
-    pub fn eval_line(&mut self, line: &str) -> Option<String> {
+    /// Feed a line from user input or paste stream.
+    /// Returns Some(output) when a complete command or block has been evaluated,
+    /// or None when more lines are needed (e.g. unclosed braces in multi-line block).
+    pub fn feed_line(&mut self, line: &str) -> Option<String> {
         let trimmed = line.trim();
+
+        // Cancellation meta-command during multi-line input
+        if self.brace_depth > 0 {
+            if trimmed == ":cancel" || trimmed == ":clear" {
+                self.buffer.clear();
+                self.brace_depth = 0;
+                return Some("Pending multi-line input cancelled.".to_string());
+            }
+            let delta = count_brace_delta(line);
+            self.buffer.push_str(line);
+            self.buffer.push('\n');
+            self.brace_depth += delta;
+
+            if self.brace_depth <= 0 {
+                let complete_block = std::mem::take(&mut self.buffer);
+                self.brace_depth = 0;
+                return self.eval_block(&complete_block);
+            }
+            return None;
+        }
+
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let delta = count_brace_delta(line);
+        if delta > 0 {
+            self.buffer = line.to_string();
+            self.buffer.push('\n');
+            self.brace_depth = delta;
+            return None;
+        }
+
+        self.eval_block(line)
+    }
+
+    /// Backward-compatible eval_line that processes a single line or starts/continues a block
+    pub fn eval_line(&mut self, line: &str) -> Option<String> {
+        self.feed_line(line)
+    }
+
+    /// Evaluates a complete, balanced block or meta-command
+    pub fn eval_block(&mut self, block: &str) -> Option<String> {
+        let trimmed = block.trim();
         if trimmed.is_empty() {
             return None;
         }
@@ -49,7 +134,7 @@ impl ReplSession {
         if trimmed.starts_with(':') {
             return match trimmed {
                 ":help" | ":h" => Some(
-                    "Datara REPL Commands:\n  :vars    List active session variables\n  :clear   Reset session state\n  :history Show command history\n  :help    Display this help message\n  :exit    Quit the REPL"
+                    "Datara REPL Commands:\n  :vars    List active session variables\n  :clear   Reset session state\n  :cancel  Cancel current multi-line input\n  :history Show command history\n  :help    Display this help message\n  :exit    Quit the REPL"
                         .to_string(),
                 ),
                 ":vars" => {
@@ -63,7 +148,14 @@ impl ReplSession {
                     self.top_level_declarations.clear();
                     self.main_statements.clear();
                     self.variable_names.clear();
+                    self.buffer.clear();
+                    self.brace_depth = 0;
                     Some("Session state cleared.".to_string())
+                }
+                ":cancel" => {
+                    self.buffer.clear();
+                    self.brace_depth = 0;
+                    Some("No active multi-line input.".to_string())
                 }
                 ":history" => Some(
                     self.history
@@ -131,15 +223,64 @@ impl ReplSession {
 
         self.history.push(trimmed.to_string());
 
-        // Top-level declaration: fn, class, use, behavior, enum
+        // Special case: full user-defined `fn main() { ... }`
+        // Execute directly including any previous top-level declarations!
+        if trimmed.starts_with("fn main") {
+            let mut source = String::new();
+            for decl in &self.top_level_declarations {
+                source.push_str(decl);
+                source.push('\n');
+            }
+            source.push_str(trimmed);
+            source.push('\n');
+
+            let res = self
+                .compiler
+                .compile_source(&source, "repl", Some(&self.session_exe));
+            if !res.success {
+                return res.error;
+            }
+            return self.run_session_exe();
+        }
+
+        // Top-level declaration: fn, class, entity, behavior, role, component, packet, enum, use, extern
         if trimmed.starts_with("fn ")
             || trimmed.starts_with("class ")
-            || trimmed.starts_with("use ")
+            || trimmed.starts_with("entity ")
             || trimmed.starts_with("behavior ")
+            || trimmed.starts_with("role ")
+            || trimmed.starts_with("component ")
+            || trimmed.starts_with("packet ")
             || trimmed.starts_with("enum ")
+            || trimmed.starts_with("use ")
+            || trimmed.starts_with("extern ")
         {
+            // Verify declaration syntax before saving
+            let mut test_source = String::new();
+            for decl in &self.top_level_declarations {
+                test_source.push_str(decl);
+                test_source.push('\n');
+            }
+            test_source.push_str(trimmed);
+            test_source.push_str("\nfn main() {}\n");
+
+            let res = self
+                .compiler
+                .compile_source(&test_source, "repl_test", None);
+            if !res.success {
+                return res.error;
+            }
+
+            let decl_name = trimmed
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or("declaration")
+                .trim_end_matches('{')
+                .trim_end_matches('(')
+                .trim_end_matches(':');
+
             self.top_level_declarations.push(trimmed.to_string());
-            return Some("registered declaration".to_string());
+            return Some(format!("registered declaration: {}", decl_name));
         }
 
         // Main statement: let, mut, val, assignment
@@ -192,26 +333,48 @@ impl ReplSession {
             source.push('\n');
         }
 
-        // If expression looks like a statement, execute directly
-        if expr.starts_with("out ")
-            || expr.starts_with("println")
-            || expr.starts_with("print")
-            || expr.starts_with("eprintln")
-            || expr.starts_with("let ")
-            || expr.starts_with("mut ")
-            || expr.starts_with("val ")
-            || expr.contains(" = ")
-        {
-            source.push_str("    ");
-            source.push_str(expr);
-            source.push('\n');
+        let trimmed = expr.trim();
+        let is_direct_stmt = trimmed.starts_with("out ")
+            || trimmed.starts_with("println")
+            || trimmed.starts_with("print")
+            || trimmed.starts_with("eprintln")
+            || trimmed.starts_with("let ")
+            || trimmed.starts_with("mut ")
+            || trimmed.starts_with("val ")
+            || trimmed.starts_with("if ")
+            || trimmed.starts_with("while ")
+            || trimmed.starts_with("for ")
+            || trimmed.contains(" = ");
+
+        if is_direct_stmt {
+            for line in trimmed.lines() {
+                source.push_str("    ");
+                source.push_str(line);
+                source.push('\n');
+            }
+            source.push_str("}\n");
         } else {
-            // Expression to evaluate and print
-            source.push_str("    println(");
-            source.push_str(expr);
-            source.push_str(")\n");
+            // First try evaluating as an expression whose result is printed
+            let mut expr_source = source.clone();
+            expr_source.push_str("    let __repl_res = ");
+            expr_source.push_str(trimmed);
+            expr_source.push_str(";\n    println(__repl_res)\n}\n");
+
+            let res = self
+                .compiler
+                .compile_source(&expr_source, "repl", Some(&self.session_exe));
+            if res.success {
+                return self.run_session_exe();
+            }
+
+            // If wrapping in `let __repl_res = ...` failed, try executing directly as statement
+            for line in trimmed.lines() {
+                source.push_str("    ");
+                source.push_str(line);
+                source.push('\n');
+            }
+            source.push_str("}\n");
         }
-        source.push_str("}\n");
 
         let res = self
             .compiler
@@ -227,6 +390,10 @@ impl ReplSession {
             return None;
         }
 
+        self.run_session_exe()
+    }
+
+    fn run_session_exe(&self) -> Option<String> {
         match self.compiler.codegen.run_executable(&self.session_exe, &[]) {
             Ok((stdout, stderr, code, _)) => {
                 let out = stdout.trim();
@@ -265,7 +432,11 @@ impl ReplSession {
         let mut stdout = io::stdout();
 
         loop {
-            print!(">> ");
+            if session.brace_depth > 0 {
+                print!(".. ");
+            } else {
+                print!(">> ");
+            }
             let _ = stdout.flush();
 
             let mut input = String::new();
@@ -274,7 +445,7 @@ impl ReplSession {
                 break;
             }
 
-            if let Some(res) = session.eval_line(&input) {
+            if let Some(res) = session.feed_line(&input) {
                 println!("{}", res);
             }
         }

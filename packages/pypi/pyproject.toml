@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "datara"
+version = "0.1.0"
+description = "The Datara Programming Language and Forgen Native Compiler Python SDK"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0 OR MIT" }
+authors = [{ name = "waters1ze" }]
+keywords = ["datara", "forgen", "compiler", "jit", "aot", "ffi"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Compilers",
+]
+
+[project.scripts]
+datara = "datara.cli:datara_main"
+forgen = "datara.cli:forgen_main"
+dpm = "datara.cli:dpm_main"
+
+[project.urls]
+Homepage = "https://github.com/waters1ze/datara"
+Repository = "https://github.com/waters1ze/datara.git"
+Issues = "https://github.com/waters1ze/datara/issues"

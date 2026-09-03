@@ -1,0 +1,10 @@
+Package: datara
+Version: 0.1.0
+Section: devel
+Priority: optional
+Architecture: amd64
+Maintainer: waters1ze <https://github.com/waters1ze/datara>
+Description: High-performance Datara programming language and Forgen compiler toolchain
+ Datara provides a multi-tiered compilation and execution ladder designed
+ to eliminate all friction throughout the software development lifecycle.
+ Includes Cranelift JIT, LLVM AOT, DPM package manager, and stdlib.

@@ -95,9 +95,75 @@ jobs:
             dist/${{ matrix.archive_name }}.sha256
             dist/Datara-Setup.exe*
 
+  build-packages:
+    name: Build Ecosystem Packages (VSIX, NPM, Crates, PyPI, Linux DEB/RPM)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Linux Packaging Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm dpkg-dev
+
+      - name: Build Release Binaries for Packaging
+        run: |
+          cargo build --release
+
+      - name: Package VS Code Extension (.vsix)
+        run: |
+          cd editors/vscode
+          npx @vscode/vsce package --no-dependencies -o ../../dist/datara-language-0.1.0.vsix
+
+      - name: Package NPM Registry Tarball
+        run: |
+          npm pack ./packages/npm --pack-destination ./dist
+
+      - name: Package Crates.io Crate
+        run: |
+          cargo package --allow-dirty --no-verify
+          cp target/package/forgen-0.1.0.crate dist/
+
+      - name: Package PyPI Distribution (.whl and .tar.gz)
+        run: |
+          pip install build
+          python -m build packages/pypi -o dist
+
+      - name: Package Linux .deb and .rpm
+        run: |
+          chmod +x packages/linux/build_packages.sh
+          ./packages/linux/build_packages.sh
+
+      - name: Upload Ecosystem Packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecosystem-packages
+          path: |
+            dist/*.vsix
+            dist/*.tgz
+            dist/*.crate
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+
   publish-github-release:
     name: Publish GitHub Release
-    needs: build-binaries
+    needs: [build-binaries, build-packages]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
