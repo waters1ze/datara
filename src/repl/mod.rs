@@ -114,12 +114,6 @@ impl ReplSession {
                         .to_string(),
                 );
             }
-            "printf" => {
-                return Some(
-                    "=> <built-in function printf(...) -> Unit (alias for print)>\n   (Печать без переноса строки: printf(\"значение: \"))"
-                        .to_string(),
-                );
-            }
             "len" => {
                 return Some(
                     "=> <built-in function len(collection) -> Int>\n   (Получение длины строки или списка: len(items))"
@@ -202,7 +196,6 @@ impl ReplSession {
         if expr.starts_with("out ")
             || expr.starts_with("println")
             || expr.starts_with("print")
-            || expr.starts_with("printf")
             || expr.starts_with("eprintln")
             || expr.starts_with("let ")
             || expr.starts_with("mut ")

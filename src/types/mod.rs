@@ -1495,7 +1495,6 @@ impl<'a> TypeChecker<'a> {
                     }
                     if fn_name == "println"
                         || fn_name == "print"
-                        || fn_name == "printf"
                         || fn_name == "eprintln"
                     {
                         return DataraType::Unit;

@@ -1769,7 +1769,7 @@ impl<'a> Lowering<'a> {
                             .push(Inst::ConstInt { dest, value: 0 });
                         return Some(dest);
                     }
-                    if fn_name == "println" || fn_name == "print" || fn_name == "printf" {
+                    if fn_name == "println" || fn_name == "print" {
                         if args.is_empty() {
                             let dest = self.next_val();
                             if fn_name == "println" {

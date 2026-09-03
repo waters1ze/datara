@@ -387,13 +387,16 @@ println(fmt"Next level target: {score + 10.0}")
 
 ---
 
-### Ultra-Fast Zero-Allocation Terminal I/O (`print`, `println`, `printf`, `input`)
+### Ultra-Fast Zero-Allocation Terminal I/O (`print`, `println`, `input`)
 
 Standard I/O in Datara is designed for competitive programming and high-frequency stream processing:
 - **Zero Heap Allocations**: Formats numbers directly into a thread-local 64KB ring buffer.
 - **Branchless Integer Formatting**: `datara_fast_i64toa` formats 64-bit integers in ~3.2ns using branchless lookup tables.
 - **Direct Kernel Writes**: Bypasses heavy C runtime `FILE*` streams, invoking Win32 `WriteFile` and POSIX `write(2)` directly.
-- **Polymorphic Variadic Printing**: `print(...)`, `println(...)`, and `printf(...)` accept $0..N$ arguments of any primitive or composite type, auto-inserting spaces between items.
+- **Polymorphic Variadic Printing**: `print(...)` and `println(...)` accept $0..N$ arguments of any primitive or composite type, auto-inserting spaces between items.
+- **Clear Difference**:
+  - `println(...)`: Standard line printer. Adds a trailing newline (`\n`), auto-flushes, moves cursor to the next line.
+  - `print(...)`: Streaming / inline printer. Keeps cursor on the same line, immediately flushes to stdout for interactive prompts and progress indicators.
 
 ```datara
 // 1. Multi-argument polymorphic printing
@@ -405,10 +408,10 @@ let verified = true
 println("Language:", name, "v:", version, "Speedup:", speed_boost, "Verified:", verified)
 // Output: Language: Datara v: 1 Speedup: 12.8 Verified: true
 
-// 2. Streaming print without newline & printf alias
+// 2. Streaming print without newline (cursor stays inline)
 print("Progress: [")
 print("####")
-printf("] 100%\n")
+println("] 100%")
 
 // 3. Zero-Allocation Native List & Collection Printing
 let matrix = [10, 20, 30, 40]
