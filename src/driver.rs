@@ -823,41 +823,69 @@ impl ForgenCompiler {
         if u.path.first().map(|s| s.as_str()) != Some("stdlib") {
             return None;
         }
-        let rel: &[String] = if u.path.len() >= 4 {
+        let base_rel: &[String] = if u.path.len() >= 4 {
             &u.path[1..u.path.len() - 1]
         } else {
             &u.path[1..]
         };
-        if rel.is_empty() {
+        if base_rel.is_empty() {
             return None;
         }
 
-        // 1. Check local / installed disk path first
-        if let Some(dir) = stdlib_dir {
-            let mut p = dir.to_path_buf();
-            for seg in rel {
-                p.push(seg);
+        // Build search candidates to handle case sensitivity on Linux
+        // and both 3-segment (`stdlib.math.Math`) and 4-segment (`stdlib.io.fs.Fs`) imports.
+        let mut candidates: Vec<Vec<String>> = Vec::new();
+        candidates.push(base_rel.to_vec());
+        let lower: Vec<String> = base_rel.iter().map(|s| s.to_lowercase()).collect();
+        if lower != base_rel {
+            candidates.push(lower.clone());
+        }
+        if base_rel.len() == 2 {
+            let doubled = vec![base_rel[0].to_lowercase(), base_rel[0].to_lowercase()];
+            if !candidates.contains(&doubled) {
+                candidates.push(doubled);
             }
-            p.set_extension("dtr");
-            if p.is_file() {
-                return Some(p);
+            let single = vec![base_rel[0].to_lowercase()];
+            if !candidates.contains(&single) {
+                candidates.push(single);
+            }
+        } else if base_rel.len() == 1 {
+            let doubled = vec![base_rel[0].to_lowercase(), base_rel[0].to_lowercase()];
+            if !candidates.contains(&doubled) {
+                candidates.push(doubled);
             }
         }
 
-        // 2. Embedded stdlib fallback
-        let key = rel.join(".");
-        if let Some(src) = crate::stdlib::get_embedded_stdlib_source(&key) {
-            let cache_dir = std::env::temp_dir().join("datara_embedded_stdlib");
-            let mut target = cache_dir;
-            for seg in rel {
-                target.push(seg);
+        // 1. Check local / installed disk path first for all candidates
+        if let Some(dir) = stdlib_dir {
+            for cand in &candidates {
+                let mut p = dir.to_path_buf();
+                for seg in cand {
+                    p.push(seg);
+                }
+                p.set_extension("dtr");
+                if p.is_file() {
+                    return Some(p);
+                }
             }
-            target.set_extension("dtr");
-            if let Some(parent) = target.parent() {
-                let _ = std::fs::create_dir_all(parent);
+        }
+
+        // 2. Embedded stdlib fallback for all candidates
+        let cache_dir = std::env::temp_dir().join("datara_embedded_stdlib");
+        for cand in &candidates {
+            let key = cand.join(".");
+            if let Some(src) = crate::stdlib::get_embedded_stdlib_source(&key) {
+                let mut target = cache_dir.clone();
+                for seg in cand {
+                    target.push(seg);
+                }
+                target.set_extension("dtr");
+                if let Some(parent) = target.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(&target, src);
+                return Some(target);
             }
-            let _ = std::fs::write(&target, src);
-            return Some(target);
         }
 
         None
