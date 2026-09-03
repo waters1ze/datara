@@ -175,12 +175,15 @@ if ($RegisteredIcon -and (Test-Path $RegisteredIcon)) {
         $dtrKey = "HKCU:\Software\Classes\.dtr"
         if (-not (Test-Path $dtrKey)) { New-Item -Path $dtrKey -Force | Out-Null }
         Set-ItemProperty -Path $dtrKey -Name "(default)" -Value "DataraSourceFile"
+        Set-ItemProperty -Path $dtrKey -Name "FriendlyTypeName" -Value "Datara Source File"
         Set-ItemProperty -Path $dtrKey -Name "Content Type" -Value "text/plain"
+        Set-ItemProperty -Path $dtrKey -Name "PerceivedType" -Value "text"
 
         # HKCU:\Software\Classes\DataraSourceFile
         $progKey = "HKCU:\Software\Classes\DataraSourceFile"
         if (-not (Test-Path $progKey)) { New-Item -Path $progKey -Force | Out-Null }
         Set-ItemProperty -Path $progKey -Name "(default)" -Value "Datara Source File"
+        Set-ItemProperty -Path $progKey -Name "FriendlyTypeName" -Value "Datara Source File"
         
         $iconKey = "$progKey\DefaultIcon"
         if (-not (Test-Path $iconKey)) { New-Item -Path $iconKey -Force | Out-Null }
@@ -192,9 +195,14 @@ if ($RegisteredIcon -and (Test-Path $RegisteredIcon)) {
         Set-ItemProperty -Path $dtrIconKey -Name "(default)" -Value "$RegisteredIcon"
 
         # Also set on Datara.SourceFile
-        $dotProgKey = "HKCU:\Software\Classes\Datara.SourceFile\DefaultIcon"
+        $dotProgKey = "HKCU:\Software\Classes\Datara.SourceFile"
         if (-not (Test-Path $dotProgKey)) { New-Item -Path $dotProgKey -Force | Out-Null }
-        Set-ItemProperty -Path $dotProgKey -Name "(default)" -Value "$RegisteredIcon"
+        Set-ItemProperty -Path $dotProgKey -Name "(default)" -Value "Datara Source File"
+        Set-ItemProperty -Path $dotProgKey -Name "FriendlyTypeName" -Value "Datara Source File"
+
+        $dotProgIconKey = "$dotProgKey\DefaultIcon"
+        if (-not (Test-Path $dotProgIconKey)) { New-Item -Path $dotProgIconKey -Force | Out-Null }
+        Set-ItemProperty -Path $dotProgIconKey -Name "(default)" -Value "$RegisteredIcon"
 
         $cmdKey = "$progKey\shell\open\command"
         if (-not (Test-Path $cmdKey)) { New-Item -Path $cmdKey -Force | Out-Null }

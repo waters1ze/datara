@@ -146,19 +146,87 @@ if [ -n "${SCRIPT_DIR}" ] && [ -d "${SCRIPT_DIR}/stdlib" ]; then
     echo -e "${COLOR_GREEN}  -> Installed stdlib to ${STDLIB_DIR}${COLOR_NC}"
 fi
 
+mkdir -p "${ASSETS_DIR}"
 if [ -n "${SCRIPT_DIR}" ] && [ -d "${SCRIPT_DIR}/assets" ]; then
     cp -r "${SCRIPT_DIR}/assets/"* "${ASSETS_DIR}/"
+else
+    # Download essential assets from GitHub if running standalone via curl
+    curl -sSL "https://raw.githubusercontent.com/waters1ze/datara/main/assets/datara.xml" -o "${ASSETS_DIR}/datara.xml" 2>/dev/null || true
+    curl -sSL "https://raw.githubusercontent.com/waters1ze/datara/main/assets/icon.svg" -o "${ASSETS_DIR}/icon.svg" 2>/dev/null || true
+    curl -sSL "https://raw.githubusercontent.com/waters1ze/datara/main/assets/datara-logo.png" -o "${ASSETS_DIR}/datara-logo.png" 2>/dev/null || true
+    curl -sSL "https://raw.githubusercontent.com/waters1ze/datara/main/assets/datara.icns" -o "${ASSETS_DIR}/datara.icns" 2>/dev/null || true
 fi
 
 # Install Desktop Icons and File Associations
 if [ "$(uname -s)" = "Darwin" ]; then
-    if [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/scripts/install_macos_icons.sh" ]; then
-        bash "${SCRIPT_DIR}/scripts/install_macos_icons.sh" 2>/dev/null || true
+    APP_DIR="${HOME}/Applications/Datara.app"
+    mkdir -p "${APP_DIR}/Contents/Resources" "${APP_DIR}/Contents/MacOS"
+    if [ -f "${ASSETS_DIR}/datara.icns" ]; then
+        cp "${ASSETS_DIR}/datara.icns" "${APP_DIR}/Contents/Resources/datara.icns"
     fi
+    cat > "${APP_DIR}/Contents/Info.plist" << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>datara</string>
+    <key>CFBundleIconFile</key>
+    <string>datara.icns</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.datara.launcher</string>
+    <key>CFBundleName</key>
+    <string>Datara</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeExtensions</key>
+            <array>
+                <string>dtr</string>
+                <string>datara</string>
+            </array>
+            <key>CFBundleTypeIconFile</key>
+            <string>datara.icns</string>
+            <key>CFBundleTypeName</key>
+            <string>Datara Source File</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+        </dict>
+    </array>
+</dict>
+</plist>
+EOF
+    touch "${APP_DIR}"
+    echo -e "${COLOR_GREEN}  -> Configured Datara file icons for macOS Finder${COLOR_NC}"
 elif [ "$(uname -s)" = "Linux" ]; then
-    if [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/scripts/install_linux_icons.sh" ]; then
-        bash "${SCRIPT_DIR}/scripts/install_linux_icons.sh" 2>/dev/null || true
+    if [ "$(id -u)" -eq 0 ]; then
+        MIME_DIR="/usr/share/mime/packages"
+        ICON_BASE="/usr/share/icons/hicolor"
+    else
+        MIME_DIR="${HOME}/.local/share/mime/packages"
+        ICON_BASE="${HOME}/.local/share/icons/hicolor"
     fi
+    mkdir -p "${MIME_DIR}" "${ICON_BASE}/scalable/mimetypes" "${ICON_BASE}/scalable/apps"
+    if [ -f "${ASSETS_DIR}/datara.xml" ]; then
+        cp "${ASSETS_DIR}/datara.xml" "${MIME_DIR}/datara.xml"
+    fi
+    if [ -f "${ASSETS_DIR}/icon.svg" ]; then
+        cp "${ASSETS_DIR}/icon.svg" "${ICON_BASE}/scalable/mimetypes/text-x-datara.svg"
+        cp "${ASSETS_DIR}/icon.svg" "${ICON_BASE}/scalable/apps/datara.svg"
+    fi
+    if command -v update-mime-database >/dev/null 2>&1; then
+        update-mime-database "$(dirname "${MIME_DIR}")" 2>/dev/null || true
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f -t "${ICON_BASE}" 2>/dev/null || true
+    fi
+    echo -e "${COLOR_GREEN}  -> Configured Datara MIME type and icons for Linux desktop${COLOR_NC}"
 fi
 
 # 5. Configure Shell Profile PATH

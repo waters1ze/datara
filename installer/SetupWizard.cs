@@ -461,6 +461,7 @@ namespace DataraInstaller
                 // HKCU\Software\Classes\.dtr
                 using (RegistryKey dtrKey = Registry.CurrentUser.CreateSubKey(@"Software\Classes\.dtr")) {
                     dtrKey.SetValue("", "DataraSourceFile");
+                    dtrKey.SetValue("FriendlyTypeName", "Datara Source File");
                     dtrKey.SetValue("Content Type", "text/plain");
                     dtrKey.SetValue("PerceivedType", "text");
                     using (RegistryKey dtrIconKey = dtrKey.CreateSubKey("DefaultIcon")) {
@@ -471,7 +472,7 @@ namespace DataraInstaller
                 // HKCU\Software\Classes\DataraSourceFile
                 using (RegistryKey progKey = Registry.CurrentUser.CreateSubKey(@"Software\Classes\DataraSourceFile")) {
                     progKey.SetValue("", "Datara Source File");
-                    progKey.SetValue("FriendlyTypeName", "Datara Source File (.dtr)");
+                    progKey.SetValue("FriendlyTypeName", "Datara Source File");
 
                     using (RegistryKey iconKey = progKey.CreateSubKey("DefaultIcon")) {
                         iconKey.SetValue("", icoPath);
@@ -486,9 +487,10 @@ namespace DataraInstaller
                     }
                 }
 
-                // Also register Datara.SourceFile alias with icon
+                // Also register Datara.SourceFile alias with icon and friendly type name
                 using (RegistryKey dotProgKey = Registry.CurrentUser.CreateSubKey(@"Software\Classes\Datara.SourceFile")) {
                     dotProgKey.SetValue("", "Datara Source File");
+                    dotProgKey.SetValue("FriendlyTypeName", "Datara Source File");
                     using (RegistryKey iconKey2 = dotProgKey.CreateSubKey("DefaultIcon")) {
                         iconKey2.SetValue("", icoPath);
                     }
