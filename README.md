@@ -82,16 +82,20 @@ Datara completely eliminates garbage collection pauses and reference-counting cy
 
 # 1. Installation & Setup
 
+> [!TIP]
+> **Zero-Configuration & Zero-Dependency Guarantee:**
+> All **33 official Standard Library modules** (`stdlib.math`, `stdlib.io.fs`, `stdlib.json`, `stdlib.crypto`, `stdlib.collections`, `stdlib.time`, `stdlib.net`, etc.) are **compiled directly into the binary** as an in-memory fallback. You never need to manually download or configure them. External third-party packages are installed via the built-in package manager (`dpm add <pkg>`) or restored automatically via `dpm install`.
+
 ### Windows Installation
 
 #### Method A: Official Standalone GUI Installer (Recommended)
 Download and run the official 1-click installer:
-- **[Download Datara-Setup.exe](https://github.com/waters1ze/datara/releases/latest/download/Datara-Setup.exe)** *(or run `dist/Datara-v0.1.0-Setup.exe` from this repository)*
+- **[Download Datara-Setup.exe](https://github.com/waters1ze/datara/releases/latest/download/Datara-Setup.exe)** *(or run `dist/Datara-Setup.exe` from this repository)*
 
 *What the installer does automatically:*
 - Native Windows GUI wizard with dark theme and official Datara icon.
-- Installs `forgen.exe` (compiler) and `datara.exe` (runtime) into `%LOCALAPPDATA%\Programs\Datara`.
-- Installs all 14 official Standard Library modules.
+- Installs `forgen.exe` (compiler), `datara.exe` (runtime), and `dpm.exe` (package manager) into `%LOCALAPPDATA%\Programs\Datara`.
+- Installs all 33 official Standard Library modules.
 - Associates `.dtr` files with the official high-resolution Datara icon in Windows Explorer.
 - Adds Datara to your User `PATH` and sets `DATARA_HOME`.
 - Registers Datara in Windows **"Installed Apps"** (with clean uninstaller).
@@ -112,7 +116,7 @@ Open your terminal and run the official Unix installation script:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/waters1ze/datara/main/install.sh | bash
 ```
-*Dynamically detects your OS and architecture, downloads the latest release, installs `forgen` to `~/.datara/bin`, sets up standard library, registers desktop MIME file icons (`text/x-datara` for GNOME/KDE/macOS Finder), and configures `PATH` in `~/.bashrc` or `~/.zshrc`.*
+*Dynamically detects your OS and architecture, downloads the latest release, installs `forgen`, `datara`, and `dpm` to `~/.datara/bin`, sets up standard library, registers desktop MIME file icons (`text/x-datara` for GNOME/KDE/macOS Finder), and configures `PATH` in `~/.bashrc` or `~/.zshrc`.*
 
 Then reload your environment:
 ```bash
