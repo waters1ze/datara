@@ -184,7 +184,17 @@ if ($RegisteredIcon -and (Test-Path $RegisteredIcon)) {
         
         $iconKey = "$progKey\DefaultIcon"
         if (-not (Test-Path $iconKey)) { New-Item -Path $iconKey -Force | Out-Null }
-        Set-ItemProperty -Path $iconKey -Name "(default)" -Value "$RegisteredIcon,0"
+        Set-ItemProperty -Path $iconKey -Name "(default)" -Value "$RegisteredIcon"
+
+        # Also set on .dtr\DefaultIcon directly
+        $dtrIconKey = "$dtrKey\DefaultIcon"
+        if (-not (Test-Path $dtrIconKey)) { New-Item -Path $dtrIconKey -Force | Out-Null }
+        Set-ItemProperty -Path $dtrIconKey -Name "(default)" -Value "$RegisteredIcon"
+
+        # Also set on Datara.SourceFile
+        $dotProgKey = "HKCU:\Software\Classes\Datara.SourceFile\DefaultIcon"
+        if (-not (Test-Path $dotProgKey)) { New-Item -Path $dotProgKey -Force | Out-Null }
+        Set-ItemProperty -Path $dotProgKey -Name "(default)" -Value "$RegisteredIcon"
 
         $cmdKey = "$progKey\shell\open\command"
         if (-not (Test-Path $cmdKey)) { New-Item -Path $cmdKey -Force | Out-Null }
