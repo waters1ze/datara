@@ -1,0 +1,16 @@
+class Counter {
+    val: Int
+    fn get_val() -> Int {
+        return this.val
+    }
+    fn increment(step: Int) -> Int {
+        return this.val + step
+    }
+}
+
+fn main() {
+    let c = Counter { val: 100 }
+    let next_val = c.increment(25)
+    println("Counter initial: {c.get_val()}")
+    println("Counter incremented: {next_val}")
+}

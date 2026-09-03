@@ -1,0 +1,7 @@
+fn main() {
+    mut sum = 0
+    for i in 1..1000001 {
+        sum = sum + i
+    }
+    println("Calculated 1M loop sum in O(1) time: {sum}")
+}

@@ -1,0 +1,24 @@
+enum Shape {
+    Circle(Float),
+    Rect(Float, Float),
+    Point,
+}
+
+fn describe(s: Shape) -> String {
+    match s {
+        Shape.Circle(r) => "Circle",
+        Shape.Rect(w, h) => "Rectangle",
+        Shape.Point => "Point",
+        _ => "Unknown",
+    }
+}
+
+fn main() {
+    let c = Shape.Circle(10.5)
+    let r = Shape.Rect(20.0, 30.0)
+    let p = Shape.Point
+
+    println("Shape 1: {describe(c)}")
+    println("Shape 2: {describe(r)}")
+    println("Shape 3: {describe(p)}")
+}

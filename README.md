@@ -181,6 +181,12 @@ forgen build hello.dtr
 forgen build hello.dtr --llvm
 ```
 
+Explore more verified examples in [`examples/`](examples/):
+- [`examples/01_hello_world.dtr`](examples/01_hello_world.dtr) — Basic console output and strings
+- [`examples/02_math_and_loops.dtr`](examples/02_math_and_loops.dtr) — Closed-form arithmetic reduction ($O(1)$)
+- [`examples/03_post_oop_class.dtr`](examples/03_post_oop_class.dtr) — Post-OOP classes with zero-vtable direct calls
+- [`examples/04_enum_adt.dtr`](examples/04_enum_adt.dtr) — Algebraic data types (tagged unions) with pattern matching
+
 ---
 
 # 2. Complete Language Syntax & Mastery Guide
