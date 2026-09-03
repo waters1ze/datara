@@ -72,7 +72,7 @@ fn main() {
         }
     }
 
-    if build.get_compiler().is_like_msvc() {
+    if cfg!(target_env = "msvc") {
         build.flag_if_supported("/O2").flag_if_supported("/W3");
     } else {
         build
@@ -84,9 +84,13 @@ fn main() {
             .flag_if_supported("-pthread");
     }
 
-    build
-        .try_compile("datara_runtime")
-        .expect("failed to compile the Datara runtime (src/runtime/datara_runtime.c)");
+    if let Err(e) = build.try_compile("datara_runtime") {
+        eprintln!("cargo:warning=DATARA RUNTIME COMPILATION ERROR: {}", e);
+        panic!(
+            "failed to compile the Datara runtime (src/runtime/datara_runtime.c): {}",
+            e
+        );
+    }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR was not set by cargo"));
 

@@ -98,10 +98,14 @@ void datara_rt_exit(int32_t code) {
 DATARA_TLS static char tls_int_bufs[32][32];
 DATARA_TLS static uint32_t tls_int_idx = 0;
 
-DATARA_TLS static char tls_scratch_ring[DATARA_SCRATCH_RING_SIZE];
+DATARA_TLS static char* tls_scratch_ring = NULL;
 DATARA_TLS static size_t tls_scratch_offset = 0;
 
 static inline char* datara_scratch_alloc(size_t len) {
+    if (!tls_scratch_ring) {
+        tls_scratch_ring = (char*)malloc(DATARA_SCRATCH_RING_SIZE);
+        if (!tls_scratch_ring) return (char*)malloc(len + 1);
+    }
     size_t needed = (len + 1 + 15) & ~15;
     if (needed > (DATARA_SCRATCH_RING_SIZE / 4)) {
         return (char*)malloc(len + 1);
@@ -1725,16 +1729,20 @@ void datara_rt_parallel_invoke(void (*fn1)(void* ctx1), void* ctx1, void (*fn2)(
 // ---------------------------------------------------------------------------
 #define DATARA_ARENA_SIZE (2 * 1024 * 1024) // 2MB thread-local ephemeral bump arena
 #if defined(_MSC_VER)
-static __declspec(thread) char g_datara_arena[DATARA_ARENA_SIZE];
+static __declspec(thread) char* g_datara_arena = NULL;
 static __declspec(thread) int64_t g_datara_arena_top = 0;
 #else
-static __thread char g_datara_arena[DATARA_ARENA_SIZE];
+static __thread char* g_datara_arena = NULL;
 static __thread int64_t g_datara_arena_top = 0;
 #endif
 
 void* datara_rt_arena_alloc(int64_t bytes) {
     if (bytes <= 0) return NULL;
     int64_t aligned = (bytes + 7) & ~7;
+    if (!g_datara_arena) {
+        g_datara_arena = (char*)malloc(DATARA_ARENA_SIZE);
+        if (!g_datara_arena) return malloc((size_t)bytes);
+    }
     if (g_datara_arena_top + aligned > DATARA_ARENA_SIZE) {
         return malloc((size_t)bytes);
     }
