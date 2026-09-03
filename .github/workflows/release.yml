@@ -49,14 +49,28 @@ jobs:
         run: |
           $ver = "${{ github.ref_name }}"
           if (-not $ver) { $ver = "v0.1.0" }
-          New-Item -ItemType Directory -Force -Path "dist/staging" | Out-Null
-          Copy-Item -Force "target/${{ matrix.target }}/release/forgen.exe" "dist/staging/forgen.exe"
+          New-Item -ItemType Directory -Force -Path "dist/staging/bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "dist/staging/assets" | Out-Null
+          Copy-Item -Force "target/${{ matrix.target }}/release/forgen.exe" "dist/staging/bin/forgen.exe"
+          Copy-Item -Force "target/${{ matrix.target }}/release/forgen.exe" "dist/staging/bin/datara.exe"
+          Copy-Item -Force "assets/datara.ico" "dist/staging/assets/datara.ico"
+          Copy-Item -Force "assets/datara-logo.png" "dist/staging/assets/datara-logo.png"
           Copy-Item -Force -Recurse "stdlib" "dist/staging/stdlib"
-          Copy-Item -Force "scripts/install.ps1" "dist/staging/install.ps1"
-          Copy-Item -Force "scripts/install.bat" "dist/staging/install.bat"
-          Copy-Item -Force "README.md", "LICENSE" "dist/staging/"
+          Copy-Item -Force -Recurse "editors" "dist/staging/editors"
+          Copy-Item -Force "install.ps1" "dist/staging/install.ps1"
+          Copy-Item -Force "setup_windows.bat" "dist/staging/setup_windows.bat"
+          Copy-Item -Force "README.md", "LICENSE-APACHE", "LICENSE-MIT" "dist/staging/"
           Compress-Archive -Path "dist/staging/*" -DestinationPath "dist/${{ matrix.archive_name }}" -Force
           Get-FileHash -Algorithm SHA256 "dist/${{ matrix.archive_name }}" | Out-File "dist/${{ matrix.archive_name }}.sha256"
+
+          # Build Standalone Windows GUI Setup.exe
+          $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (Test-Path $csc) {
+              & $csc /nologo /target:winexe /win32icon:"assets/datara.ico" /resource:"dist/${{ matrix.archive_name }},payload.zip" /reference:System.dll,System.Windows.Forms.dll,System.Drawing.dll,System.IO.Compression.dll,System.IO.Compression.FileSystem.dll /out:"dist/Datara-Setup.exe" "installer/SetupWizard.cs"
+              if (Test-Path "dist/Datara-Setup.exe") {
+                  Get-FileHash -Algorithm SHA256 "dist/Datara-Setup.exe" | Out-File "dist/Datara-Setup.exe.sha256"
+              }
+          }
 
       - name: Package Release Artifact (Unix)
         if: runner.os != 'Windows'
@@ -79,6 +93,7 @@ jobs:
           path: |
             dist/${{ matrix.archive_name }}
             dist/${{ matrix.archive_name }}.sha256
+            dist/Datara-Setup.exe*
 
   publish-github-release:
     name: Publish GitHub Release

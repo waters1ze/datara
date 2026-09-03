@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.6.0.schema.json
+PackageIdentifier: waters1ze.Datara
+PackageVersion: 0.1.0
+DefaultLocale: en-US
+ManifestType: version
+ManifestVersion: 1.6.0
+---
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: waters1ze.Datara
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: Datara Language Project
+PublisherUrl: https://github.com/waters1ze/datara
+PublisherSupportUrl: https://github.com/waters1ze/datara/issues
+Author: waters1ze
+PackageName: Datara Programming Language & Forgen Compiler
+PackageUrl: https://github.com/waters1ze/datara
+License: Apache-2.0 OR MIT
+LicenseUrl: https://github.com/waters1ze/datara/blob/main/LICENSE-MIT
+ShortDescription: High-performance Post-OOP systems and application programming language with zero-pause affine ownership and Evidence Gate optimizer.
+Tags:
+  - compiler
+  - datara
+  - forgen
+  - programming-language
+  - systems
+  - cranelift
+  - llvm
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
+---
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: waters1ze.Datara
+PackageVersion: 0.1.0
+Platform:
+  - Windows.Desktop
+MinimumOSVersion: 10.0.17763.0
+InstallerType: exe
+InstallModes:
+  - interactive
+  - silent
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/waters1ze/datara/releases/download/v0.1.0/Datara-v0.1.0-Setup.exe
+    InstallerSha256: 0000000000000000000000000000000000000000000000000000000000000000
+    InstallerSwitches:
+      Silent: /S
+      SilentWithProgress: /SP
+FileExtensions:
+  - dtr
+  - datara
+Commands:
+  - forgen
+  - datara
+ManifestType: installer
+ManifestVersion: 1.6.0

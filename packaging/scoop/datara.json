@@ -1,0 +1,33 @@
+{
+  "version": "0.1.0",
+  "description": "High-Performance Post-OOP Systems & Application Language and Forgen Compiler",
+  "homepage": "https://github.com/waters1ze/datara",
+  "license": "Apache-2.0 OR MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/waters1ze/datara/releases/download/v0.1.0/forgen-windows-x64.zip",
+      "bin": [
+        "forgen.exe",
+        ["forgen.exe", "datara"]
+      ]
+    }
+  },
+  "env_set": {
+    "DATARA_HOME": "$dir"
+  },
+  "shortcuts": [
+    [
+      "forgen.exe",
+      "Datara REPL",
+      "repl"
+    ]
+  ],
+  "checkver": "github",
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/waters1ze/datara/releases/download/v$version/forgen-windows-x64.zip"
+      }
+    }
+  }
+}
