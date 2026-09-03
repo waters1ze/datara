@@ -28,6 +28,7 @@ fn main() {
     let mut build = cc::Build::new();
     build
         .file("src/runtime/datara_runtime.c")
+        .include("src/runtime")
         .opt_level(2)
         // Keep the runtime out of forgen.exe itself.
         .cargo_metadata(false);

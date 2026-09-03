@@ -111,4 +111,12 @@ fn test_repl_session_in_process_speed_and_state() {
     // 5. F-string in REPL
     let fstr_res = session.eval_line("f\"Count: {x + 5}\"").unwrap();
     assert_eq!(fstr_res, "=> Count: 105");
+
+    // 6. Bare function name introspection
+    let input_fn_res = session.eval_line("input").unwrap();
+    assert!(input_fn_res.contains("<built-in function input"));
+    assert!(input_fn_res.contains("input()"));
+
+    let print_fn_res = session.eval_line("print").unwrap();
+    assert!(print_fn_res.contains("<built-in function print"));
 }

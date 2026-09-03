@@ -82,6 +82,59 @@ impl ReplSession {
             };
         }
 
+        // Handle bare function identifiers (introspection & tips)
+        match trimmed {
+            "input" => {
+                return Some(
+                    "=> <built-in function input(prompt: String = \"\") -> String>\n   (Чтобы вызвать функцию ввода, используйте круглые скобки: input() или input(\"подсказка\"))"
+                        .to_string(),
+                );
+            }
+            "input_int" => {
+                return Some(
+                    "=> <built-in function input_int(prompt: String = \"\") -> Int>\n   (Используйте круглые скобки для ввода целого числа: input_int(\"Введите число: \"))"
+                        .to_string(),
+                );
+            }
+            "input_float" => {
+                return Some(
+                    "=> <built-in function input_float(prompt: String = \"\") -> Float>\n   (Используйте круглые скобки для ввода дробного числа: input_float(\"Введите баланс: \"))"
+                        .to_string(),
+                );
+            }
+            "print" => {
+                return Some(
+                    "=> <built-in function print(...) -> Unit>\n   (Печать аргументов без переноса строки: print(\"текст\", x))"
+                        .to_string(),
+                );
+            }
+            "println" => {
+                return Some(
+                    "=> <built-in function println(...) -> Unit>\n   (Печать аргументов с переводом строки в конце: println(\"текст\", x))"
+                        .to_string(),
+                );
+            }
+            "printf" => {
+                return Some(
+                    "=> <built-in function printf(...) -> Unit (alias for print)>\n   (Печать без переноса строки: printf(\"значение: \"))"
+                        .to_string(),
+                );
+            }
+            "len" => {
+                return Some(
+                    "=> <built-in function len(collection) -> Int>\n   (Получение длины строки или списка: len(items))"
+                        .to_string(),
+                );
+            }
+            "now" => {
+                return Some(
+                    "=> <built-in function now() -> Int>\n   (Текущий Unix timestamp в миллисекундах: now())"
+                        .to_string(),
+                );
+            }
+            _ => {}
+        }
+
         self.history.push(trimmed.to_string());
 
         // Top-level declaration: fn, class, use, behavior, enum
@@ -172,6 +225,13 @@ impl ReplSession {
             .compile_source(&source, "repl", Some(&self.session_exe));
         if !res.success {
             return res.error;
+        }
+
+        if expr.contains("input") {
+            let _ = std::process::Command::new(&self.session_exe)
+                .stdin(std::process::Stdio::inherit())
+                .status();
+            return None;
         }
 
         match self.compiler.codegen.run_executable(&self.session_exe, &[]) {
