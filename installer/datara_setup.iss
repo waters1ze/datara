@@ -19,7 +19,7 @@ DefaultDirName={localappdata}\Programs\Datara
 DefaultGroupName=Datara
 AllowNoIcons=yes
 OutputDir=..\dist
-OutputBaseFilename=Datara-v{#MyAppVersion}-Setup
+OutputBaseFilename=Datara-Setup
 SetupIconFile=..\assets\datara.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -38,7 +38,8 @@ Name: "assocDtr"; Description: "Associate .dtr files with Datara and show offici
 
 [Files]
 Source: "..\target\release\forgen.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
-Source: "..\target\release\forgen.exe"; DestDir: "{app}\bin"; DestName: "datara.exe"; Flags: ignoreversion
+Source: "..\target\release\datara.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
+Source: "..\target\release\dpm.exe"; DestDir: "{app}\bin"; Flags: ignoreversion
 Source: "..\assets\datara.ico"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "..\assets\datara-logo.png"; DestDir: "{app}\assets"; Flags: ignoreversion
 Source: "..\stdlib\*"; DestDir: "{app}\stdlib"; Flags: ignoreversion recursesubdirs createallsubdirs

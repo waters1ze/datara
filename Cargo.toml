@@ -14,6 +14,10 @@ path = "src/main.rs"
 name = "datara"
 path = "src/bin/datara.rs"
 
+[[bin]]
+name = "dpm"
+path = "src/bin/dpm.rs"
+
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"

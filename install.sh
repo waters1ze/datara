@@ -71,13 +71,23 @@ if [ -n "${SCRIPT_DIR}" ]; then
     if [ -f "${SCRIPT_DIR}/target/release/forgen" ]; then
         cp "${SCRIPT_DIR}/target/release/forgen" "${BIN_DIR}/forgen"
         cp "${SCRIPT_DIR}/target/release/forgen" "${BIN_DIR}/datara"
-        chmod +x "${BIN_DIR}/forgen" "${BIN_DIR}/datara"
-        echo -e "${COLOR_GREEN}  -> Copied binaries from target/release/${COLOR_NC}"
+        if [ -f "${SCRIPT_DIR}/target/release/dpm" ]; then
+            cp "${SCRIPT_DIR}/target/release/dpm" "${BIN_DIR}/dpm"
+        else
+            cp "${SCRIPT_DIR}/target/release/forgen" "${BIN_DIR}/dpm"
+        fi
+        chmod +x "${BIN_DIR}/forgen" "${BIN_DIR}/datara" "${BIN_DIR}/dpm"
+        echo -e "${COLOR_GREEN}  -> Copied binaries (forgen, datara, dpm) from target/release/${COLOR_NC}"
         INSTALLED=1
     elif [ -f "${SCRIPT_DIR}/forgen" ]; then
         cp "${SCRIPT_DIR}/forgen" "${BIN_DIR}/forgen"
         cp "${SCRIPT_DIR}/forgen" "${BIN_DIR}/datara"
-        chmod +x "${BIN_DIR}/forgen" "${BIN_DIR}/datara"
+        if [ -f "${SCRIPT_DIR}/dpm" ]; then
+            cp "${SCRIPT_DIR}/dpm" "${BIN_DIR}/dpm"
+        else
+            cp "${SCRIPT_DIR}/forgen" "${BIN_DIR}/dpm"
+        fi
+        chmod +x "${BIN_DIR}/forgen" "${BIN_DIR}/datara" "${BIN_DIR}/dpm"
         echo -e "${COLOR_GREEN}  -> Copied binaries from local directory${COLOR_NC}"
         INSTALLED=1
     fi
@@ -93,7 +103,13 @@ if [ "${INSTALLED}" -eq 0 ] && [ -n "${DOWNLOAD_URL}" ]; then
         if [ -n "${EXTRACTED_BIN}" ]; then
             cp "${EXTRACTED_BIN}" "${BIN_DIR}/forgen"
             cp "${EXTRACTED_BIN}" "${BIN_DIR}/datara"
-            chmod +x "${BIN_DIR}/forgen" "${BIN_DIR}/datara"
+            EXTRACTED_DPM="$(find "${TMP_PKG}" -name dpm -type f | head -n1)"
+            if [ -n "${EXTRACTED_DPM}" ]; then
+                cp "${EXTRACTED_DPM}" "${BIN_DIR}/dpm"
+            else
+                cp "${EXTRACTED_BIN}" "${BIN_DIR}/dpm"
+            fi
+            chmod +x "${BIN_DIR}/forgen" "${BIN_DIR}/datara" "${BIN_DIR}/dpm"
             echo -e "${COLOR_GREEN}  -> Successfully installed downloaded ${LATEST_TAG} binaries.${COLOR_NC}"
             INSTALLED=1
         fi
@@ -106,10 +122,13 @@ if [ "${INSTALLED}" -eq 0 ]; then
     CARGO_BIN="$(command -v cargo || echo "${HOME}/.cargo/bin/cargo")"
     if [ -x "${CARGO_BIN}" ] && [ -n "${SCRIPT_DIR}" ] && [ -f "${SCRIPT_DIR}/Cargo.toml" ]; then
         echo -e "${COLOR_CYAN}  -> Compiling toolchain via Cargo in release mode...${COLOR_NC}"
-        (cd "${SCRIPT_DIR}" && "${CARGO_BIN}" build --release --bin forgen)
+        (cd "${SCRIPT_DIR}" && "${CARGO_BIN}" build --release)
         cp "${SCRIPT_DIR}/target/release/forgen" "${BIN_DIR}/forgen"
         cp "${SCRIPT_DIR}/target/release/forgen" "${BIN_DIR}/datara"
-        chmod +x "${BIN_DIR}/forgen" "${BIN_DIR}/datara"
+        if [ -f "${SCRIPT_DIR}/target/release/dpm" ]; then
+            cp "${SCRIPT_DIR}/target/release/dpm" "${BIN_DIR}/dpm"
+        fi
+        chmod +x "${BIN_DIR}/forgen" "${BIN_DIR}/datara" "${BIN_DIR}/dpm"
         echo -e "${COLOR_GREEN}  -> Compilation finished and binaries installed.${COLOR_NC}"
         INSTALLED=1
     fi

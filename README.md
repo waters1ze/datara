@@ -67,6 +67,7 @@ Datara completely eliminates garbage collection pauses and reference-counting cy
    - [`forgen doc [--open]` (Autonomous Single-File SPA Generator)](#forgen-doc)
    - [`forgen tree [--effects]` (Dependency Hierarchy & Security Scanner)](#forgen-tree)
    - [`forgen vendor` & `forgen update` (Air-Gapped 100% Offline Builds)](#forgen-vendor--update)
+   - [`dpm` (Datara Package Manager & HyperGrid CAS Registry)](#dpm-datara-package-manager)
    - [`forgen export` (C99/C++ Header & Shared Library `.dll`/`.so`)](#forgen-export)
    - [`forgen completions` (Shell Autocomplete for PowerShell, Bash, Zsh, Fish)](#forgen-completions)
 6. [Datara Execution Tiers & Architecture](#6-datara-execution-tiers)
@@ -1134,6 +1135,73 @@ forgen vendor
 
 # Check HyperGrid registry for updates and verify Merkle signatures
 forgen update
+```
+
+---
+
+### `dpm` (Datara Package Manager)
+
+Datara includes its own dedicated, high-speed package manager: **`dpm`** (*Datara Package Manager*). Packages are distributed through the Content-Addressed Storage (CAS) **HyperGrid Registry**, cryptographically verified with SHA-256 Merkle hashes, and recorded in `datara.lock`.
+
+Commands are available via the standalone binary `dpm <command>` or via the compiler `forgen pkg <command>` / `forgen <command>`.
+
+```
+  ____  ____  __  __
+ |  _ \|  _ \|  \/  |  Datara Package Manager (DPM)
+ | | | | |_) | |\/| |  Content-Addressed Merkle Registry
+ | |_| |  __/| |  | |  https://github.com/waters1ze/datara
+ |____/|_|   |_|  |_|
+```
+
+#### Core CLI Commands:
+| Command | Shorthand | Description |
+|---|---|---|
+| `dpm init [name] [--lib]` | — | Scaffolds a new project (`src/main.dtr`) or library (`src/lib.dtr`) with `datara.toml` and `.gitignore` |
+| `dpm add <pkg>` | `forgen add` | Resolves, verifies, and installs a package into `packages/<pkg>`, updating `datara.toml` and `datara.lock` |
+| `dpm add <pkg> --git <url>` | — | Clones and links a remote Git repository as a project dependency |
+| `dpm remove <pkg>` | `dpm rm` | Removes dependency from `packages/`, `datara.toml`, and `datara.lock` |
+| `dpm install` | `dpm i` | Restores and synchronizes all dependencies listed in `datara.toml` against `datara.lock` |
+| `dpm list` | `dpm ls` | Displays an ASCII tree of all installed packages, versions, and Merkle digests |
+| `dpm search <query>` | — | Searches the registry index for packages matching the query string |
+| `dpm info <pkg>` | — | Prints detailed metadata, author, capabilities, and file contents of a package |
+| `dpm verify` | `forgen pkg verify` | Cryptographically checks all installed package files against hashes in `datara.lock` |
+| `dpm publish` | `forgen publish` | Verifies and registers a local library into the Content-Addressed package registry |
+| `dpm run [file]` | — | Compiles and executes project entry or specified `.dtr` file |
+
+#### Usage Workflow Example:
+```bash
+# 1. Initialize a new microservice
+dpm init my_service
+cd my_service
+
+# 2. Add packages (e.g. redis and uuid)
+dpm add redis
+dpm add uuid
+
+# 3. View installed dependency tree
+dpm list
+# :: [DPM] Dependency tree for my_service v0.1.0:
+# ├── redis (v1.4.0) [sha256:7f8a9e01]
+# └── uuid (v1.1.0) [sha256:f0e1d2c3]
+
+# 4. In your src/main.dtr, directly import the packages:
+#    use redis
+#    use uuid
+#
+#    fn main() {
+#        let id = Uuid.v4()
+#        println("Generated ID: " + id)
+#    }
+
+# 5. Verify integrity against datara.lock
+dpm verify
+# :: [DPM] Verifying package integrity against datara.lock...
+#   [OK] redis (v1.4.0) - Digest verified (sha256:7f8a9e01...)
+#   [OK] uuid (v1.1.0) - Digest verified (sha256:f0e1d2c3...)
+# [DONE] All 2 packages verified successfully!
+
+# 6. Run the application
+dpm run
 ```
 
 ---

@@ -69,7 +69,13 @@ foreach ($cand in $LocalCandidates) {
     if (Test-Path $cand) {
         Copy-Item -Path $cand -Destination (Join-Path $BinDir "forgen.exe") -Force
         Copy-Item -Path $cand -Destination (Join-Path $BinDir "datara.exe") -Force
-        Write-Host "  -> Installed toolchain binaries from local source: $cand" -ForegroundColor Green
+        $dpmLocal = Join-Path (Split-Path $cand) "dpm.exe"
+        if (Test-Path $dpmLocal) {
+            Copy-Item -Path $dpmLocal -Destination (Join-Path $BinDir "dpm.exe") -Force
+        } else {
+            Copy-Item -Path $cand -Destination (Join-Path $BinDir "dpm.exe") -Force
+        }
+        Write-Host "  -> Installed toolchain binaries (forgen, datara, dpm) from local source: $cand" -ForegroundColor Green
         $InstalledSuccessfully = $true
         break
     }
@@ -87,6 +93,12 @@ if (-not $InstalledSuccessfully -and $DownloadUrl) {
         if ($extractedExe) {
             Copy-Item -Path $extractedExe.FullName -Destination (Join-Path $BinDir "forgen.exe") -Force
             Copy-Item -Path $extractedExe.FullName -Destination (Join-Path $BinDir "datara.exe") -Force
+            $extractedDpm = Get-ChildItem -Path $env:TEMP\datara_extracted -Recurse -Filter "dpm.exe" | Select-Object -First 1
+            if ($extractedDpm) {
+                Copy-Item -Path $extractedDpm.FullName -Destination (Join-Path $BinDir "dpm.exe") -Force
+            } else {
+                Copy-Item -Path $extractedExe.FullName -Destination (Join-Path $BinDir "dpm.exe") -Force
+            }
             $InstalledSuccessfully = $true
             Write-Host "  -> Downloaded and installed $LatestTag binaries successfully." -ForegroundColor Green
         }
@@ -106,11 +118,15 @@ if (-not $InstalledSuccessfully) {
     
     if (Test-Path $cargoExe) {
         Write-Host "  -> Building Datara toolchain from source using Cargo..." -ForegroundColor Cyan
-        & $cargoExe build --release --bin forgen
+        & $cargoExe build --release
         $builtExe = Join-Path $ScriptDir "target\release\forgen.exe"
         if (Test-Path $builtExe) {
             Copy-Item -Path $builtExe -Destination (Join-Path $BinDir "forgen.exe") -Force
             Copy-Item -Path $builtExe -Destination (Join-Path $BinDir "datara.exe") -Force
+            $builtDpm = Join-Path $ScriptDir "target\release\dpm.exe"
+            if (Test-Path $builtDpm) {
+                Copy-Item -Path $builtDpm -Destination (Join-Path $BinDir "dpm.exe") -Force
+            }
             $InstalledSuccessfully = $true
             Write-Host "  -> Cargo compilation succeeded and binaries installed." -ForegroundColor Green
         }

@@ -1070,6 +1070,13 @@ pub fn run_cli() {
             }
         }
 
+        "pkg" | "pm" | "dpm" => {
+            let mut subargs = vec!["dpm".to_string()];
+            subargs.extend(args.iter().skip(2).cloned());
+            crate::project::pm::run_dpm_cli_args(&subargs);
+            return;
+        }
+
         "add" => {
             let target_arg = match args.get(2) {
                 Some(p) => p.as_str(),
@@ -1314,6 +1321,13 @@ pub fn run_cli() {
                 );
                 std::process::exit(1);
             }
+        }
+
+        "list" | "ls" | "verify-pkg" => {
+            let mut subargs = vec!["dpm".to_string()];
+            subargs.extend(args.iter().skip(1).cloned());
+            crate::project::pm::run_dpm_cli_args(&subargs);
+            return;
         }
 
         "package" => {

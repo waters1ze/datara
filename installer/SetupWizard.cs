@@ -348,7 +348,8 @@ namespace DataraInstaller
             };
             tipBox.AppendText("Quick Start Commands:\n\n");
             tipBox.AppendText("  forgen --version     # Check compiler version and native target\n");
-            tipBox.AppendText("  forgen repl          # Launch zero-latency interactive JIT console\n");
+            tipBox.AppendText("  dpm init my_app      # Initialize a project with Datara Package Manager\n");
+            tipBox.AppendText("  dpm add redis        # Add packages with SHA-256 Merkle verification\n");
             tipBox.AppendText("  forgen run main.dtr  # Compile & run Datara source code\n\n");
             tipBox.AppendText("All .dtr files are now associated with the official Datara icon.");
 

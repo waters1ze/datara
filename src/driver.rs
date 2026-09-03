@@ -1271,7 +1271,7 @@ impl ForgenCompiler {
                                 .lookup(&key)
                                 .is_some()
                             {
-                                format!(" (run 'forgen add {}' or use '--auto-install')", key)
+                                format!(" (run 'dpm add {}' to install from registry)", key)
                             } else {
                                 String::new()
                             };
