@@ -9,11 +9,15 @@ use std::time::Instant;
 
 pub fn run_cli() {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 2
-        || args[1] == "--help"
+    if args.len() < 2 {
+        // Just like Python, running datara or forgen without arguments launches the interactive REPL
+        crate::repl::ReplSession::run_interactive();
+        return;
+    }
+    if args[1] == "--help"
         || args[1] == "-h"
         || args[1] == "help"
-        || (args.len() >= 2 && args.iter().skip(1).any(|a| a == "--help" || a == "-h") && args[1] != "run")
+        || (args.iter().skip(1).any(|a| a == "--help" || a == "-h") && args[1] != "run")
     {
         print_help();
         return;

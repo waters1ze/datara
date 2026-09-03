@@ -105,8 +105,8 @@ impl ReplSession {
         }
 
         source.push_str("fn main() {\n");
-        // If expression looks like a statement (contains '=' or starts with 'out '), execute as is
-        if expr.starts_with("out ") || expr.contains(" = ") {
+        // If expression looks like a statement (contains '=' or starts with 'out ', 'print'), execute as is
+        if expr.starts_with("out ") || expr.starts_with("println") || expr.starts_with("print") || expr.contains(" = ") {
             source.push_str("    ");
             source.push_str(expr);
             source.push('\n');
