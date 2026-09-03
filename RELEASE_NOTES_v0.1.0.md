@@ -43,7 +43,7 @@ Datara is a high-performance, compiled Post-OOP systems and application programm
 ## 📦 Downloads & Installation
 
 ### Windows (64-bit)
-- **GUI Installer (Recommended):** [Datara-v0.1.0-Setup.exe](https://github.com/waters1ze/datara/releases/download/v0.1.0/Datara-v0.1.0-Setup.exe) (5.4 MB)
+- **GUI Installer (Recommended):** [Datara-Setup.exe](https://github.com/waters1ze/datara/releases/download/v0.1.0/Datara-Setup.exe) (5.4 MB)
 - **Portable Zip:** [forgen-windows-x64.zip](https://github.com/waters1ze/datara/releases/download/v0.1.0/forgen-windows-x64.zip)
 - **PowerShell One-Liner:**
   ```powershell
