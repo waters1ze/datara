@@ -385,13 +385,28 @@ Datara provides platform-independent, fixed-width primitive types:
 
 | Type | Size | Description | Example |
 |---|---|---|---|
-| `Int` | 64-bit | Signed two's-complement integer | `let x: Int = -42` |
-| `Float` | 64-bit | IEEE 754 double-precision float | `let f: Float = 3.14159` |
+| `Int` / `Int64` | 64-bit | Signed two's-complement integer | `let x: Int = -42` |
+| `Int32` | 32-bit | Signed 32-bit integer | `let i: Int32 = 1000` |
+| `Int16` | 16-bit | Signed 16-bit integer | `let s: Int16 = 3200` |
+| `Int8` | 8-bit | Signed 8-bit integer | `let b: Int8 = -12` |
+| `UInt` / `UInt64` | 64-bit | Unsigned 64-bit memory counter | `let u: UInt = 18446744073709551615` |
+| `UInt32` | 32-bit | Unsigned 32-bit integer | `let id: UInt32 = 4294967295` |
+| `UInt16` | 16-bit | Unsigned 16-bit network port | `let port: UInt16 = 8080` |
+| `UInt8` | 8-bit | Unsigned 8-bit byte | `let octet: UInt8 = 255` |
+| `Float` / `Float64` | 64-bit | IEEE 754 double-precision float | `let f: Float = 3.1415926535` |
+| `Float32` | 32-bit | IEEE 754 single-precision float | `let s: Float32 = 1.0` |
+| `Dec64` | 64-bit | Exact financial decimal (zero binary rounding error) | `let price: Dec64 = 19.99` |
+| `Dec128` | 128-bit | High-precision banking decimal float | `let bal: Dec128 = 1000000.50` |
 | `Bool` | 1-bit / 8-bit | Boolean logic | `let is_ready: Bool = true` |
-| `Str` / `String` | 16-byte slice | UTF-8 immutable heap/arena string | `let s: Str = "Datara"` |
+| `Str` / `String` | 16-byte slice | UTF-8 immutable zero-copy string slice | `let s: Str = "Datara"` |
 | `Char` | 32-bit | Unicode code point scalar | `let c: Char = 'D'` |
+| `Val` | Dynamic box | Schema evolution dynamic container | `let v: Val = fetch_raw()` |
+| `RawPtr` | Machine word | Low-level pointer (in `unsafe` blocks) | `let p: RawPtr = get_addr()` |
 | `Unit` | 0-byte | Empty return type (equivalent to `()`) | `fn log() -> Unit` |
 | `Never` | 0-byte | Unreachable / diverging return type | `fn panic() -> Never` |
+| `Option[T]` / `T?` | Tagged union | Safe nullable container (`None` / `Some`) | `let u: Str? = find_user()` |
+| `Result[T, E]` / `T!E` | Tagged union | Zero-cost error channel (`ok` / `error`) | `let res: Int!Str = parse()` |
+| `float4` / `int4` | 128-bit SIMD | Native CPU AVX/NEON 4-lane hardware vector | `let v = float4(1.0, 2.0, 3.0, 4.0)` |
 
 #### Tuples
 Tuples combine multiple values of distinct types into a lightweight contiguous stack structure:
