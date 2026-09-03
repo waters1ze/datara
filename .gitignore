@@ -5,7 +5,7 @@
 *.pdb
 *.lib
 *.a
-runtime/
+/runtime/
 .forgen_profile/
 tmp_verify/
 

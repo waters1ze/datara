@@ -23,12 +23,13 @@ fn main() {
     println!("cargo:rerun-if-changed=src/runtime/datara_runtime.c");
     println!("cargo:rerun-if-changed=src/runtime/datara_runtime.h");
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR was not set by cargo"));
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()));
+    let runtime_dir = manifest_dir.join("src").join("runtime");
 
     let mut build = cc::Build::new();
     build
-        .file("src/runtime/datara_runtime.c")
-        .include("src/runtime")
+        .file(runtime_dir.join("datara_runtime.c"))
+        .include(&runtime_dir)
         .opt_level(2)
         // Keep the runtime out of forgen.exe itself.
         .cargo_metadata(false);
@@ -81,11 +82,20 @@ fn main() {
         .try_compile("datara_runtime")
         .expect("failed to compile the Datara runtime (src/runtime/datara_runtime.c)");
 
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR was not set by cargo"));
+
     // cc names the archive per platform.
-    let archive = if cfg!(target_env = "msvc") {
-        out_dir.join("datara_runtime.lib")
+    let lib_msvc = out_dir.join("datara_runtime.lib");
+    let lib_unix = out_dir.join("libdatara_runtime.a");
+
+    let archive = if lib_msvc.exists() {
+        lib_msvc
+    } else if lib_unix.exists() {
+        lib_unix
+    } else if cfg!(target_env = "msvc") {
+        lib_msvc
     } else {
-        out_dir.join("libdatara_runtime.a")
+        lib_unix
     };
 
     if !archive.exists() {

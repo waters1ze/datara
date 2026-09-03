@@ -1493,10 +1493,7 @@ impl<'a> TypeChecker<'a> {
                     if fn_name == "destroy" || fn_name == "unsafe_op" {
                         return DataraType::Unit;
                     }
-                    if fn_name == "println"
-                        || fn_name == "print"
-                        || fn_name == "eprintln"
-                    {
+                    if fn_name == "println" || fn_name == "print" || fn_name == "eprintln" {
                         return DataraType::Unit;
                     }
                     if fn_name == "input_int" {

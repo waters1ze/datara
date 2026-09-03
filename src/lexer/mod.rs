@@ -506,12 +506,12 @@ impl Lexer {
 
                 // Stream Template with `fmt` prefix: fmt"..." or FMT"..."
                 'f' | 'F'
-                    if self.peek() == 'm'
-                        && self.peek_next() == 't'
+                    if (self.peek() == 'm' || self.peek() == 'M')
+                        && (self.peek_next() == 't' || self.peek_next() == 'T')
                         && self.chars.get(self.pos + 2) == Some(&'"') =>
                 {
-                    self.advance(); // consume 'm'
-                    self.advance(); // consume 't'
+                    self.advance(); // consume 'm' / 'M'
+                    self.advance(); // consume 't' / 'T'
                     self.advance(); // consume opening quote '"'
                     self.scan_string_literal(start_line, start_col, true, diag, &mut tokens);
                 }
