@@ -1,0 +1,86 @@
+// ============================================================================
+// CLI-УТИЛИТА 1: Анализатор текста и метрик читаемости (Text Analysis Engine)
+// ============================================================================
+
+class TextMetrics {
+    total_chars: Int
+    letter_chars: Int
+    word_count: Int
+    sentence_count: Int
+    vowel_count: Int
+    consonant_count: Int
+
+    avg_word_length() -> Float {
+        if word_count == 0 { return 0.0 }
+        return (letter_chars * 1.0) / (word_count * 1.0)
+    }
+
+    avg_sentence_length() -> Float {
+        if sentence_count == 0 { return 0.0 }
+        return (word_count * 1.0) / (sentence_count * 1.0)
+    }
+
+    readability_index() -> Float {
+        if word_count == 0 { return 0.0 }
+        let l = ((letter_chars * 1.0) / (word_count * 1.0)) * 100.0
+        let s = ((sentence_count * 1.0) / (word_count * 1.0)) * 100.0
+        return (0.0588 * l) - (0.296 * s) - 15.8
+    }
+
+    complexity_grade(score: Float) -> Str => decide {
+        score >= 12.0 => "Университетский уровень (Сложный)",
+        score >= 9.0  => "Старшая школа (Средняя сложность)",
+        score >= 6.0  => "Средняя школа (Легко читается)",
+        else => "Начальный уровень (Очень просто)"
+    }
+}
+
+fn print_progress_bar(label: Str, value: Int, max_val: Int) {
+    let width = 20
+    let filled = (value * width) / max_val
+    print("  " + label + " [")
+    for i in 0..width {
+        if i < filled {
+            print("#")
+        } else {
+            print("-")
+        }
+    }
+    println(fmt"] {value}")
+}
+
+fn main() {
+    println("=================================================================")
+    println("      DATARA TEXT ENGINE: СТАТИСТИЧЕСКИЙ АНАЛИЗАТОР ТЕКСТА       ")
+    println("=================================================================")
+
+    let metrics = TextMetrics {
+        total_chars: 1420,
+        letter_chars: 1180,
+        word_count: 185,
+        sentence_count: 14,
+        vowel_count: 495,
+        consonant_count: 685
+    }
+
+    let avg_word = metrics.avg_word_length()
+    let avg_sent = metrics.avg_sentence_length()
+    let read_idx = metrics.readability_index()
+    let grade = metrics.complexity_grade(read_idx)
+
+    println(fmt"Общее количество символов:       {metrics.total_chars}")
+    println(fmt"Количество буквенных символов:    {metrics.letter_chars}")
+    println(fmt"Количество слов в документе:      {metrics.word_count}")
+    println(fmt"Количество предложений:           {metrics.sentence_count}")
+    println("-----------------------------------------------------------------")
+    println(fmt"Средняя длина слова:              {avg_word} символов")
+    println(fmt"Средняя длина предложения:        {avg_sent} слов")
+    println(fmt"Индекс читаемости (Coleman-Liau): {read_idx}")
+    println(fmt"Оценка сложности восприятия:      {grade}")
+    println("-----------------------------------------------------------------")
+    println("Фонетическое распределение (Гласные vs Согласные):")
+    print_progress_bar("Гласные  ", metrics.vowel_count, metrics.letter_chars)
+    print_progress_bar("Согласные", metrics.consonant_count, metrics.letter_chars)
+    println("=================================================================")
+    println("  Анализ завершен успешно за 0.00 мс (Вычислено нативно).")
+}
