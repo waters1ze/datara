@@ -190,54 +190,55 @@ impl PipelineFusionOptimizer {
 
                 // Check if the first argument is itself a single-use string concat
                 let first_arg = args[0];
-                if uses.get(&first_arg).copied().unwrap_or(0) <= 1 {
-                    if let Some(prev_args) = concat_map.get(&first_arg) {
-                        let mut combined = prev_args.clone();
-                        combined.extend(&args[1..]);
+                if uses.get(&first_arg).copied().unwrap_or(0) <= 1
+                    && let Some(prev_args) = concat_map.get(&first_arg)
+                {
+                    let mut combined = prev_args.clone();
+                    combined.extend(&args[1..]);
 
-                        if combined.len() <= 5 {
-                            // Check for direct-slot string+int wire-blit pattern [str, int, str, int]
-                            let is_sisi = combined.len() == 4
-                                && (val_types
-                                    .get(&combined[0])
-                                    .map(|s| s == "String")
-                                    .unwrap_or(true))
-                                && val_types
-                                    .get(&combined[1])
-                                    .map(|s| s == "Int")
-                                    .unwrap_or(false)
-                                && (val_types
-                                    .get(&combined[2])
-                                    .map(|s| s == "String")
-                                    .unwrap_or(true))
-                                && val_types
-                                    .get(&combined[3])
-                                    .map(|s| s == "Int")
-                                    .unwrap_or(false);
+                    if combined.len() <= 5 {
+                        // Check for direct-slot string+int wire-blit pattern [str, int, str, int]
+                        let is_sisi = combined.len() == 4
+                            && (val_types
+                                .get(&combined[0])
+                                .map(|s| s == "String")
+                                .unwrap_or(true))
+                            && val_types
+                                .get(&combined[1])
+                                .map(|s| s == "Int")
+                                .unwrap_or(false)
+                            && (val_types
+                                .get(&combined[2])
+                                .map(|s| s == "String")
+                                .unwrap_or(true))
+                            && val_types
+                                .get(&combined[3])
+                                .map(|s| s == "Int")
+                                .unwrap_or(false);
 
-                            // Rewrite the current instruction into an N-ary concat or direct-slot format call
-                            let new_func = if is_sisi {
-                                "datara_rt_format_str_i64_str_i64"
-                            } else {
-                                match combined.len() {
-                                    3 => "datara_rt_str_concat_3",
-                                    4 => "datara_rt_str_concat_4",
-                                    5 => "datara_rt_str_concat_5",
-                                    _ => "datara_rt_str_concat",
-                                }
-                            };
+                        // Rewrite the current instruction into an N-ary concat or direct-slot format call
+                        let new_func = if is_sisi {
+                            "datara_rt_format_str_i64_str_i64"
+                        } else {
+                            match combined.len() {
+                                3 => "datara_rt_str_concat_3",
+                                4 => "datara_rt_str_concat_4",
+                                5 => "datara_rt_str_concat_5",
+                                _ => "datara_rt_str_concat",
+                            }
+                        };
 
-                            *inst = Inst::Call {
-                                dest,
-                                func: new_func.to_string(),
-                                args: combined.clone(),
-                                ty: "String".to_string(),
-                            };
+                        *inst = Inst::Call {
+                            dest,
+                            func: new_func.to_string(),
+                            args: combined.clone(),
+                            ty: "String".to_string(),
+                        };
 
-                            concat_map.insert(dest, combined);
-                            fused_count += 1;
+                        concat_map.insert(dest, combined);
+                        fused_count += 1;
 
-                            trace.record(
+                        trace.record(
                                 "StringConcatPolyhedralFusion",
                                 &format!("{}:bb{}", f.name, block.id.0),
                                 "Applied",
@@ -245,8 +246,7 @@ impl PipelineFusionOptimizer {
                                 "Eliminated intermediate string buffer allocations",
                                 "Transformed chained string concatenation into single-allocation N-ary runtime call",
                             );
-                            continue;
-                        }
+                        continue;
                     }
                 }
 
@@ -294,55 +294,55 @@ impl PipelineFusionOptimizer {
                     right,
                     ty,
                 } = inst
+                    && (ty == "Int" || ty == "i64")
                 {
-                    if ty == "Int" || ty == "i64" {
-                        let is_c_right = const_ints.get(right).copied();
-                        let is_c_left = const_ints.get(left).copied();
+                    let is_c_right = const_ints.get(right).copied();
+                    let is_c_left = const_ints.get(left).copied();
 
-                        let is_commutative = matches!(op.as_str(), "+" | "*" | "&" | "|" | "^");
+                    let is_commutative = matches!(op.as_str(), "+" | "*" | "&" | "|" | "^");
 
-                        let (var, c_val) = match (is_c_right, is_c_left) {
-                            (Some(c), None) => (*left, c),
-                            (None, Some(c)) if is_commutative => (*right, c),
-                            _ => (ValueId(usize::MAX), 0),
-                        };
+                    let (var, c_val) = match (is_c_right, is_c_left) {
+                        (Some(c), None) => (*left, c),
+                        (None, Some(c)) if is_commutative => (*right, c),
+                        _ => (ValueId(usize::MAX), 0),
+                    };
 
-                        if var.0 != usize::MAX {
-                            if uses.get(&var).copied().unwrap_or(0) <= 1 {
-                                if let Some((prev_op, base_var, prev_c)) = affine_chains.get(&var) {
-                                    if prev_op == op {
-                                        let combined = match op.as_str() {
-                                            "+" => Some(prev_c.wrapping_add(c_val)),
-                                            "*" => Some(prev_c.wrapping_mul(c_val)),
-                                            "&" => Some(*prev_c & c_val),
-                                            "|" => Some(*prev_c | c_val),
-                                            "^" => Some(*prev_c ^ c_val),
-                                            _ => None,
-                                        };
+                    if var.0 != usize::MAX {
+                        if uses.get(&var).copied().unwrap_or(0) <= 1
+                            && let Some((prev_op, base_var, prev_c)) = affine_chains.get(&var)
+                            && prev_op == op
+                        {
+                            let combined = match op.as_str() {
+                                "+" => Some(prev_c.wrapping_add(c_val)),
+                                "*" => Some(prev_c.wrapping_mul(c_val)),
+                                "&" => Some(*prev_c & c_val),
+                                "|" => Some(*prev_c | c_val),
+                                "^" => Some(*prev_c ^ c_val),
+                                _ => None,
+                            };
 
-                                        if let Some(new_k) = combined {
-                                            let new_c_vid = ValueId(next_vid);
-                                            next_vid += 1;
-                                            const_ints.insert(new_c_vid, new_k);
+                            if let Some(new_k) = combined {
+                                let new_c_vid = ValueId(next_vid);
+                                next_vid += 1;
+                                const_ints.insert(new_c_vid, new_k);
 
-                                            new_instructions.push(Inst::ConstInt {
-                                                dest: new_c_vid,
-                                                value: new_k,
-                                            });
+                                new_instructions.push(Inst::ConstInt {
+                                    dest: new_c_vid,
+                                    value: new_k,
+                                });
 
-                                            new_instructions.push(Inst::BinOp {
-                                                dest: *dest,
-                                                op: op.clone(),
-                                                left: *base_var,
-                                                right: new_c_vid,
-                                                ty: ty.clone(),
-                                            });
+                                new_instructions.push(Inst::BinOp {
+                                    dest: *dest,
+                                    op: op.clone(),
+                                    left: *base_var,
+                                    right: new_c_vid,
+                                    ty: ty.clone(),
+                                });
 
-                                            affine_chains
-                                                .insert(*dest, (op.clone(), *base_var, new_k));
-                                            fused_count += 1;
+                                affine_chains.insert(*dest, (op.clone(), *base_var, new_k));
+                                fused_count += 1;
 
-                                            trace.record(
+                                trace.record(
                                                 "ArithmeticPipelineReassociation",
                                                 &format!("{}:bb{}", f.name, block.id.0),
                                                 "Applied",
@@ -350,14 +350,11 @@ impl PipelineFusionOptimizer {
                                                 "Eliminated chained arithmetic instruction latency",
                                                 "Reassociated multi-stage constant pipeline into single constant operation",
                                             );
-                                            continue;
-                                        }
-                                    }
-                                }
+                                continue;
                             }
-
-                            affine_chains.insert(*dest, (op.clone(), var, c_val));
                         }
+
+                        affine_chains.insert(*dest, (op.clone(), var, c_val));
                     }
                 }
 

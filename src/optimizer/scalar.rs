@@ -260,10 +260,10 @@ impl ScalarOptimizer {
                     | Inst::Decide { dest, .. } => Some(*dest),
                     _ => None,
                 };
-                if let Some(d) = d_opt {
-                    if d.0 > max_id {
-                        max_id = d.0;
-                    }
+                if let Some(d) = d_opt
+                    && d.0 > max_id
+                {
+                    max_id = d.0;
                 }
                 if let Inst::ConstInt { dest, value } = inst {
                     int_consts.insert(*dest, *value);
@@ -292,20 +292,18 @@ impl ScalarOptimizer {
                             if (op == "+" || op == "*")
                                 && non_negatives.contains(left)
                                 && non_negatives.contains(right)
+                                && non_negatives.insert(*dest)
                             {
-                                if non_negatives.insert(*dest) {
-                                    nn_changed = true;
-                                }
+                                nn_changed = true;
                             }
                         }
                         Inst::UnOp {
                             dest, op, operand, ..
-                        } if op == "copy" => {
-                            if non_negatives.contains(operand) {
-                                if non_negatives.insert(*dest) {
-                                    nn_changed = true;
-                                }
-                            }
+                        } if op == "copy"
+                            && non_negatives.contains(operand)
+                            && non_negatives.insert(*dest) =>
+                        {
+                            nn_changed = true;
                         }
                         _ => {}
                     }
@@ -452,11 +450,10 @@ impl ScalarOptimizer {
                                 "identity",
                             );
                         } else if op == "%"
-                            && r_c.is_some()
-                            && r_c.unwrap() > 1
-                            && (r_c.unwrap() & (r_c.unwrap() - 1)) == 0
+                            && let Some(c) = r_c
+                            && c > 1
+                            && (c & (c - 1)) == 0
                         {
-                            let c = r_c.unwrap();
                             let mask = c - 1;
                             max_id += 1;
                             let mask_vid = ValueId(max_id);

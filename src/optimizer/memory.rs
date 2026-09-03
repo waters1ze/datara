@@ -227,7 +227,7 @@ impl MemoryOptimizer {
                             field_map.insert(field.clone(), *value);
                             updated = true;
                         }
-                        for (_, (_, field_map)) in var_to_struct.iter_mut() {
+                        for (_, field_map) in var_to_struct.values_mut() {
                             field_map.insert(field.clone(), *value);
                         }
                         if updated {

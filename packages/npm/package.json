@@ -28,5 +28,8 @@
   "bugs": {
     "url": "https://github.com/waters1ze/datara/issues"
   },
-  "homepage": "https://github.com/waters1ze/datara#readme"
+  "homepage": "https://github.com/waters1ze/datara#readme",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
 }

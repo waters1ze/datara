@@ -3,6 +3,7 @@ use std::path::Path;
 use std::time::Instant;
 
 #[test]
+#[ignore = "intensive comparative benchmark"]
 fn test_comparative_benchmark_suite() {
     let benchmarks = [
         (

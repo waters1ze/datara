@@ -206,6 +206,20 @@ docker run --rm -v ${PWD}:/workspace -w /workspace ghcr.io/waters1ze/datara:late
 
 ---
 
+### Checksums & Binary Integrity Verification
+
+Every release artifact and prebuilt package is cryptographically hashed with SHA-256. Verify file integrity before deployment:
+```bash
+# Linux / macOS:
+sha256sum -c dist/SHA256SUMS.txt
+
+# Windows PowerShell:
+Get-FileHash Datara-Setup.exe -Algorithm SHA256
+```
+The canonical checksum ledger is located at [`dist/SHA256SUMS.txt`](dist/SHA256SUMS.txt).
+
+---
+
 ### Building from Source
 
 If you have Rust 1.80+ and Cargo installed:

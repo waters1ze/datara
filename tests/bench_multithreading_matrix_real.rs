@@ -141,6 +141,7 @@ if (isMainThread) {{
 }
 
 #[test]
+#[ignore = "intensive multithreading benchmark"]
 fn test_multithreading_performance_matrix_cross_language() {
     let num_chunks = 16i64;
     let iters_per_chunk = 10_000_000i64;

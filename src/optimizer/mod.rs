@@ -1392,10 +1392,10 @@ impl Optimizer {
                     // would read the stale initial field value. Treat it as an
                     // escape so the allocation (and honest field reads) survive.
                     Inst::SetField { object, value, .. } => {
-                        if f.blocks.len() > 1 {
-                            if let Some(s_id) = val_to_struct.get(object) {
-                                escaping_structs.insert(*s_id);
-                            }
+                        if f.blocks.len() > 1
+                            && let Some(s_id) = val_to_struct.get(object)
+                        {
+                            escaping_structs.insert(*s_id);
                         }
                         if let Some(s_id) = val_to_struct.get(value) {
                             escaping_structs.insert(*s_id);
@@ -1999,12 +1999,12 @@ impl Optimizer {
         for block in &mut f.blocks {
             let mut new_instructions = Vec::new();
             for inst in &block.instructions {
-                if let Inst::AssignVar { name, .. } = inst {
-                    if !loaded_vars.contains(name) {
-                        self.report.dead_instructions_removed += 1;
-                        changed = true;
-                        continue;
-                    }
+                if let Inst::AssignVar { name, .. } = inst
+                    && !loaded_vars.contains(name)
+                {
+                    self.report.dead_instructions_removed += 1;
+                    changed = true;
+                    continue;
                 }
                 let is_pure_call = match inst {
                     Inst::Call { func, .. } => {

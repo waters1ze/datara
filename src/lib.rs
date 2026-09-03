@@ -21,6 +21,7 @@ pub mod repl;
 pub mod resolver;
 pub mod runtime;
 pub mod semantic_graph;
+pub mod stdlib;
 pub mod types;
 
 pub use driver::ForgenCompiler;

@@ -62,3 +62,40 @@ fn test_stdlib_all_modules_compilation_and_execution() {
     assert!(stdout.contains("JSON Service: datara"));
     assert!(stdout.contains("JSON Port: 8080"));
 }
+
+#[test]
+fn test_embedded_stdlib_in_memory() {
+    // Test that stdlib modules are resolved from compiled-in memory even in an isolated directory
+    let temp_dir = std::env::temp_dir().join("datara_test_embedded_stdlib_isolated");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let test_file = temp_dir.join("main.dtr");
+    let test_src = r#"
+use stdlib.math.Math
+
+fn main() {
+    let m = Math { precision: 2 }
+    let res = m.sqrt(25.0)
+    println(res)
+}
+"#;
+    std::fs::write(&test_file, test_src).unwrap();
+
+    let compiler = ForgenCompiler::new("release");
+    let res = compiler.compile_file(&test_file, None);
+    assert!(
+        res.success,
+        "Embedded stdlib compilation failed:\n{}\n{:?}",
+        res.diagnostics, res.error
+    );
+
+    let (stdout, stderr, code, _) = compiler
+        .codegen
+        .run_executable(&res.exe_path.unwrap(), &[])
+        .unwrap();
+    assert_eq!(code, 0, "Execution failed: {}", stderr);
+    assert!(
+        stdout.contains("5"),
+        "Expected 5 from sqrt(25.0), got: {}",
+        stdout
+    );
+}

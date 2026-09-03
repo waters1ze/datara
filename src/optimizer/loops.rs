@@ -850,9 +850,9 @@ impl LoopOptimizer {
                     if *left == p_sum && acc.is_none() {
                         acc = Some((*dest, *right));
                     } else if *left == p_i && inc.is_none() {
-                        if !is_float && Self::const_int_value(f, *right) == Some(1) {
-                            inc = Some(*dest);
-                        } else if is_float && Self::const_float_value(f, *right) == Some(1.0) {
+                        if (!is_float && Self::const_int_value(f, *right) == Some(1))
+                            || (is_float && Self::const_float_value(f, *right) == Some(1.0))
+                        {
                             inc = Some(*dest);
                         } else {
                             return None;
@@ -996,10 +996,9 @@ impl LoopOptimizer {
                     start: i0_float_val,
                     is_le,
                 }
-            } else if let Some(v) = Self::const_float_value(f, x) {
-                SumTerm::FloatInvariantConst(v)
             } else {
-                return None;
+                let v = Self::const_float_value(f, x)?;
+                SumTerm::FloatInvariantConst(v)
             }
         } else if x == p_i {
             SumTerm::Induction {

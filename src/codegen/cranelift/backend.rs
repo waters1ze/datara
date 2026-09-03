@@ -2438,36 +2438,28 @@ impl RealCraneliftBackend {
                             }
 
                             let mut resolved_callee_id = callee_id;
-                            if func.starts_with("datara_rt_print_") && args.len() == 1 {
-                                if let Some(&first_arg_id) = args.first() {
-                                    if let Some(&av) = val_map.get(&first_arg_id) {
-                                        let v_ty = builder.func.dfg.value_type(av);
-                                        if v_ty == clif_types::F64 {
-                                            if let Some(target) =
-                                                func_ids.get("datara_rt_print_float")
-                                            {
-                                                resolved_callee_id = target.0;
-                                            }
-                                        } else if string_vids.contains(&first_arg_id) {
-                                            if let Some(target) =
-                                                func_ids.get("datara_rt_print_str")
-                                            {
-                                                resolved_callee_id = target.0;
-                                            }
-                                        } else if bool_vids.contains(&first_arg_id) {
-                                            if let Some(target) =
-                                                func_ids.get("datara_rt_print_bool")
-                                            {
-                                                resolved_callee_id = target.0;
-                                            }
-                                        } else if list_vids.contains(&first_arg_id) {
-                                            if let Some(target) =
-                                                func_ids.get("datara_rt_print_list")
-                                            {
-                                                resolved_callee_id = target.0;
-                                            }
-                                        }
+                            if func.starts_with("datara_rt_print_")
+                                && args.len() == 1
+                                && let Some(&first_arg_id) = args.first()
+                                && let Some(&av) = val_map.get(&first_arg_id)
+                            {
+                                let v_ty = builder.func.dfg.value_type(av);
+                                if v_ty == clif_types::F64 {
+                                    if let Some(target) = func_ids.get("datara_rt_print_float") {
+                                        resolved_callee_id = target.0;
                                     }
+                                } else if string_vids.contains(&first_arg_id) {
+                                    if let Some(target) = func_ids.get("datara_rt_print_str") {
+                                        resolved_callee_id = target.0;
+                                    }
+                                } else if bool_vids.contains(&first_arg_id) {
+                                    if let Some(target) = func_ids.get("datara_rt_print_bool") {
+                                        resolved_callee_id = target.0;
+                                    }
+                                } else if list_vids.contains(&first_arg_id)
+                                    && let Some(target) = func_ids.get("datara_rt_print_list")
+                                {
+                                    resolved_callee_id = target.0;
                                 }
                             }
 

@@ -1083,7 +1083,6 @@ pub fn run_cli() {
             let mut subargs = vec!["dpm".to_string()];
             subargs.extend(args.iter().skip(2).cloned());
             crate::project::pm::run_dpm_cli_args(&subargs);
-            return;
         }
 
         "add" => {
@@ -1336,7 +1335,6 @@ pub fn run_cli() {
             let mut subargs = vec!["dpm".to_string()];
             subargs.extend(args.iter().skip(1).cloned());
             crate::project::pm::run_dpm_cli_args(&subargs);
-            return;
         }
 
         "package" => {

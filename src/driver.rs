@@ -437,14 +437,14 @@ impl ForgenCompiler {
             }
         }
         optimizer.optimize_module(&mut dmir_module);
-        if let Some(ref pgo_path) = self.pgo_profile {
-            if let Ok(profile) = crate::pgo::ProfileData::load_from_file(pgo_path) {
-                crate::pgo::ProfileGuidedOptimizer::optimize_module(
-                    &mut optimizer,
-                    &mut dmir_module,
-                    &profile,
-                );
-            }
+        if let Some(ref pgo_path) = self.pgo_profile
+            && let Ok(profile) = crate::pgo::ProfileData::load_from_file(pgo_path)
+        {
+            crate::pgo::ProfileGuidedOptimizer::optimize_module(
+                &mut optimizer,
+                &mut dmir_module,
+                &profile,
+            );
         }
         timings.optimizer_ms = opt_start.elapsed().as_millis();
 
@@ -818,13 +818,11 @@ impl ForgenCompiler {
 
     /// Map a `use stdlib.<...>` declaration to its stdlib source file.
     /// `stdlib.io.fs.Fs` -> `stdlib/io/fs.dtr`.
-    fn stdlib_module_path(&self, u: &UseDecl, stdlib_dir: &Path) -> Option<PathBuf> {
+    /// If no on-disk stdlib is available, automatically falls back to the embedded standard library.
+    fn stdlib_module_path(&self, u: &UseDecl, stdlib_dir: Option<&Path>) -> Option<PathBuf> {
         if u.path.first().map(|s| s.as_str()) != Some("stdlib") {
             return None;
         }
-        // The last segment is the imported symbol; everything between
-        // `stdlib` and it names the file. A 3-segment form
-        // (`stdlib.io.fs`) names the file directly.
         let rel: &[String] = if u.path.len() >= 4 {
             &u.path[1..u.path.len() - 1]
         } else {
@@ -833,12 +831,36 @@ impl ForgenCompiler {
         if rel.is_empty() {
             return None;
         }
-        let mut p = stdlib_dir.to_path_buf();
-        for seg in rel {
-            p.push(seg);
+
+        // 1. Check local / installed disk path first
+        if let Some(dir) = stdlib_dir {
+            let mut p = dir.to_path_buf();
+            for seg in rel {
+                p.push(seg);
+            }
+            p.set_extension("dtr");
+            if p.is_file() {
+                return Some(p);
+            }
         }
-        p.set_extension("dtr");
-        Some(p)
+
+        // 2. Embedded stdlib fallback
+        let key = rel.join(".");
+        if let Some(src) = crate::stdlib::get_embedded_stdlib_source(&key) {
+            let cache_dir = std::env::temp_dir().join("datara_embedded_stdlib");
+            let mut target = cache_dir;
+            for seg in rel {
+                target.push(seg);
+            }
+            target.set_extension("dtr");
+            if let Some(parent) = target.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&target, src);
+            return Some(target);
+        }
+
+        None
     }
 
     /// Map a non-stdlib `use` path to a local project source file.
@@ -1183,9 +1205,7 @@ impl ForgenCompiler {
                     }
 
                     let path = if first_seg == Some("stdlib") {
-                        stdlib_dir
-                            .as_ref()
-                            .and_then(|dir| self.stdlib_module_path(u, dir))
+                        self.stdlib_module_path(u, stdlib_dir.as_deref())
                     } else {
                         self.local_module_path(u, &base_dirs)
                     };
@@ -1328,9 +1348,7 @@ impl ForgenCompiler {
                 for decl in &sub.declarations {
                     if let Decl::Use(u) = decl {
                         let path = if u.path.first().map(|s| s.as_str()) == Some("stdlib") {
-                            stdlib_dir
-                                .as_ref()
-                                .and_then(|dir| self.stdlib_module_path(u, dir))
+                            self.stdlib_module_path(u, stdlib_dir.as_deref())
                         } else {
                             self.local_module_path(u, &base_dirs)
                         };

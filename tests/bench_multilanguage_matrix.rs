@@ -490,6 +490,7 @@ print((t1 - t0) * 1000.0)
 // MULTI-LANGUAGE BENCHMARK MATRIX TEST
 // ==========================================
 #[test]
+#[ignore = "intensive multi-language comparative benchmark matrix; run with cargo test -- --ignored"]
 fn test_multilanguage_comparative_matrix() {
     let runs = 3;
     println!(
@@ -789,10 +790,10 @@ fn main() {
 
     let dtr_time_from_stdout = |stdout: &str, fallback_duration: f64| -> f64 {
         for line in stdout.lines() {
-            if let Some(us_str) = line.strip_prefix("DTR_TIME_US:") {
-                if let Ok(us) = us_str.trim().parse::<f64>() {
-                    return us / 1000.0;
-                }
+            if let Some(us_str) = line.strip_prefix("DTR_TIME_US:")
+                && let Ok(us) = us_str.trim().parse::<f64>()
+            {
+                return us / 1000.0;
             }
         }
         fallback_duration

@@ -35,6 +35,7 @@ fn generate_multi_module_project(base_dir: &PathBuf, module_count: usize) -> Str
 }
 
 #[test]
+#[ignore = "intensive comparative benchmark"]
 fn test_big_program_10_and_100_modules_benchmark() {
     let temp_base = std::env::temp_dir().join("forgen_big_program_bench");
     let _ = fs::remove_dir_all(&temp_base);

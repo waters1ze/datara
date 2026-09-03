@@ -81,6 +81,7 @@ fn rust_pipeline_dataflow(n: i64) -> i64 {
 }
 
 #[test]
+#[ignore = "intensive comparative benchmark"]
 fn test_datara_vs_rust_comparative_matrix() {
     let runs = 20;
 

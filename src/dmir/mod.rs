@@ -1472,9 +1472,8 @@ impl<'a> Lowering<'a> {
                         });
                     let mut fields = vec![("__tag".to_string(), tag_val)];
                     let slots = self.enum_slots.get(name).cloned().unwrap_or_default();
-                    for idx in 0..slots.len() {
+                    for (idx, s_ty) in slots.iter().enumerate() {
                         let pad_dest = self.next_val();
-                        let s_ty = &slots[idx];
                         if s_ty.contains("Float") {
                             self.get_block_mut(*cur_block)
                                 .instructions
@@ -2008,9 +2007,8 @@ impl<'a> Lowering<'a> {
                             }
                         }
                         let slots = self.enum_slots.get(fn_name).cloned().unwrap_or_default();
-                        for idx in args.len()..slots.len() {
+                        for (idx, s_ty) in slots.iter().enumerate().skip(args.len()) {
                             let pad_dest = self.next_val();
-                            let s_ty = &slots[idx];
                             if s_ty.contains("Float") {
                                 self.get_block_mut(*cur_block).instructions.push(
                                     Inst::ConstFloat {
@@ -2063,9 +2061,8 @@ impl<'a> Lowering<'a> {
                                 }
                             }
                             let slots = self.enum_slots.get(&enum_key).cloned().unwrap_or_default();
-                            for idx in args.len()..slots.len() {
+                            for (idx, s_ty) in slots.iter().enumerate().skip(args.len()) {
                                 let pad_dest = self.next_val();
-                                let s_ty = &slots[idx];
                                 if s_ty.contains("Float") {
                                     self.get_block_mut(*cur_block).instructions.push(
                                         Inst::ConstFloat {
@@ -2290,9 +2287,8 @@ impl<'a> Lowering<'a> {
                             });
                         let mut fields = vec![("__tag".to_string(), tag_val)];
                         let slots = self.enum_slots.get(&enum_key).cloned().unwrap_or_default();
-                        for idx in 0..slots.len() {
+                        for (idx, s_ty) in slots.iter().enumerate() {
                             let pad_dest = self.next_val();
-                            let s_ty = &slots[idx];
                             if s_ty.contains("Float") {
                                 self.get_block_mut(*cur_block).instructions.push(
                                     Inst::ConstFloat {
