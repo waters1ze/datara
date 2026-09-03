@@ -17,6 +17,7 @@ pub struct DiagnosticEngine {
     pub locale: String,
     pub diagnostics: Vec<Diagnostic>,
     pub source_map: HashMap<String, String>,
+    pub error_count: usize,
 }
 
 impl DiagnosticEngine {
@@ -25,6 +26,7 @@ impl DiagnosticEngine {
             locale: locale.to_string(),
             diagnostics: Vec::new(),
             source_map: HashMap::new(),
+            error_count: 0,
         }
     }
 
@@ -43,6 +45,7 @@ impl DiagnosticEngine {
         span: Option<SourceSpan>,
         help: Option<String>,
     ) {
+        self.error_count += 1;
         self.diagnostics.push(Diagnostic {
             code: code.as_str().to_string(),
             severity: "ERROR".to_string(),
@@ -63,11 +66,12 @@ impl DiagnosticEngine {
     }
 
     pub fn has_errors(&self) -> bool {
-        self.diagnostics.iter().any(|d| d.severity == "ERROR")
+        self.error_count > 0
     }
 
     pub fn clear(&mut self) {
         self.diagnostics.clear();
+        self.error_count = 0;
     }
 
     pub fn format_all(&self) -> String {

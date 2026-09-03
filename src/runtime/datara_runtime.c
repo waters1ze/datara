@@ -111,7 +111,7 @@ DATARA_TLS static char tls_scratch_ring[DATARA_SCRATCH_RING_SIZE];
 DATARA_TLS static size_t tls_scratch_offset = 0;
 
 static inline char* datara_scratch_alloc(size_t len) {
-    size_t needed = (len + 1 + 7) & ~7;
+    size_t needed = (len + 1 + 15) & ~15;
     if (needed > (DATARA_SCRATCH_RING_SIZE / 4)) {
         return (char*)malloc(len + 1);
     }
@@ -121,6 +121,22 @@ static inline char* datara_scratch_alloc(size_t len) {
     char* p = &tls_scratch_ring[tls_scratch_offset];
     tls_scratch_offset += needed;
     return p;
+}
+
+static inline void datara_fast_copy(char* dst, const char* src, size_t len) {
+    if (len <= 8) {
+        uint64_t v = 0;
+        memcpy(&v, src, len);
+        memcpy(dst, &v, len);
+    } else if (len <= 16) {
+        uint64_t v1, v2;
+        memcpy(&v1, src, 8);
+        memcpy(&v2, src + len - 8, 8);
+        memcpy(dst, &v1, 8);
+        memcpy(dst + len - 8, &v2, 8);
+    } else {
+        memcpy(dst, src, len);
+    }
 }
 
 // Ultra-fast zero-malloc string concatenation via thread-local circular bump allocator
@@ -133,91 +149,187 @@ const char* datara_rt_str_concat(const char* a, const char* b) {
     size_t total = la + lb;
     char* buf = datara_scratch_alloc(total);
     if (!buf) return "";
-    memcpy(buf, a, la);
-    memcpy(buf + la, b, lb);
+    datara_fast_copy(buf, a, la);
+    datara_fast_copy(buf + la, b, lb);
     buf[total] = '\0';
     return buf;
 }
 
+static const char DIGITS_LUT[201] =
+    "00010203040506070809"
+    "10111213141516171819"
+    "20212223242526272829"
+    "30313233343536373839"
+    "40414243444546474849"
+    "50515253545556575859"
+    "60616263646566676869"
+    "70717273747576777879"
+    "80818283848586878889"
+    "90919293949596979899";
+
 static inline size_t fast_i64toa(int64_t val, char* buf) {
-    char temp[32];
-    uint64_t uval = (val < 0) ? (uint64_t)(-val) : (uint64_t)val;
-    size_t i = 0;
-
-    if (uval == 0) {
-        temp[i++] = '0';
-    } else {
-        while (uval > 0) {
-            temp[i++] = (char)('0' + (uval % 10));
-            uval /= 10;
+    if (val >= 0 && val < 10000) {
+        if (val < 10) {
+            buf[0] = (char)('0' + val);
+            buf[1] = '\0';
+            return 1;
         }
+        if (val < 100) {
+            memcpy(buf, &DIGITS_LUT[val * 2], 2);
+            buf[2] = '\0';
+            return 2;
+        }
+        uint32_t v = (uint32_t)val;
+        uint32_t q = v / 100;
+        uint32_t r = v - (q * 100);
+        if (q >= 10) {
+            memcpy(buf, &DIGITS_LUT[q * 2], 2);
+            memcpy(buf + 2, &DIGITS_LUT[r * 2], 2);
+            buf[4] = '\0';
+            return 4;
+        } else {
+            buf[0] = (char)('0' + q);
+            memcpy(buf + 1, &DIGITS_LUT[r * 2], 2);
+            buf[3] = '\0';
+            return 3;
+        }
+    } else if (val >= 0 && val < 1000000) {
+        uint32_t v = (uint32_t)val;
+        uint32_t q1 = v / 10000;
+        uint32_t rem = v - (q1 * 10000);
+        uint32_t q2 = rem / 100;
+        uint32_t r = rem - (q2 * 100);
+        char* p = buf;
+        if (q1 >= 10) {
+            memcpy(p, &DIGITS_LUT[q1 * 2], 2);
+            p += 2;
+        } else {
+            *p++ = (char)('0' + q1);
+        }
+        memcpy(p, &DIGITS_LUT[q2 * 2], 2);
+        p += 2;
+        memcpy(p, &DIGITS_LUT[r * 2], 2);
+        p += 2;
+        *p = '\0';
+        return (size_t)(p - buf);
     }
-
-    size_t len = 0;
+    char temp[32];
+    char* p = temp + 31;
+    uint64_t uval;
     if (val < 0) {
-        buf[len++] = '-';
+        uval = (uint64_t)(-(val + 1)) + 1;
+    } else {
+        uval = (uint64_t)val;
     }
-    while (i > 0) {
-        buf[len++] = temp[--i];
+    while (uval >= 100) {
+        uint64_t q = uval / 100;
+        uint32_t r = (uint32_t)(uval - (q * 100));
+        uval = q;
+        p -= 2;
+        memcpy(p, &DIGITS_LUT[r * 2], 2);
     }
+    if (uval >= 10) {
+        p -= 2;
+        memcpy(p, &DIGITS_LUT[uval * 2], 2);
+    } else {
+        *--p = (char)('0' + uval);
+    }
+    size_t len = (size_t)((temp + 31) - p);
+    char* dst = buf;
+    if (val < 0) {
+        *dst++ = '-';
+        len++;
+    }
+    memcpy(dst, p, (size_t)((temp + 31) - p));
     buf[len] = '\0';
     return len;
 }
 
 const char* datara_rt_int_to_str(int64_t v) {
-    char* buf = tls_int_bufs[tls_int_idx & 15];
+    char* buf = tls_int_bufs[tls_int_idx & 31];
     tls_int_idx++;
-    fast_i64toa(v, buf);
+    size_t len = fast_i64toa(v, buf);
+    buf[31] = (char)len;
     return buf;
 }
 
+static inline size_t datara_fast_strlen(const char* s) {
+    if (!s) return 0;
+    ptrdiff_t diff = s - &tls_int_bufs[0][0];
+    if ((size_t)diff < sizeof(tls_int_bufs) && (((size_t)diff) & 31) == 0) {
+        return (size_t)(uint8_t)s[31];
+    }
+    return strlen(s);
+}
+
 const char* datara_rt_str_concat_3(const char* a, const char* b, const char* c) {
-    size_t la = a ? strlen(a) : 0;
-    size_t lb = b ? strlen(b) : 0;
-    size_t lc = c ? strlen(c) : 0;
+    size_t la = datara_fast_strlen(a);
+    size_t lb = datara_fast_strlen(b);
+    size_t lc = datara_fast_strlen(c);
     size_t total = la + lb + lc;
     char* buf = datara_scratch_alloc(total);
     if (!buf) return "";
     char* p = buf;
-    if (la) { memcpy(p, a, la); p += la; }
-    if (lb) { memcpy(p, b, lb); p += lb; }
-    if (lc) { memcpy(p, c, lc); p += lc; }
+    if (la) { datara_fast_copy(p, a, la); p += la; }
+    if (lb) { datara_fast_copy(p, b, lb); p += lb; }
+    if (lc) { datara_fast_copy(p, c, lc); p += lc; }
     *p = '\0';
     return buf;
 }
 
 const char* datara_rt_str_concat_4(const char* a, const char* b, const char* c, const char* d) {
-    size_t la = a ? strlen(a) : 0;
-    size_t lb = b ? strlen(b) : 0;
-    size_t lc = c ? strlen(c) : 0;
-    size_t ld = d ? strlen(d) : 0;
+    size_t la = datara_fast_strlen(a);
+    size_t lb = datara_fast_strlen(b);
+    size_t lc = datara_fast_strlen(c);
+    size_t ld = datara_fast_strlen(d);
     size_t total = la + lb + lc + ld;
     char* buf = datara_scratch_alloc(total);
     if (!buf) return "";
     char* p = buf;
-    if (la) { memcpy(p, a, la); p += la; }
-    if (lb) { memcpy(p, b, lb); p += lb; }
-    if (lc) { memcpy(p, c, lc); p += lc; }
-    if (ld) { memcpy(p, d, ld); p += ld; }
+    if (la) { datara_fast_copy(p, a, la); p += la; }
+    if (lb) { datara_fast_copy(p, b, lb); p += lb; }
+    if (lc) { datara_fast_copy(p, c, lc); p += lc; }
+    if (ld) { datara_fast_copy(p, d, ld); p += ld; }
     *p = '\0';
     return buf;
 }
 
 const char* datara_rt_str_concat_5(const char* a, const char* b, const char* c, const char* d, const char* e) {
-    size_t la = a ? strlen(a) : 0;
-    size_t lb = b ? strlen(b) : 0;
-    size_t lc = c ? strlen(c) : 0;
-    size_t ld = d ? strlen(d) : 0;
-    size_t le = e ? strlen(e) : 0;
+    size_t la = datara_fast_strlen(a);
+    size_t lb = datara_fast_strlen(b);
+    size_t lc = datara_fast_strlen(c);
+    size_t ld = datara_fast_strlen(d);
+    size_t le = datara_fast_strlen(e);
     size_t total = la + lb + lc + ld + le;
     char* buf = datara_scratch_alloc(total);
     if (!buf) return "";
     char* p = buf;
-    if (la) { memcpy(p, a, la); p += la; }
-    if (lb) { memcpy(p, b, lb); p += lb; }
-    if (lc) { memcpy(p, c, lc); p += lc; }
-    if (ld) { memcpy(p, d, ld); p += ld; }
-    if (le) { memcpy(p, e, le); p += le; }
+    if (la) { datara_fast_copy(p, a, la); p += la; }
+    if (lb) { datara_fast_copy(p, b, lb); p += lb; }
+    if (lc) { datara_fast_copy(p, c, lc); p += lc; }
+    if (ld) { datara_fast_copy(p, d, ld); p += ld; }
+    if (le) { datara_fast_copy(p, e, le); p += le; }
+    *p = '\0';
+    return buf;
+}
+
+const char* datara_rt_format_str_i64_str_i64(const char* s1, int64_t n1, const char* s2, int64_t n2) {
+    size_t l1 = s1 ? datara_fast_strlen(s1) : 0;
+    size_t l2 = s2 ? datara_fast_strlen(s2) : 0;
+    size_t max_needed = l1 + l2 + 50;
+    char* buf = datara_scratch_alloc(max_needed);
+    if (!buf) return "";
+    char* p = buf;
+    if (l1) {
+        datara_fast_copy(p, s1, l1);
+        p += l1;
+    }
+    p += fast_i64toa(n1, p);
+    if (l2) {
+        datara_fast_copy(p, s2, l2);
+        p += l2;
+    }
+    p += fast_i64toa(n2, p);
     *p = '\0';
     return buf;
 }
@@ -589,7 +701,13 @@ int64_t datara_rt_now_ms(void) {
     return now_ms();
 }
 int64_t datara_rt_now_precise_ms(void) {
-    return now_ms();
+    static LARGE_INTEGER freq = {0};
+    if (freq.QuadPart == 0) {
+        QueryPerformanceFrequency(&freq);
+    }
+    LARGE_INTEGER count;
+    QueryPerformanceCounter(&count);
+    return (int64_t)((count.QuadPart * 1000000) / freq.QuadPart);
 }
 #else
 #include <time.h>
@@ -602,7 +720,9 @@ int64_t datara_rt_now_ms(void) {
     return now_ms();
 }
 int64_t datara_rt_now_precise_ms(void) {
-    return now_ms();
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000LL + (int64_t)(ts.tv_nsec / 1000LL);
 }
 #endif
 

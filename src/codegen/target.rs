@@ -181,8 +181,50 @@ impl TargetInfo {
         }
     }
 
+    pub fn generic_x86_64(os: Os, abi: Abi) -> Self {
+        let mut features = HashSet::new();
+        features.insert("sse2".to_string());
+        let calling_conv = match os {
+            Os::Windows => CallingConvention::WindowsFastcall,
+            _ => CallingConvention::SystemV,
+        };
+        Self {
+            arch: Arch::X86_64,
+            os,
+            abi,
+            pointer_width: 64,
+            endianness: Endianness::Little,
+            vector_support: vec![VectorExtension::Sse2],
+            atomic_support: true,
+            calling_convention: calling_conv,
+            cpu_features: features,
+        }
+    }
+
+    pub fn generic_aarch64(os: Os) -> Self {
+        let mut features = HashSet::new();
+        features.insert("neon".to_string());
+        let abi = match os {
+            Os::Windows => Abi::Msvc,
+            Os::MacOS => Abi::SysV,
+            Os::Linux => Abi::Gnu,
+        };
+        Self {
+            arch: Arch::Aarch64,
+            os,
+            abi,
+            pointer_width: 64,
+            endianness: Endianness::Little,
+            vector_support: vec![VectorExtension::Neon],
+            atomic_support: true,
+            calling_convention: CallingConvention::Aarch64Standard,
+            cpu_features: features,
+        }
+    }
+
     pub fn host() -> Self {
-        if cfg!(target_os = "windows") {
+        #[allow(unused_mut)]
+        let mut target = if cfg!(target_os = "windows") {
             if cfg!(target_arch = "x86_64") {
                 Self::x86_64_windows()
             } else {
@@ -202,7 +244,38 @@ impl TargetInfo {
             }
         } else {
             Self::x86_64_windows()
+        };
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            let mut features = HashSet::new();
+            let mut vectors = vec![VectorExtension::Sse2];
+            features.insert("sse2".to_string());
+
+            if std::is_x86_feature_detected!("sse4.2") {
+                features.insert("sse4_2".to_string());
+                vectors.push(VectorExtension::Sse4_2);
+            }
+            if std::is_x86_feature_detected!("avx") {
+                features.insert("avx".to_string());
+                vectors.push(VectorExtension::Avx);
+            }
+            if std::is_x86_feature_detected!("avx2") {
+                features.insert("avx2".to_string());
+                vectors.push(VectorExtension::Avx2);
+            }
+            if std::is_x86_feature_detected!("fma") {
+                features.insert("fma".to_string());
+            }
+            if std::is_x86_feature_detected!("avx512f") {
+                features.insert("avx512f".to_string());
+                vectors.push(VectorExtension::Avx512);
+            }
+            target.cpu_features = features;
+            target.vector_support = vectors;
         }
+
+        target
     }
 
     pub fn triple_string(&self) -> String {

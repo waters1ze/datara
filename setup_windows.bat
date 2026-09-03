@@ -7,6 +7,14 @@ echo  Datara & Forgen Compiler — 1-Click Windows Setup
 echo ================================================================================
 echo.
 
+if exist "%~dp0dist\Datara-v0.1.0-Setup.exe" (
+    start "" "%~dp0dist\Datara-v0.1.0-Setup.exe"
+    exit /b 0
+) else if exist "%~dp0installer\Datara-Setup.exe" (
+    start "" "%~dp0installer\Datara-Setup.exe"
+    exit /b 0
+)
+
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1"
 
 if %ERRORLEVEL% EQU 0 (

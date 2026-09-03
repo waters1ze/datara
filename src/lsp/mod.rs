@@ -193,11 +193,22 @@ impl LspServer {
         writer: &mut W,
     ) -> io::Result<()> {
         let mut diag = crate::diagnostics::DiagnosticEngine::new("en");
+        diag.set_source(uri, source);
         let mut lexer = crate::lexer::Lexer::new(source, uri);
         let tokens = lexer.tokenize(&mut diag);
         if !diag.has_errors() {
             let mut parser = crate::parser::Parser::new(tokens, &mut diag, uri);
-            let _ = parser.parse_program();
+            let program = parser.parse_program();
+            if !diag.has_errors() {
+                let mut resolver = crate::resolver::Resolver::new();
+                resolver.resolve_program(&program, &mut diag);
+                if !diag.has_errors() {
+                    let mut type_checker = crate::types::TypeChecker::new(&resolver);
+                    type_checker.check_program(&program, &mut diag);
+                    let mut ownership = crate::ownership::OwnershipTracker::new(&resolver);
+                    ownership.check_program(&program, &mut diag);
+                }
+            }
         }
 
         let mut diagnostics = Vec::new();

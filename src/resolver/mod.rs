@@ -295,6 +295,60 @@ impl Resolver {
                     self.scopes[0].define(c.name.clone(), sym);
                 }
 
+                Decl::Enum(e) => {
+                    if self.classes.contains_key(&e.name) {
+                        diag.error(
+                            ErrorCode::ResolveDuplicateSymbol,
+                            format!("Duplicate type name '{}'", e.name),
+                            Some(e.span.clone()),
+                        );
+                        continue;
+                    }
+                    let mut sym = Symbol {
+                        name: e.name.clone(),
+                        kind: SymbolKind::Class,
+                        is_mut: false,
+                        is_export: e.is_export,
+                        span: e.span.clone(),
+                        fields: HashMap::new(),
+                        methods: HashMap::new(),
+                        base_type: None,
+                        compositions: Vec::new(),
+                        generic_params: e.generic_params.clone(),
+                        type_node: None,
+                        return_type: None,
+                    };
+
+                    for v in &e.variants {
+                        let v_sym = Symbol {
+                            name: v.name.clone(),
+                            kind: SymbolKind::Method,
+                            is_mut: false,
+                            is_export: e.is_export,
+                            span: v.span.clone(),
+                            fields: HashMap::new(),
+                            methods: HashMap::new(),
+                            base_type: None,
+                            compositions: Vec::new(),
+                            generic_params: Vec::new(),
+                            type_node: None,
+                            return_type: Some(TypeNode {
+                                name: e.name.clone(),
+                                generic_args: Vec::new(),
+                                is_option: false,
+                                error_type: None,
+                                span: v.span.clone(),
+                            }),
+                        };
+                        sym.methods.insert(v.name.clone(), v_sym.clone());
+                        sym.fields.insert(v.name.clone(), v_sym.clone());
+                        self.scopes[0].define(v.name.clone(), v_sym);
+                    }
+
+                    self.classes.insert(e.name.clone(), sym.clone());
+                    self.scopes[0].define(e.name.clone(), sym);
+                }
+
                 Decl::Component(c) => {
                     let mut sym = Symbol {
                         name: c.name.clone(),

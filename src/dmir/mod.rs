@@ -230,6 +230,9 @@ pub struct Lowering<'a> {
     pub function_return_types: HashMap<String, String>,
     pub current_fn_name: String,
     pub local_var_types: HashMap<String, DataraType>,
+    pub enum_variant_tags: HashMap<String, i64>,
+    pub enum_variant_names: HashMap<i64, String>,
+    pub enum_slots: HashMap<String, Vec<String>>,
 }
 
 impl<'a> Lowering<'a> {
@@ -337,6 +340,9 @@ impl<'a> Lowering<'a> {
             function_return_types,
             current_fn_name: String::new(),
             local_var_types: HashMap::new(),
+            enum_variant_tags: HashMap::new(),
+            enum_variant_names: HashMap::new(),
+            enum_slots: HashMap::new(),
         }
     }
 
@@ -492,6 +498,37 @@ impl<'a> Lowering<'a> {
                         self.function_return_types
                             .insert(format!("{}_{}", b.target_type, m.name), ret.clone());
                         self.function_return_types.insert(m.name.clone(), ret);
+                    }
+                }
+            } else if let Decl::Enum(e) = decl {
+                let max_fields = e.variants.iter().map(|v| v.fields.len()).max().unwrap_or(0);
+                let mut slot_types: Vec<String> = vec!["Int".to_string(); max_fields];
+                for v in &e.variants {
+                    for (idx, fty) in v.fields.iter().enumerate() {
+                        slot_types[idx] = fty.full_type_name();
+                    }
+                }
+                for (v_idx, v) in e.variants.iter().enumerate() {
+                    let full_vname = format!("{}_{}", e.name, v.name);
+                    self.enum_variant_tags.insert(format!("{}.{}", e.name, v.name), v_idx as i64);
+                    self.enum_variant_tags.insert(v.name.clone(), v_idx as i64);
+                    self.enum_variant_names.insert(v_idx as i64, full_vname.clone());
+                    self.enum_slots.insert(format!("{}.{}", e.name, v.name), slot_types.clone());
+                    self.enum_slots.insert(v.name.clone(), slot_types.clone());
+                    self.class_field_types.insert(
+                        format!("{}.__tag", full_vname),
+                        "Int".into(),
+                    );
+                    self.class_field_types.insert("__tag".into(), "Int".into());
+                    for (s_idx, s_ty) in slot_types.iter().enumerate() {
+                        self.class_field_types.insert(
+                            format!("{}.f{}", full_vname, s_idx),
+                            s_ty.clone(),
+                        );
+                        self.class_field_types.insert(
+                            format!("f{}", s_idx),
+                            s_ty.clone(),
+                        );
                     }
                 }
             } else if let Decl::Function(f) | Decl::Flow(f) | Decl::Task(f) = decl {
@@ -1402,6 +1439,47 @@ impl<'a> Lowering<'a> {
                         });
                     return Some(dest);
                 }
+                if let Some(&tag) = self.enum_variant_tags.get(name) {
+                    let tag_val = self.next_val();
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::ConstInt {
+                            dest: tag_val,
+                            value: tag,
+                        });
+                    let mut fields = vec![("__tag".to_string(), tag_val)];
+                    let slots = self.enum_slots.get(name).cloned().unwrap_or_default();
+                    for idx in 0..slots.len() {
+                        let pad_dest = self.next_val();
+                        let s_ty = &slots[idx];
+                        if s_ty.contains("Float") {
+                            self.get_block_mut(*cur_block)
+                                .instructions
+                                .push(Inst::ConstFloat {
+                                    dest: pad_dest,
+                                    value: 0.0,
+                                });
+                        } else {
+                            self.get_block_mut(*cur_block)
+                                .instructions
+                                .push(Inst::ConstInt {
+                                    dest: pad_dest,
+                                    value: 0,
+                                });
+                        }
+                        fields.push((format!("f{}", idx), pad_dest));
+                    }
+                    let dest = self.next_val();
+                    let class_name = self.enum_variant_names.get(&tag).cloned().unwrap_or_else(|| name.clone());
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::StructInit {
+                            dest,
+                            class_name,
+                            fields,
+                        });
+                    return Some(dest);
+                }
                 let this_opt = self.symbol_values.get("this").cloned();
                 if let Some(this_val) = this_opt {
                     let dest = self.next_val();
@@ -1587,6 +1665,7 @@ impl<'a> Lowering<'a> {
                 let r = self.lower_expr(right, cur_block)?;
                 let dest = self.next_val();
                 let is_float = self.is_expr_float(left) || self.is_expr_float(right);
+                let is_str = (op == "+") && (self.is_expr_str(left) || self.is_expr_str(right));
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::BinOp {
@@ -1594,7 +1673,9 @@ impl<'a> Lowering<'a> {
                         op: op.clone(),
                         left: l,
                         right: r,
-                        ty: if is_float {
+                        ty: if is_str {
+                            "String".into()
+                        } else if is_float {
                             "Float".into()
                         } else {
                             "Int".into()
@@ -1821,10 +1902,104 @@ impl<'a> Lowering<'a> {
                             });
                         return Some(dest);
                     }
+
+                    if let Some(&tag) = self.enum_variant_tags.get(fn_name) {
+                        let tag_val = self.next_val();
+                        self.get_block_mut(*cur_block)
+                            .instructions
+                            .push(Inst::ConstInt {
+                                dest: tag_val,
+                                value: tag,
+                            });
+                        let mut fields = vec![("__tag".to_string(), tag_val)];
+                        for (idx, a) in args.iter().enumerate() {
+                            if let Some(av) = self.lower_expr(a, cur_block) {
+                                fields.push((format!("f{}", idx), av));
+                            }
+                        }
+                        let slots = self.enum_slots.get(fn_name).cloned().unwrap_or_default();
+                        for idx in args.len()..slots.len() {
+                            let pad_dest = self.next_val();
+                            let s_ty = &slots[idx];
+                            if s_ty.contains("Float") {
+                                self.get_block_mut(*cur_block)
+                                    .instructions
+                                    .push(Inst::ConstFloat {
+                                        dest: pad_dest,
+                                        value: 0.0,
+                                    });
+                            } else {
+                                self.get_block_mut(*cur_block)
+                                    .instructions
+                                    .push(Inst::ConstInt {
+                                        dest: pad_dest,
+                                        value: 0,
+                                    });
+                            }
+                            fields.push((format!("f{}", idx), pad_dest));
+                        }
+                        let dest = self.next_val();
+                        let class_name = self.enum_variant_names.get(&tag).cloned().unwrap_or_else(|| fn_name.clone());
+                        self.get_block_mut(*cur_block)
+                            .instructions
+                            .push(Inst::StructInit {
+                                dest,
+                                class_name,
+                                fields,
+                            });
+                        return Some(dest);
+                    }
                 }
 
                 if let Expr::MemberAccess { object, member, .. } = &**callee {
                     if let Expr::Identifier(class_name, _) = &**object {
+                        let enum_key = format!("{}.{}", class_name, member);
+                        if let Some(&tag) = self.enum_variant_tags.get(&enum_key) {
+                            let tag_val = self.next_val();
+                            self.get_block_mut(*cur_block)
+                                .instructions
+                                .push(Inst::ConstInt {
+                                    dest: tag_val,
+                                    value: tag,
+                                });
+                            let mut fields = vec![("__tag".to_string(), tag_val)];
+                            for (idx, a) in args.iter().enumerate() {
+                                if let Some(av) = self.lower_expr(a, cur_block) {
+                                    fields.push((format!("f{}", idx), av));
+                                }
+                            }
+                            let slots = self.enum_slots.get(&enum_key).cloned().unwrap_or_default();
+                            for idx in args.len()..slots.len() {
+                                let pad_dest = self.next_val();
+                                let s_ty = &slots[idx];
+                                if s_ty.contains("Float") {
+                                    self.get_block_mut(*cur_block)
+                                        .instructions
+                                        .push(Inst::ConstFloat {
+                                            dest: pad_dest,
+                                            value: 0.0,
+                                        });
+                                } else {
+                                    self.get_block_mut(*cur_block)
+                                        .instructions
+                                        .push(Inst::ConstInt {
+                                            dest: pad_dest,
+                                            value: 0,
+                                        });
+                                }
+                                fields.push((format!("f{}", idx), pad_dest));
+                            }
+                            let dest = self.next_val();
+                            self.get_block_mut(*cur_block)
+                                .instructions
+                                .push(Inst::StructInit {
+                                    dest,
+                                    class_name: format!("{}_{}", class_name, member),
+                                    fields,
+                                });
+                            return Some(dest);
+                        }
+
                         let static_func_name = format!("{}_{}", class_name, member);
                         if self.function_return_types.contains_key(&static_func_name) {
                             let dummy_this = self.next_val();
@@ -2009,6 +2184,49 @@ impl<'a> Lowering<'a> {
                 Some(dest)
             }
             Expr::MemberAccess { object, member, .. } => {
+                if let Expr::Identifier(type_name, _) = &**object {
+                    let enum_key = format!("{}.{}", type_name, member);
+                    if let Some(&tag) = self.enum_variant_tags.get(&enum_key) {
+                        let tag_val = self.next_val();
+                        self.get_block_mut(*cur_block)
+                            .instructions
+                            .push(Inst::ConstInt {
+                                dest: tag_val,
+                                value: tag,
+                            });
+                        let mut fields = vec![("__tag".to_string(), tag_val)];
+                        let slots = self.enum_slots.get(&enum_key).cloned().unwrap_or_default();
+                        for idx in 0..slots.len() {
+                            let pad_dest = self.next_val();
+                            let s_ty = &slots[idx];
+                            if s_ty.contains("Float") {
+                                self.get_block_mut(*cur_block)
+                                    .instructions
+                                    .push(Inst::ConstFloat {
+                                        dest: pad_dest,
+                                        value: 0.0,
+                                    });
+                            } else {
+                                self.get_block_mut(*cur_block)
+                                    .instructions
+                                    .push(Inst::ConstInt {
+                                        dest: pad_dest,
+                                        value: 0,
+                                    });
+                            }
+                            fields.push((format!("f{}", idx), pad_dest));
+                        }
+                        let dest = self.next_val();
+                        self.get_block_mut(*cur_block)
+                            .instructions
+                            .push(Inst::StructInit {
+                                dest,
+                                class_name: format!("{}_{}", type_name, member),
+                                fields,
+                            });
+                        return Some(dest);
+                    }
+                }
                 let obj_val = self.lower_expr(object, cur_block)?;
                 if member == "view" {
                     return Some(obj_val);
@@ -2387,6 +2605,78 @@ impl<'a> Lowering<'a> {
                                     value: true,
                                 });
                             true_val
+                        }
+                        Pattern::Variant {
+                            enum_name,
+                            variant_name,
+                            bindings,
+                            ..
+                        } => {
+                            let expected_tag = if let Some(en) = enum_name {
+                                self.enum_variant_tags.get(&format!("{}.{}", en, variant_name)).copied()
+                            } else {
+                                self.enum_variant_tags.get(variant_name).copied()
+                            };
+
+                            if let Some(tag) = expected_tag {
+                                let tag_dest = self.next_val();
+                                self.get_block_mut(*cur_block)
+                                    .instructions
+                                    .push(Inst::GetField {
+                                        dest: tag_dest,
+                                        object: val,
+                                        field: "__tag".to_string(),
+                                        ty: "Int".to_string(),
+                                    });
+                                let const_tag = self.next_val();
+                                self.get_block_mut(*cur_block)
+                                    .instructions
+                                    .push(Inst::ConstInt {
+                                        dest: const_tag,
+                                        value: tag,
+                                    });
+                                let eq_dest = self.next_val();
+                                self.get_block_mut(*cur_block)
+                                    .instructions
+                                    .push(Inst::BinOp {
+                                        dest: eq_dest,
+                                        op: "==".into(),
+                                        left: tag_dest,
+                                        right: const_tag,
+                                        ty: "Bool".into(),
+                                    });
+
+                                for (idx, b_name) in bindings.iter().enumerate() {
+                                    let field_dest = self.next_val();
+                                    let field_name = format!("f{}", idx);
+                                    let field_ty = self.class_field_types.get(&field_name).cloned().unwrap_or_else(|| "Int".into());
+                                    self.get_block_mut(*cur_block)
+                                        .instructions
+                                        .push(Inst::GetField {
+                                            dest: field_dest,
+                                            object: val,
+                                            field: field_name,
+                                            ty: field_ty,
+                                        });
+                                    self.symbol_values.insert(b_name.clone(), field_dest);
+                                    self.get_block_mut(*cur_block)
+                                        .instructions
+                                        .push(Inst::AssignVar {
+                                            name: b_name.clone(),
+                                            value: field_dest,
+                                        });
+                                }
+                                eq_dest
+                            } else {
+                                let true_val = self.next_val();
+                                self.get_block_mut(*cur_block)
+                                    .instructions
+                                    .push(Inst::ConstBool {
+                                        dest: true_val,
+                                        value: true,
+                                    });
+                                true_val
+                            }
                         }
                         _ => {
                             let true_val = self.next_val();

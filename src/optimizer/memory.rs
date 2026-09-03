@@ -78,11 +78,7 @@ impl MemoryOptimizer {
                 }
                 // A field store mutates the object in place, so the object is
                 // no longer interchangeable with its initial field values.
-                Inst::SetField { object, value, .. } => {
-                    escaping_structs.insert(*object);
-                    if let Some(&orig) = val_alias.get(object) {
-                        escaping_structs.insert(orig);
-                    }
+                Inst::SetField { value, .. } => {
                     escaping_structs.insert(*value);
                     if let Some(&orig) = val_alias.get(value) {
                         escaping_structs.insert(orig);
@@ -206,6 +202,34 @@ impl MemoryOptimizer {
                 Inst::LoadVar { dest, name } => {
                     if let Some(s_def) = var_to_struct.get(name) {
                         struct_defs.insert(*dest, s_def.clone());
+                    }
+                    new_instructions.push(inst.clone());
+                }
+                Inst::SetField { object, field, value } => {
+                    let mut object_root = *object;
+                    for _ in 0..16 {
+                        match val_alias.get(&object_root) {
+                            Some(&next) if next != object_root => object_root = next,
+                            _ => break,
+                        }
+                    }
+                    if !escaping_structs.contains(&object_root) {
+                        let mut updated = false;
+                        if let Some((_, field_map)) = struct_defs.get_mut(&object_root) {
+                            field_map.insert(field.clone(), *value);
+                            updated = true;
+                        }
+                        if let Some((_, field_map)) = struct_defs.get_mut(object) {
+                            field_map.insert(field.clone(), *value);
+                            updated = true;
+                        }
+                        for (_, (_, field_map)) in var_to_struct.iter_mut() {
+                            field_map.insert(field.clone(), *value);
+                        }
+                        if updated {
+                            eliminated += 1;
+                            continue;
+                        }
                     }
                     new_instructions.push(inst.clone());
                 }

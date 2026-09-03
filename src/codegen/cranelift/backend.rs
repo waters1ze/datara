@@ -68,33 +68,32 @@ impl RealCraneliftBackend {
             .map_err(|e: target_lexicon::ParseError| e.to_string())?;
         let mut isa_builder = cranelift_codegen::isa::lookup(triple).map_err(|e| e.to_string())?;
 
-        // Enable hardware CPU acceleration features when targeting x86_64 safely
+        // Enable hardware CPU acceleration features strictly respecting target specification
         if matches!(self.target.arch, crate::codegen::target::Arch::X86_64) {
-            let _ = isa_builder.set("has_sse3", "true");
-            let _ = isa_builder.set("has_ssse3", "true");
-            let _ = isa_builder.set("has_sse41", "true");
-            let _ = isa_builder.set("has_sse42", "true");
-            let _ = isa_builder.set("has_popcnt", "true");
-            #[cfg(target_arch = "x86_64")]
-            {
-                if std::is_x86_feature_detected!("avx") {
-                    let _ = isa_builder.set("has_avx", "true");
-                }
-                if std::is_x86_feature_detected!("avx2") {
-                    let _ = isa_builder.set("has_avx2", "true");
-                }
-                if std::is_x86_feature_detected!("fma") {
-                    let _ = isa_builder.set("has_fma", "true");
-                }
-                if std::is_x86_feature_detected!("bmi1") {
-                    let _ = isa_builder.set("has_bmi1", "true");
-                }
-                if std::is_x86_feature_detected!("bmi2") {
-                    let _ = isa_builder.set("has_bmi2", "true");
-                }
-                if std::is_x86_feature_detected!("lzcnt") {
-                    let _ = isa_builder.set("has_lzcnt", "true");
-                }
+            let allow_sse3 = self.target.cpu_features.contains("sse3") || self.target.cpu_features.contains("avx2");
+            let allow_sse4 = self.target.cpu_features.contains("sse4_2") || self.target.cpu_features.contains("avx2");
+            let allow_avx = self.target.vector_support.contains(&crate::codegen::target::VectorExtension::Avx)
+                || self.target.vector_support.contains(&crate::codegen::target::VectorExtension::Avx2);
+            let allow_avx2 = self.target.vector_support.contains(&crate::codegen::target::VectorExtension::Avx2);
+
+            if allow_sse3 {
+                let _ = isa_builder.set("has_sse3", "true");
+                let _ = isa_builder.set("has_ssse3", "true");
+            }
+            if allow_sse4 {
+                let _ = isa_builder.set("has_sse41", "true");
+                let _ = isa_builder.set("has_sse42", "true");
+                let _ = isa_builder.set("has_popcnt", "true");
+            }
+            if allow_avx {
+                let _ = isa_builder.set("has_avx", "true");
+            }
+            if allow_avx2 {
+                let _ = isa_builder.set("has_avx2", "true");
+                let _ = isa_builder.set("has_fma", "true");
+                let _ = isa_builder.set("has_bmi1", "true");
+                let _ = isa_builder.set("has_bmi2", "true");
+                let _ = isa_builder.set("has_lzcnt", "true");
             }
         }
 
@@ -378,6 +377,35 @@ impl RealCraneliftBackend {
         func_ids.insert(
             "datara_rt_list_create_repeat".into(),
             (rt_list_repeat_id, rt_list_repeat_sig),
+        );
+        func_ids.insert(
+            "datara_rt_str_concat".into(),
+            (rt_concat_id, rt_concat_sig.clone()),
+        );
+        func_ids.insert(
+            "datara_rt_str_concat_3".into(),
+            (rt_concat_3_id, rt_concat_3_sig),
+        );
+        func_ids.insert(
+            "datara_rt_str_concat_4".into(),
+            (rt_concat_4_id, rt_concat_4_sig),
+        );
+        func_ids.insert(
+            "datara_rt_str_concat_5".into(),
+            (rt_concat_5_id, rt_concat_5_sig),
+        );
+        let mut rt_format_sisi_sig = Signature::new(call_conv);
+        rt_format_sisi_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_format_sisi_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_format_sisi_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_format_sisi_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_format_sisi_sig.returns.push(AbiParam::new(clif_types::I64));
+        let rt_format_sisi_id = module
+            .declare_function("datara_rt_format_str_i64_str_i64", Linkage::Import, &rt_format_sisi_sig)
+            .expect("declare datara_rt_format_str_i64_str_i64");
+        func_ids.insert(
+            "datara_rt_format_str_i64_str_i64".into(),
+            (rt_format_sisi_id, rt_format_sisi_sig),
         );
         func_ids.insert(
             "datara_rt_map_create_2".into(),
@@ -2183,10 +2211,18 @@ impl RealCraneliftBackend {
                             }
                             let callee_ref =
                                 module.declare_func_in_func(callee_id, builder.func);
+                                let is_str_concat = callee_name.starts_with("datara_rt_str_concat");
                                 let mut arg_vals = Vec::new();
                                 for a in args {
                                     if let Some(&av) = val_map.get(a) {
-                                        arg_vals.push(av);
+                                        let final_av = if is_str_concat && !string_vids.contains(a) {
+                                            let conv_ref = module.declare_func_in_func(rt_int_to_str_id, builder.func);
+                                            let call = builder.ins().call(conv_ref, &[av]);
+                                            builder.inst_results(call)[0]
+                                        } else {
+                                            av
+                                        };
+                                        arg_vals.push(final_av);
                                     }
                                 }
                                 let call_inst = builder.ins().call(callee_ref, &arg_vals);

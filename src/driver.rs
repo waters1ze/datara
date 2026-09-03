@@ -37,8 +37,10 @@ pub struct ForgenCompiler {
     pub codegen: CraneliftBackend,
     pub cranelift: CraneliftBackend,
     pub use_llvm: bool,
+    pub pgo_profile: Option<PathBuf>,
 }
 
+#[derive(Clone)]
 pub struct CompilationResult {
     pub success: bool,
     pub exe_path: Option<PathBuf>,
@@ -62,11 +64,17 @@ impl ForgenCompiler {
             codegen: CraneliftBackend::for_host(),
             cranelift: backend,
             use_llvm: false,
+            pgo_profile: None,
         }
     }
 
     pub fn with_llvm(mut self, use_llvm: bool) -> Self {
         self.use_llvm = use_llvm;
+        self
+    }
+
+    pub fn with_pgo(mut self, profile: Option<PathBuf>) -> Self {
+        self.pgo_profile = profile;
         self
     }
 
@@ -87,15 +95,16 @@ impl ForgenCompiler {
         let tokens = lexer.tokenize(&mut diag);
         if diag.has_errors() {
             timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
             return CompilationResult {
                 success: false,
                 exe_path: None,
-                error: Some(diag.format_all()),
+                error: Some(d_str.clone()),
                 program: None,
                 semantic_graph: None,
                 dmir_module: None,
                 optimization_report: None,
-                diagnostics: diag.format_all(),
+                diagnostics: d_str,
                 clif_source: None,
                 llvm_source: None,
                 timings,
@@ -108,15 +117,16 @@ impl ForgenCompiler {
 
         if diag.has_errors() {
             timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
             return CompilationResult {
                 success: false,
                 exe_path: None,
-                error: Some(diag.format_all()),
+                error: Some(d_str.clone()),
                 program: Some(program),
                 semantic_graph: None,
                 dmir_module: None,
                 optimization_report: None,
-                diagnostics: diag.format_all(),
+                diagnostics: d_str,
                 clif_source: None,
                 llvm_source: None,
                 timings,
@@ -142,15 +152,16 @@ impl ForgenCompiler {
         let tokens = lexer.tokenize(&mut diag);
         if diag.has_errors() {
             timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
             return CompilationResult {
                 success: false,
                 exe_path: None,
-                error: Some(diag.format_all()),
+                error: Some(d_str.clone()),
                 program: None,
                 semantic_graph: None,
                 dmir_module: None,
                 optimization_report: None,
-                diagnostics: diag.format_all(),
+                diagnostics: d_str,
                 clif_source: None,
                 llvm_source: None,
                 timings,
@@ -163,15 +174,16 @@ impl ForgenCompiler {
 
         if diag.has_errors() {
             timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
             return CompilationResult {
                 success: false,
                 exe_path: None,
-                error: Some(diag.format_all()),
+                error: Some(d_str.clone()),
                 program: Some(program),
                 semantic_graph: None,
                 dmir_module: None,
                 optimization_report: None,
-                diagnostics: diag.format_all(),
+                diagnostics: d_str,
                 clif_source: None,
                 llvm_source: None,
                 timings,
@@ -191,15 +203,16 @@ impl ForgenCompiler {
         timings.resolve_ms = res_start.elapsed().as_millis();
         if diag.has_errors() {
             timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
             return CompilationResult {
                 success: false,
                 exe_path: None,
-                error: Some(diag.format_all()),
+                error: Some(d_str.clone()),
                 program: Some(program),
                 semantic_graph: None,
                 dmir_module: None,
                 optimization_report: None,
-                diagnostics: diag.format_all(),
+                diagnostics: d_str,
                 clif_source: None,
                 llvm_source: None,
                 timings,
@@ -213,15 +226,16 @@ impl ForgenCompiler {
         timings.typecheck_ms = tc_start.elapsed().as_millis();
         if diag.has_errors() {
             timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
             return CompilationResult {
                 success: false,
                 exe_path: None,
-                error: Some(diag.format_all()),
+                error: Some(d_str.clone()),
                 program: Some(program),
                 semantic_graph: None,
                 dmir_module: None,
                 optimization_report: None,
-                diagnostics: diag.format_all(),
+                diagnostics: d_str,
                 clif_source: None,
                 llvm_source: None,
                 timings,
@@ -241,11 +255,12 @@ impl ForgenCompiler {
         timings.ownership_ms = own_start.elapsed().as_millis();
 
         timings.total_ms = total_start.elapsed().as_millis();
+        let diag_str = diag.format_all();
         CompilationResult {
             success: !diag.has_errors(),
             exe_path: None,
             error: if diag.has_errors() {
-                Some(diag.format_all())
+                Some(diag_str.clone())
             } else {
                 None
             },
@@ -253,7 +268,7 @@ impl ForgenCompiler {
             semantic_graph: None,
             dmir_module: None,
             optimization_report: None,
-            diagnostics: diag.format_all(),
+            diagnostics: diag_str,
             clif_source: None,
             llvm_source: None,
             timings,
@@ -316,15 +331,16 @@ impl ForgenCompiler {
         timings.resolve_ms = res_start.elapsed().as_millis();
         if diag.has_errors() {
             timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
             return CompilationResult {
                 success: false,
                 exe_path: None,
-                error: Some(diag.format_all()),
+                error: Some(d_str.clone()),
                 program: Some(program),
                 semantic_graph: None,
                 dmir_module: None,
                 optimization_report: None,
-                diagnostics: diag.format_all(),
+                diagnostics: d_str,
                 clif_source: None,
                 llvm_source: None,
                 timings,
@@ -338,15 +354,16 @@ impl ForgenCompiler {
         timings.typecheck_ms = tc_start.elapsed().as_millis();
         if diag.has_errors() {
             timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
             return CompilationResult {
                 success: false,
                 exe_path: None,
-                error: Some(diag.format_all()),
+                error: Some(d_str.clone()),
                 program: Some(program),
                 semantic_graph: None,
                 dmir_module: None,
                 optimization_report: None,
-                diagnostics: diag.format_all(),
+                diagnostics: d_str,
                 clif_source: None,
                 llvm_source: None,
                 timings,
@@ -366,15 +383,16 @@ impl ForgenCompiler {
         timings.ownership_ms = own_start.elapsed().as_millis();
         if diag.has_errors() {
             timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
             return CompilationResult {
                 success: false,
                 exe_path: None,
-                error: Some(diag.format_all()),
+                error: Some(d_str.clone()),
                 program: Some(program),
                 semantic_graph: None,
                 dmir_module: None,
                 optimization_report: None,
-                diagnostics: diag.format_all(),
+                diagnostics: d_str,
                 clif_source: None,
                 llvm_source: None,
                 timings,
@@ -419,6 +437,11 @@ impl ForgenCompiler {
             }
         }
         optimizer.optimize_module(&mut dmir_module);
+        if let Some(ref pgo_path) = self.pgo_profile {
+            if let Ok(profile) = crate::pgo::ProfileData::load_from_file(pgo_path) {
+                crate::pgo::ProfileGuidedOptimizer::optimize_module(&mut optimizer, &mut dmir_module, &profile);
+            }
+        }
         timings.optimizer_ms = opt_start.elapsed().as_millis();
 
         if let Some(ref mut g) = graph {
@@ -641,17 +664,18 @@ impl ForgenCompiler {
             let tokens = lexer.tokenize(&mut diag);
             if diag.has_errors() {
                 timings.total_ms = total_start.elapsed().as_millis();
+                let d_str = diag.format_all();
                 return CompilationResult {
                     success: false,
                     exe_path: None,
-                    error: Some(diag.format_all()),
+                    error: Some(d_str.clone()),
                     program: None,
                     semantic_graph: None,
                     dmir_module: None,
                     optimization_report: None,
-                    diagnostics: diag.format_all(),
+                    diagnostics: d_str,
                     clif_source: None,
-                llvm_source: None,
+                    llvm_source: None,
                     timings,
                 };
             }
@@ -660,17 +684,18 @@ impl ForgenCompiler {
             let prog = parser.parse_program();
             if diag.has_errors() {
                 timings.total_ms = total_start.elapsed().as_millis();
+                let d_str = diag.format_all();
                 return CompilationResult {
                     success: false,
                     exe_path: None,
-                    error: Some(diag.format_all()),
+                    error: Some(d_str.clone()),
                     program: Some(prog),
                     semantic_graph: None,
                     dmir_module: None,
                     optimization_report: None,
-                    diagnostics: diag.format_all(),
+                    diagnostics: d_str,
                     clif_source: None,
-                llvm_source: None,
+                    llvm_source: None,
                     timings,
                 };
             }
@@ -1294,6 +1319,9 @@ impl ForgenCompiler {
                     let is_dup = match &d {
                         Decl::Class(c) => program.declarations.iter().any(|existing| {
                             if let Decl::Class(ec) = existing { ec.name == c.name } else { false }
+                        }),
+                        Decl::Enum(e) => program.declarations.iter().any(|existing| {
+                            if let Decl::Enum(ee) = existing { ee.name == e.name } else { false }
                         }),
                         Decl::Behavior(b) => program.declarations.iter().any(|existing| {
                             if let Decl::Behavior(eb) = existing { eb.target_type == b.target_type } else { false }

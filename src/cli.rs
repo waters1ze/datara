@@ -20,8 +20,12 @@ pub fn run_cli() {
     }
 
     if args.len() >= 2 && (args[1] == "--version" || args[1] == "-v" || args[1] == "version") {
-        println!("Datara Toolchain & Forgen AOT Native Compiler v0.1.0");
-        println!("Target Architecture: x86_64-pc-windows-msvc (Cranelift Backend)");
+        let triple = crate::codegen::target::TargetInfo::host().triple_string();
+        println!(
+            "Datara Toolchain & Forgen AOT Native Compiler v{}",
+            env!("CARGO_PKG_VERSION")
+        );
+        println!("Target Architecture: {} (Cranelift Backend)", triple);
         println!("Datara Language Specification 2026 Edition");
         return;
     }
@@ -72,20 +76,25 @@ pub fn run_cli() {
             // Check EVERY source file, not just the entry point: type errors
             // in library modules must surface under `check` too.
             let mut combined = String::new();
+            let mut entry_res = None;
             for f in &layout.source_files {
                 let r = compiler.check_file(f);
+                if f == &layout.entry_point {
+                    entry_res = Some(r.clone());
+                }
                 if !r.success {
                     combined.push_str(&r.diagnostics);
                     combined.push('\n');
                 }
             }
+            let base_entry = entry_res.unwrap_or_else(|| compiler.check_file(&layout.entry_point));
             let res = if combined.is_empty() {
-                compiler.check_file(&layout.entry_point)
+                base_entry
             } else {
                 CompilationResult {
                     success: false,
                     diagnostics: combined,
-                    ..compiler.check_file(&layout.entry_point)
+                    ..base_entry
                 }
             };
             let elapsed = start.elapsed().as_millis();
@@ -553,6 +562,7 @@ pub fn run_cli() {
                 }
             };
 
+            let compiler = compiler.with_pgo(pgo_profile.clone());
             let res = if layout.source_files.len() == 1 {
                 compiler.compile_file(&layout.source_files[0], None)
             } else {

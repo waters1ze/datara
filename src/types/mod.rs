@@ -783,6 +783,13 @@ impl<'a> TypeChecker<'a> {
                         }
                 }
             }
+            Decl::Enum(e) => {
+                let enum_type = DataraType::Class(e.name.clone());
+                for v in &e.variants {
+                    self.symbol_types.insert(v.name.clone(), enum_type.clone());
+                    self.symbol_types.insert(format!("{}.{}", e.name, v.name), enum_type.clone());
+                }
+            }
             Decl::Behavior(b) => {
                 for item in &b.body_items {
                     if let ClassItem::Method(m) = item
@@ -1530,6 +1537,10 @@ impl<'a> TypeChecker<'a> {
                 if let Expr::MemberAccess { object, member, .. } = &**callee {
                     let obj_type = self.check_expr(object, diag);
                     if let DataraType::Class(cls) = &obj_type {
+                        let full_name = format!("{}.{}", cls, member);
+                        if let Some(t) = self.symbol_types.get(&full_name) {
+                            return t.clone();
+                        }
                         if cls == "List" {
                             if member == "length"
                                 || member == "count"
@@ -1576,6 +1587,10 @@ impl<'a> TypeChecker<'a> {
                 let obj_type = self.check_expr(object, diag);
                 match &obj_type {
                     DataraType::Class(cls_name) => {
+                        let full_name = format!("{}.{}", cls_name, member);
+                        if let Some(t) = self.symbol_types.get(&full_name) {
+                            return t.clone();
+                        }
                         if member == "view" || member == "clone" || member == "mut_view" {
                             return DataraType::Class(cls_name.clone());
                         }

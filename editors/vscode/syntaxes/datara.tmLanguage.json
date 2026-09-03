@@ -103,7 +103,7 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(fn|function|class|entity|behavior|component|role|packet|using|flow|process|task|actor)\\b",
+          "match": "\\b(fn|function|class|entity|behavior|component|role|packet|using|flow|process|task|actor|enum)\\b",
           "name": "keyword.declaration.datara"
         },
         {

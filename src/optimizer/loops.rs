@@ -683,10 +683,16 @@ enum SumTerm {
     /// `sum += i` or `sum += i * k` where `i` is the induction variable:
     /// closed form via parity-split Gaussian product.
     Induction { scale: i64, start: i64, is_le: bool },
+    /// `sum += i * i` (quadratic sum): closed form via n*(n-1)*(2n-1)/6 or n*(n+1)*(2n+1)/6.
+    Quadratic { scale: i64, is_le: bool },
+    /// Float induction: `sum += i * k` for Float induction variable.
+    FloatInduction { scale: f64, start: f64, is_le: bool },
     /// `sum += x` where `x` is defined outside the loop: closed form `n*x`.
     InvariantValue(ValueId),
     /// `sum += c`: closed form `n*c`.
     InvariantConst(i64),
+    /// Float constant `sum += c`: closed form `n*c`.
+    FloatInvariantConst(f64),
 }
 
 struct FoldPlan {
@@ -701,6 +707,7 @@ struct FoldPlan {
     /// The loop bound `n` in `i < n` (defined outside the loop).
     n: ValueId,
     term: SumTerm,
+    is_float: bool,
 }
 
 impl LoopOptimizer {
@@ -725,10 +732,11 @@ impl LoopOptimizer {
         let header_blk = f.get_block(header)?;
         let body_blk = f.get_block(body)?;
 
-        // Header: two Int parameters, one `<` comparison whose left operand is
-        // one of the parameters (the induction variable), and a plain
-        // CondBranch into body | exit with no branch arguments.
-        if header_blk.params.len() != 2 || header_blk.params.iter().any(|p| p.ty != "Int") {
+        // Header: two parameters (both Int or both Float), one `<` or `<=` comparison whose
+        // left operand is the induction variable, and a CondBranch into body | exit.
+        let is_float = header_blk.params.iter().all(|p| p.ty == "Float");
+        let is_int = header_blk.params.iter().all(|p| p.ty == "Int");
+        if header_blk.params.len() != 2 || (!is_int && !is_float) {
             return None;
         }
         if header_blk.instructions.len() != 1 {
@@ -781,6 +789,8 @@ impl LoopOptimizer {
             return None;
         }
         let mut scaled_terms: HashMap<ValueId, i64> = HashMap::new();
+        let mut quadratic_terms: HashSet<ValueId> = HashSet::new();
+        let mut float_scaled_terms: HashMap<ValueId, f64> = HashMap::new();
         for inst in &body_blk.instructions {
             if let Inst::BinOp {
                 dest,
@@ -790,14 +800,23 @@ impl LoopOptimizer {
                 ..
             } = inst
                 && op == "*" {
-                    if *left == p_i {
+                    if !is_float && *left == p_i && *right == p_i {
+                        quadratic_terms.insert(*dest);
+                    } else if !is_float && *left == p_i {
                         if let Some(k) = Self::const_int_value(f, *right) {
                             scaled_terms.insert(*dest, k);
                         }
-                    } else if *right == p_i
+                    } else if !is_float && *right == p_i
                         && let Some(k) = Self::const_int_value(f, *left) {
                             scaled_terms.insert(*dest, k);
+                    } else if is_float && *left == p_i {
+                        if let Some(k) = Self::const_float_value(f, *right) {
+                            float_scaled_terms.insert(*dest, k);
                         }
+                    } else if is_float && *right == p_i
+                        && let Some(k) = Self::const_float_value(f, *left) {
+                            float_scaled_terms.insert(*dest, k);
+                    }
                 }
         }
 
@@ -805,9 +824,13 @@ impl LoopOptimizer {
         let mut inc: Option<ValueId> = None; // i_next
         for inst in &body_blk.instructions {
             match inst {
-                Inst::ConstInt { .. } => {}
+                Inst::ConstInt { .. } if !is_float => {}
+                Inst::ConstFloat { .. } if is_float => {}
                 Inst::BinOp { op, dest, .. } if op == "*" => {
-                    if !scaled_terms.contains_key(dest) {
+                    if !scaled_terms.contains_key(dest)
+                        && !quadratic_terms.contains(dest)
+                        && !float_scaled_terms.contains_key(dest)
+                    {
                         return None;
                     }
                 }
@@ -820,11 +843,14 @@ impl LoopOptimizer {
                 } if op == "+" => {
                     if *left == p_sum && acc.is_none() {
                         acc = Some((*dest, *right));
-                    } else if *left == p_i
-                        && inc.is_none()
-                        && Self::const_int_value(f, *right) == Some(1)
-                    {
-                        inc = Some(*dest);
+                    } else if *left == p_i && inc.is_none() {
+                        if !is_float && Self::const_int_value(f, *right) == Some(1) {
+                            inc = Some(*dest);
+                        } else if is_float && Self::const_float_value(f, *right) == Some(1.0) {
+                            inc = Some(*dest);
+                        } else {
+                            return None;
+                        }
                     } else {
                         return None;
                     }
@@ -904,10 +930,23 @@ impl LoopOptimizer {
             return None;
         }
         // The induction must start at 0 or 1 for the closed form to hold.
-        let i0_val = match Self::const_int_value(f, i0) {
-            Some(0) => 0,
-            Some(1) => 1,
-            _ => return None,
+        let i0_val = if !is_float {
+            match Self::const_int_value(f, i0) {
+                Some(0) => 0,
+                Some(1) => 1,
+                _ => return None,
+            }
+        } else {
+            0
+        };
+        let i0_float_val = if is_float {
+            match Self::const_float_value(f, i0) {
+                Some(0.0) => 0.0,
+                Some(1.0) => 1.0,
+                _ => return None,
+            }
+        } else {
+            0.0
         };
 
         // The exit block must be reachable only through the loop: then every
@@ -938,10 +977,33 @@ impl LoopOptimizer {
         }
 
         // Classify the accumulate operand.
-        let term = if x == p_i {
+        let term = if is_float {
+            if x == p_i {
+                SumTerm::FloatInduction {
+                    scale: 1.0,
+                    start: i0_float_val,
+                    is_le,
+                }
+            } else if let Some(&k) = float_scaled_terms.get(&x) {
+                SumTerm::FloatInduction {
+                    scale: k,
+                    start: i0_float_val,
+                    is_le,
+                }
+            } else if let Some(v) = Self::const_float_value(f, x) {
+                SumTerm::FloatInvariantConst(v)
+            } else {
+                return None;
+            }
+        } else if x == p_i {
             SumTerm::Induction {
                 scale: 1,
                 start: i0_val,
+                is_le,
+            }
+        } else if quadratic_terms.contains(&x) {
+            SumTerm::Quadratic {
+                scale: 1,
                 is_le,
             }
         } else if let Some(&k) = scaled_terms.get(&x) {
@@ -973,7 +1035,21 @@ impl LoopOptimizer {
             s0,
             n,
             term,
+            is_float,
         })
+    }
+
+    /// The value of a `ConstFloat` definition, wherever it lives in the function.
+    fn const_float_value(f: &Function, vid: ValueId) -> Option<f64> {
+        for b in &f.blocks {
+            for inst in &b.instructions {
+                if let Inst::ConstFloat { dest, value } = inst
+                    && *dest == vid {
+                        return Some(*value);
+                    }
+            }
+        }
+        None
     }
 
     /// The value of a `ConstInt` definition, wherever it lives in the function.
@@ -1106,63 +1182,130 @@ impl LoopOptimizer {
             dest
         }
 
+        fn push_const_float(
+            insts: &mut Vec<Inst>,
+            next: &mut usize,
+            value: f64,
+        ) -> ValueId {
+            let dest = ValueId(*next);
+            *next += 1;
+            insts.push(Inst::ConstFloat { dest, value });
+            dest
+        }
+
         let mut next = Self::max_vid(f) + 1;
         let mut insts: Vec<Inst> = Vec::new();
 
-        let c0 = push_const(&mut insts, &mut next, 0);
-        let c1 = push_const(&mut insts, &mut next, 1);
-        let c2 = push_const(&mut insts, &mut next, 2);
+        let (_closed, s_final) = if plan.is_float {
+            let c0 = push_const_float(&mut insts, &mut next, 0.0);
+            let c1 = push_const_float(&mut insts, &mut next, 1.0);
+            let c2 = push_const_float(&mut insts, &mut next, 2.0);
 
-        let closed = match plan.term {
-            SumTerm::Induction {
-                scale,
-                start,
-                is_le,
-            } => {
-                let use_plus_one = (start == 1 && is_le) || (start == 0 && is_le);
-                let adj_op = if use_plus_one { "+" } else { "-" };
-                let n_adj = push_bin(&mut insts, &mut next, adj_op, plan.n, c1, "Int");
-
-                let half_e = push_bin(&mut insts, &mut next, "/", plan.n, c2, "Int");
-                let prod_e = push_bin(&mut insts, &mut next, "*", half_e, n_adj, "Int");
-                let half_o = push_bin(&mut insts, &mut next, "/", n_adj, c2, "Int");
-                let prod_o = push_bin(&mut insts, &mut next, "*", half_o, plan.n, "Int");
-                let mod2 = push_bin(&mut insts, &mut next, "%", plan.n, c2, "Int");
-                let is_even = push_bin(&mut insts, &mut next, "==", mod2, c0, "Bool");
-                let unscaled = push_decide(
-                    &mut insts,
-                    &mut next,
-                    vec![(is_even, prod_e)],
-                    Some(prod_o),
-                    "Int",
-                );
-
-                if scale != 1 {
-                    let k_val = push_const(&mut insts, &mut next, scale);
-                    push_bin(&mut insts, &mut next, "*", unscaled, k_val, "Int")
-                } else {
-                    unscaled
+            let closed = match plan.term {
+                SumTerm::FloatInduction { scale, start, is_le } => {
+                    let use_plus_one = (start == 1.0 && is_le) || (start == 0.0 && is_le);
+                    let adj_op = if use_plus_one { "+" } else { "-" };
+                    let n_adj = push_bin(&mut insts, &mut next, adj_op, plan.n, c1, "Float");
+                    let prod = push_bin(&mut insts, &mut next, "*", plan.n, n_adj, "Float");
+                    let half = push_bin(&mut insts, &mut next, "/", prod, c2, "Float");
+                    if scale != 1.0 {
+                        let k_val = push_const_float(&mut insts, &mut next, scale);
+                        push_bin(&mut insts, &mut next, "*", half, k_val, "Float")
+                    } else {
+                        half
+                    }
                 }
-            }
-            SumTerm::InvariantValue(x) => push_bin(&mut insts, &mut next, "*", plan.n, x, "Int"),
-            SumTerm::InvariantConst(v) => {
-                let cv = push_const(&mut insts, &mut next, v);
-                push_bin(&mut insts, &mut next, "*", plan.n, cv, "Int")
-            }
-        };
+                SumTerm::FloatInvariantConst(c) => {
+                    let cv = push_const_float(&mut insts, &mut next, c);
+                    push_bin(&mut insts, &mut next, "*", plan.n, cv, "Float")
+                }
+                _ => unreachable!(),
+            };
 
-        // Zero-trip guard: for n <= 0 the body never runs, so the final value
-        // is the initial one. Both select sides are computed unconditionally;
-        // none of them can trap (the only division is by the constant 2).
-        let neg = push_bin(&mut insts, &mut next, "<", plan.n, c0, "Bool");
-        let total = push_bin(&mut insts, &mut next, "+", plan.s0, closed, "Int");
-        let s_final = push_decide(
-            &mut insts,
-            &mut next,
-            vec![(neg, plan.s0)],
-            Some(total),
-            "Int",
-        );
+            let neg = push_bin(&mut insts, &mut next, "<=", plan.n, c0, "Bool");
+            let total = push_bin(&mut insts, &mut next, "+", plan.s0, closed, "Float");
+            let s_fin = push_decide(
+                &mut insts,
+                &mut next,
+                vec![(neg, plan.s0)],
+                Some(total),
+                "Float",
+            );
+            (closed, s_fin)
+        } else {
+            let c0 = push_const(&mut insts, &mut next, 0);
+            let c1 = push_const(&mut insts, &mut next, 1);
+            let c2 = push_const(&mut insts, &mut next, 2);
+
+            let closed = match plan.term {
+                SumTerm::Induction {
+                    scale,
+                    start,
+                    is_le,
+                } => {
+                    let use_plus_one = (start == 1 && is_le) || (start == 0 && is_le);
+                    let adj_op = if use_plus_one { "+" } else { "-" };
+                    let n_adj = push_bin(&mut insts, &mut next, adj_op, plan.n, c1, "Int");
+
+                    let half_e = push_bin(&mut insts, &mut next, "/", plan.n, c2, "Int");
+                    let prod_e = push_bin(&mut insts, &mut next, "*", half_e, n_adj, "Int");
+                    let half_o = push_bin(&mut insts, &mut next, "/", n_adj, c2, "Int");
+                    let prod_o = push_bin(&mut insts, &mut next, "*", half_o, plan.n, "Int");
+                    let mod2 = push_bin(&mut insts, &mut next, "%", plan.n, c2, "Int");
+                    let is_even = push_bin(&mut insts, &mut next, "==", mod2, c0, "Bool");
+                    let unscaled = push_decide(
+                        &mut insts,
+                        &mut next,
+                        vec![(is_even, prod_e)],
+                        Some(prod_o),
+                        "Int",
+                    );
+
+                    if scale != 1 {
+                        let k_val = push_const(&mut insts, &mut next, scale);
+                        push_bin(&mut insts, &mut next, "*", unscaled, k_val, "Int")
+                    } else {
+                        unscaled
+                    }
+                }
+                SumTerm::Quadratic {
+                    scale,
+                    is_le,
+                } => {
+                    let c6 = push_const(&mut insts, &mut next, 6);
+                    let adj_op = if is_le { "+" } else { "-" };
+                    let n_adj = push_bin(&mut insts, &mut next, adj_op, plan.n, c1, "Int");
+                    let two_n = push_bin(&mut insts, &mut next, "*", plan.n, c2, "Int");
+                    let two_n_adj = push_bin(&mut insts, &mut next, adj_op, two_n, c1, "Int");
+                    let prod1 = push_bin(&mut insts, &mut next, "*", plan.n, n_adj, "Int");
+                    let num = push_bin(&mut insts, &mut next, "*", prod1, two_n_adj, "Int");
+                    let unscaled = push_bin(&mut insts, &mut next, "/", num, c6, "Int");
+                    if scale != 1 {
+                        let k_val = push_const(&mut insts, &mut next, scale);
+                        push_bin(&mut insts, &mut next, "*", unscaled, k_val, "Int")
+                    } else {
+                        unscaled
+                    }
+                }
+                SumTerm::InvariantValue(x) => push_bin(&mut insts, &mut next, "*", plan.n, x, "Int"),
+                SumTerm::InvariantConst(v) => {
+                    let cv = push_const(&mut insts, &mut next, v);
+                    push_bin(&mut insts, &mut next, "*", plan.n, cv, "Int")
+                }
+                _ => unreachable!(),
+            };
+
+            let neg = push_bin(&mut insts, &mut next, "<", plan.n, c0, "Bool");
+            let total = push_bin(&mut insts, &mut next, "+", plan.s0, closed, "Int");
+            let s_fin = push_decide(
+                &mut insts,
+                &mut next,
+                vec![(neg, plan.s0)],
+                Some(total),
+                "Int",
+            );
+            (closed, s_fin)
+        };
 
         // Prepend the closed form to the exit block.
         {
@@ -1198,6 +1341,18 @@ impl LoopOptimizer {
             SumTerm::Induction { .. } => {
                 "countable while-loop: final value proven in wrapping arithmetic \
                  (parity-split Gaussian closed form); zero trips guarded by select"
+            }
+            SumTerm::Quadratic { .. } => {
+                "countable while-loop with quadratic accumulation (sum += i*i): final value \
+                 proven via sum of squares closed form n*(n-1)*(2n-1)/6; zero trips guarded by select"
+            }
+            SumTerm::FloatInduction { .. } => {
+                "countable while-loop with Float induction: final value proven via analytical \
+                 closed form; zero trips guarded by select"
+            }
+            SumTerm::FloatInvariantConst(_) => {
+                "countable while-loop (Float sum += constant): final value proven == s0 + n*c; \
+                 n <= 0 guarded by select"
             }
             SumTerm::InvariantValue(_) => {
                 "countable while-loop (i from 0 step 1, i < n, sum += loop-invariant): final \

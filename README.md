@@ -77,21 +77,25 @@ Datara completely eliminates garbage collection pauses and reference-counting cy
 
 ### Windows Installation
 
-#### Method A: Automated One-Liner (PowerShell)
-Open PowerShell as an Administrator or standard user and run:
+#### Method A: Official Standalone GUI Installer (Recommended)
+Download and run the official 1-click installer:
+- **[Download Datara-Setup.exe](https://github.com/waters1ze/datara/releases/latest/download/Datara-Setup.exe)** *(or run `dist/Datara-v0.1.0-Setup.exe` from this repository)*
+
+*What the installer does automatically:*
+- Native Windows GUI wizard with dark theme and official Datara icon.
+- Installs `forgen.exe` (compiler) and `datara.exe` (runtime) into `%LOCALAPPDATA%\Programs\Datara`.
+- Installs all 14 official Standard Library modules.
+- Associates `.dtr` files with the official high-resolution Datara icon in Windows Explorer.
+- Adds Datara to your User `PATH` and sets `DATARA_HOME`.
+- Registers Datara in Windows **"Installed Apps"** (with clean uninstaller).
+- Installs the Datara Language Extension for VS Code / Cursor.
+
+#### Method B: Automated Terminal One-Liner (PowerShell)
+Open PowerShell and run:
 ```powershell
 irm https://raw.githubusercontent.com/waters1ze/datara/main/install.ps1 | iex
 ```
-*What this does automatically:*
-1. Creates directory `%USERPROFILE%\.datara\bin` and `%USERPROFILE%\.datara\stdlib`.
-2. Installs `forgen.exe` (compiler toolchain) and `datara.exe` (runtime CLI).
-3. Copies all 14 official Datara standard library modules.
-4. Registers `%USERPROFILE%\.datara\bin` permanently into your User `PATH`.
-5. Sets `DATARA_HOME` environment variable and verifies the installation.
-
-#### Method B: 1-Click GUI Batch Setup
-If you have cloned or downloaded the repository:
-- Simply double-click **`setup_windows.bat`** in the root directory.
+*Dynamically detects and downloads the latest release from GitHub API, installs binaries, stdlib, icons, and registers `PATH`.*
 
 ---
 
@@ -101,6 +105,8 @@ Open your terminal and run the official Unix installation script:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/waters1ze/datara/main/install.sh | bash
 ```
+*Dynamically detects your OS and architecture, downloads the latest release, installs `forgen` to `~/.datara/bin`, sets up standard library, registers desktop MIME file icons (`text/x-datara` for GNOME/KDE/macOS Finder), and configures `PATH` in `~/.bashrc` or `~/.zshrc`.*
+
 Then reload your environment:
 ```bash
 source ~/.bashrc   # On Linux / Bash
@@ -137,6 +143,8 @@ Configure your favorite editor (VS Code, Neovim, Zed, Sublime Text) to execute `
 - Automatic hover type inspection.
 - Auto-completion for standard library modules and functions.
 - Automatic formatting on save via `forgen format`.
+
+> **Universal IDE Setup Guide**: For 30-second setup instructions for **Visual Studio Code, Cursor, JetBrains (IntelliJ / CLion / PyCharm / RustRover), Neovim / Vim, Sublime Text, Helix, and Zed**, see **[`editors/README.md`](editors/README.md)**.
 
 ---
 

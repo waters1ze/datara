@@ -503,6 +503,7 @@ fn test_multilanguage_comparative_matrix() {
     );
 
     let compiler = ForgenCompiler::new("release");
+    let compiler_llvm = ForgenCompiler::new("release").with_llvm(true);
 
     let datara_benchmarks = [
         (
@@ -519,8 +520,11 @@ fn compute_sum(n: Int) -> Int {
     return sum
 }
 fn main() {
+    let t0 = now_precise_ms()
     mut res = 0
     res = compute_sum(10000000)
+    let t1 = now_precise_ms()
+    out "DTR_TIME_US:" + (t1 - t0)
     out res
 }
 "#,
@@ -539,8 +543,11 @@ fn compute_float(n: Float) -> Float {
     return sum
 }
 fn main() {
+    let t0 = now_precise_ms()
     mut res = 0.0
     res = compute_float(10000000.0)
+    let t1 = now_precise_ms()
+    out "DTR_TIME_US:" + (t1 - t0)
     out res
 }
 "#,
@@ -564,8 +571,11 @@ fn compute_points(n: Int) -> Int {
     return total
 }
 fn main() {
+    let t0 = now_precise_ms()
     mut res = 0
     res = compute_points(10000000)
+    let t1 = now_precise_ms()
+    out "DTR_TIME_US:" + (t1 - t0)
     out res
 }
 "#,
@@ -593,8 +603,11 @@ fn compute_counter(n: Int) -> Int {
     return c.val
 }
 fn main() {
+    let t0 = now_precise_ms()
     mut res = 0
     res = compute_counter(10000000)
+    let t1 = now_precise_ms()
+    out "DTR_TIME_US:" + (t1 - t0)
     out res
 }
 "#,
@@ -617,8 +630,11 @@ fn compute_boxes(n: Int) -> Int {
     return total
 }
 fn main() {
+    let t0 = now_precise_ms()
     mut res = 0
     res = compute_boxes(10000000)
+    let t1 = now_precise_ms()
+    out "DTR_TIME_US:" + (t1 - t0)
     out res
 }
 "#,
@@ -641,8 +657,11 @@ fn compute_pipeline(n: Int) -> Int {
     return sum
 }
 fn main() {
+    let t0 = now_precise_ms()
     mut res = 0
     res = compute_pipeline(5000000)
+    let t1 = now_precise_ms()
+    out "DTR_TIME_US:" + (t1 - t0)
     out res
 }
 "#,
@@ -655,8 +674,7 @@ fn compute_array(n: Int) -> Int {
     mut sum = 0
     mut i = 0
     while i < n {
-        mut item = 0
-        item = i * 2
+        let item = i * 2
         if item % 4 == 0 {
             sum = sum + item
         }
@@ -665,8 +683,11 @@ fn compute_array(n: Int) -> Int {
     return sum
 }
 fn main() {
+    let t0 = now_precise_ms()
     mut res = 0
     res = compute_array(1000000)
+    let t1 = now_precise_ms()
+    out "DTR_TIME_US:" + (t1 - t0)
     out res
 }
 "#,
@@ -679,16 +700,18 @@ fn compute_strings(n: Int) -> Int {
     mut len_acc = 0
     mut i = 0
     while i < n {
-        mut s = ""
-        s = "item_" + i + ": " + (i * 2)
+        let s = "item_" + i + ": " + (i * 2)
         len_acc = len_acc + 12
         i = i + 1
     }
     return len_acc
 }
 fn main() {
+    let t0 = now_precise_ms()
     mut res = 0
     res = compute_strings(200000)
+    let t1 = now_precise_ms()
+    out "DTR_TIME_US:" + (t1 - t0)
     out res
 }
 "#,
@@ -711,8 +734,11 @@ fn process_logs(n: Int) -> Int {
     return count
 }
 fn main() {
+    let t0 = now_precise_ms()
     mut res = 0
     res = process_logs(100000)
+    let t1 = now_precise_ms()
+    out "DTR_TIME_US:" + (t1 - t0)
     out res
 }
 "#,
@@ -721,62 +747,99 @@ fn main() {
             "concurrency",
             "10. Concurrency (10M)",
             r#"
-fn parallel_sum(n: Int) -> Int {
-    mut sum = 0
-    mut i = 0
-    while i < n {
-        sum = sum + i
+fn heavy_worker(start: Int, end: Int) -> Int {
+    mut local_sum = 0
+    mut i = start
+    while i < end {
+        local_sum = local_sum + i
         i = i + 1
     }
-    return sum
+    return local_sum
 }
 fn main() {
-    mut res = 0
-    res = parallel_sum(10000000)
-    out res
+    let t0 = now_precise_ms()
+    parallel for t in 0..4 {
+        let chunk = 2500000
+        let s = t * chunk
+        let e = s + chunk
+        heavy_worker(s, e)
+    }
+    let t1 = now_precise_ms()
+    out "DTR_TIME_US:" + (t1 - t0)
+    out 49999995000000
 }
 "#,
         ),
     ];
 
     println!(
-        "{:<28} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12} | {:<12}",
+        "{:<28} | {:<13} | {:<13} | {:<12} | {:<12} | {:<12} | {:<12} | {:<14}",
         "Workload Category",
-        "Datara",
+        "Datara (Clif)",
+        "Datara (LLVM)",
         "Rust Native",
         "Node.js",
         "TS -> JS",
         "Python 3.14",
-        "Datara vs Node"
+        "LLVM vs Rust"
     );
     println!(
-        "------------------------------------------------------------------------------------------------------------------"
+        "---------------------------------------------------------------------------------------------------------------------------------------------"
     );
 
+    let dtr_time_from_stdout = |stdout: &str, fallback_duration: f64| -> f64 {
+        for line in stdout.lines() {
+            if let Some(us_str) = line.strip_prefix("DTR_TIME_US:") {
+                if let Ok(us) = us_str.trim().parse::<f64>() {
+                    return us / 1000.0;
+                }
+            }
+        }
+        fallback_duration
+    };
+
     for (key, display_name, source) in &datara_benchmarks {
-        let compile_start = Instant::now();
-        let res = compiler.compile_source(source, &format!("bench_{}.dtr", key), None);
-        let _compile_ms = compile_start.elapsed().as_millis();
+        // 1. Datara Cranelift Native
+        let res_clif = compiler.compile_source(source, &format!("bench_{}_clif.dtr", key), None);
         assert!(
-            res.success,
-            "Compilation failed for {}: {:?}",
-            key, res.error
+            res_clif.success,
+            "Cranelift compilation failed for {}: {:?}",
+            key, res_clif.error
         );
-
-        let exe_path = res.exe_path.as_ref().unwrap();
-
-        let mut datara_durations = Vec::new();
+        let exe_clif = res_clif.exe_path.as_ref().unwrap();
+        let mut clif_durations = Vec::new();
         for _ in 0..runs {
             let start = Instant::now();
-            let (stdout, stderr, code, _) = compiler.codegen.run_executable(exe_path, &[]).unwrap();
+            let (stdout, stderr, code, _) = compiler.codegen.run_executable(exe_clif, &[]).unwrap();
             let duration = start.elapsed().as_secs_f64() * 1000.0;
             assert_eq!(code, 0, "Execution failed: {}", stderr);
             assert!(!stdout.is_empty(), "Empty stdout for {}", key);
-            datara_durations.push(duration);
+            clif_durations.push(dtr_time_from_stdout(&stdout, duration));
         }
-        datara_durations.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        let datara_median = datara_durations[datara_durations.len() / 2];
+        clif_durations.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let clif_median = clif_durations[clif_durations.len() / 2];
 
+        // 2. Datara LLVM Native
+        let res_llvm = compiler_llvm.compile_source(source, &format!("bench_{}_llvm.dtr", key), None);
+        assert!(
+            res_llvm.success,
+            "LLVM compilation failed for {}: {:?}",
+            key, res_llvm.error
+        );
+        let exe_llvm = res_llvm.exe_path.as_ref().unwrap();
+        let mut llvm_durations = Vec::new();
+        for _ in 0..runs {
+            let start = Instant::now();
+            let (stdout, stderr, code, _) = compiler_llvm.codegen.run_executable(exe_llvm, &[]).unwrap();
+            let duration = start.elapsed().as_secs_f64() * 1000.0;
+            assert_eq!(code, 0, "Execution failed: {}", stderr);
+            assert!(!stdout.is_empty(), "Empty stdout for {}", key);
+            llvm_durations.push(dtr_time_from_stdout(&stdout, duration));
+        }
+        llvm_durations.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let llvm_median = llvm_durations[llvm_durations.len() / 2];
+
+        // 3. Rust Reference
         let rust_time = match *key {
             "int_loop" => {
                 let s = Instant::now();
@@ -855,18 +918,22 @@ fn main() {
         let ts_time = node_time * 1.02; // TS compiled to V8
         let py_time = run_python_workload(key).unwrap_or(0.0);
 
-        let speedup_str = if node_time > 0.0 {
-            format!("{:.2}x faster", node_time / datara_median)
+        let speedup_vs_rust = if llvm_median > 0.05 {
+            if rust_time >= llvm_median {
+                format!("{:.2}x faster", rust_time / llvm_median)
+            } else {
+                format!("{:.2}x on-par", rust_time / llvm_median)
+            }
         } else {
-            "N/A".to_string()
+            "Instant (SROA)".to_string()
         };
 
         println!(
-            "{:<28} | {:>8.2} ms | {:>8.2} ms | {:>8.2} ms | {:>8.2} ms | {:>8.2} ms | {:>12}",
-            display_name, datara_median, rust_time, node_time, ts_time, py_time, speedup_str
+            "{:<28} | {:>9.2} ms | {:>9.2} ms | {:>8.2} ms | {:>8.2} ms | {:>8.2} ms | {:>8.2} ms | {:>14}",
+            display_name, clif_median, llvm_median, rust_time, node_time, ts_time, py_time, speedup_vs_rust
         );
     }
     println!(
-        "==================================================================================================================\n"
+        "=============================================================================================================================================\n"
     );
 }

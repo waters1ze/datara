@@ -43,6 +43,9 @@ impl<'a> Parser<'a> {
         if self.match_token(&TokenType::Class) || self.match_token(&TokenType::Entity) {
             return self.parse_class_decl(is_export).map(Decl::Class);
         }
+        if self.match_token(&TokenType::Enum) {
+            return self.parse_enum_decl(is_export).map(Decl::Enum);
+        }
         if self.match_token(&TokenType::Behavior) {
             return self.parse_behavior_decl().map(Decl::Behavior);
         }
@@ -222,6 +225,77 @@ impl<'a> Parser<'a> {
             base_type,
             compositions,
             body_items,
+            is_export,
+            span: SourceSpan::new(
+                start_span.start_line,
+                start_span.start_col,
+                end_token.span.end_line,
+                end_token.span.end_col,
+                self.file.clone(),
+            ),
+        })
+    }
+
+    fn parse_enum_decl(&mut self, is_export: bool) -> Option<EnumDecl> {
+        let start_span = self.previous().span.clone();
+        let name = self.consume_ident("Expected enum name")?;
+
+        let mut generic_params = Vec::new();
+        if self.match_token(&TokenType::Less) {
+            loop {
+                if let Some(gp) = self.consume_ident("Expected generic parameter name") {
+                    generic_params.push(gp);
+                }
+                if !self.match_token(&TokenType::Comma) {
+                    break;
+                }
+            }
+            self.consume(&TokenType::Greater, "Expected '>' after generic parameters")?;
+        }
+
+        self.consume(&TokenType::LBrace, "Expected '{' before enum body")?;
+        let mut variants = Vec::new();
+
+        while !self.check(&TokenType::RBrace) && !self.is_at_end() {
+            let v_span_start = self.peek().span.clone();
+            if let Some(v_name) = self.consume_ident("Expected variant name") {
+                let mut fields = Vec::new();
+                if self.match_token(&TokenType::LParen) {
+                    if !self.check(&TokenType::RParen) {
+                        loop {
+                            if let Some(ty) = self.parse_type() {
+                                fields.push(ty);
+                            }
+                            if !self.match_token(&TokenType::Comma) {
+                                break;
+                            }
+                        }
+                    }
+                    self.consume(&TokenType::RParen, "Expected ')' after variant fields")?;
+                }
+                let v_span = SourceSpan::new(
+                    v_span_start.start_line,
+                    v_span_start.start_col,
+                    self.previous().span.end_line,
+                    self.previous().span.end_col,
+                    self.file.clone(),
+                );
+                variants.push(EnumVariant {
+                    name: v_name,
+                    fields,
+                    span: v_span,
+                });
+                self.match_token(&TokenType::Comma);
+            } else {
+                self.synchronize();
+            }
+        }
+
+        let end_token = self.consume(&TokenType::RBrace, "Expected '}' after enum body")?;
+        Some(EnumDecl {
+            name,
+            generic_params,
+            variants,
             is_export,
             span: SourceSpan::new(
                 start_span.start_line,

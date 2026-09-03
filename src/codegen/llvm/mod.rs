@@ -133,6 +133,7 @@ impl<'a> LlvmEmitter<'a> {
         ir.push_str("declare ptr @datara_rt_str_concat_3(ptr, ptr, ptr)\n");
         ir.push_str("declare ptr @datara_rt_str_concat_4(ptr, ptr, ptr, ptr)\n");
         ir.push_str("declare ptr @datara_rt_str_concat_5(ptr, ptr, ptr, ptr, ptr)\n");
+        ir.push_str("declare ptr @datara_rt_format_str_i64_str_i64(ptr, i64, ptr, i64)\n");
         ir.push_str("declare ptr @datara_rt_int_to_str(i64)\n");
         ir.push_str("declare ptr @datara_rt_bool_to_str(i64)\n");
         ir.push_str("declare ptr @datara_rt_float_to_str(double)\n");
@@ -207,6 +208,18 @@ impl<'a> LlvmEmitter<'a> {
             ir.push_str(&self.emit_function(f, module, &string_literal_map));
             ir.push('\n');
         }
+
+        // 4. Emit Loop Vectorization & Unroll Metadata
+        let vector_width = if self.target.vector_support.contains(&crate::codegen::target::VectorExtension::Avx2)
+            || self.target.vector_support.contains(&crate::codegen::target::VectorExtension::Avx512) {
+            8
+        } else {
+            4
+        };
+        ir.push_str("!0 = distinct !{!0, !1, !2, !3}\n");
+        ir.push_str("!1 = !{!\"llvm.loop.vectorize.enable\", i1 1}\n");
+        ir.push_str(&format!("!2 = !{{!\"llvm.loop.vectorize.width\", i32 {}}}\n", vector_width));
+        ir.push_str("!3 = !{!\"llvm.loop.unroll.enable\", i1 1}\n\n");
 
         ir
     }
@@ -359,7 +372,11 @@ impl<'a> LlvmEmitter<'a> {
             // Emit terminator
             match &block.terminator {
                 Terminator::Branch { target, .. } => {
-                    out.push_str(&format!("  br label %bb{}\n", target.0));
+                    if target.0 <= block.id.0 {
+                        out.push_str(&format!("  br label %bb{}, !llvm.loop !0\n", target.0));
+                    } else {
+                        out.push_str(&format!("  br label %bb{}\n", target.0));
+                    }
                 }
                 Terminator::CondBranch {
                     cond,
@@ -372,10 +389,17 @@ impl<'a> LlvmEmitter<'a> {
                         "  {} = icmp ne i64 %v{}, 0\n",
                         cmp_reg, cond.0
                     ));
-                    out.push_str(&format!(
-                        "  br i1 {}, label %bb{}, label %bb{}\n",
-                        cmp_reg, then_block.0, else_block.0
-                    ));
+                    if then_block.0 <= block.id.0 || else_block.0 <= block.id.0 {
+                        out.push_str(&format!(
+                            "  br i1 {}, label %bb{}, label %bb{}, !llvm.loop !0\n",
+                            cmp_reg, then_block.0, else_block.0
+                        ));
+                    } else {
+                        out.push_str(&format!(
+                            "  br i1 {}, label %bb{}, label %bb{}\n",
+                            cmp_reg, then_block.0, else_block.0
+                        ));
+                    }
                 }
                 Terminator::Return { value } => {
                     if is_main {
@@ -479,14 +503,6 @@ impl<'a> LlvmEmitter<'a> {
                         dest.0, left_s, right_s
                     ));
                 } else if is_float {
-                    value_types.insert(*dest, "double");
-                    let llvm_op = match op.as_str() {
-                        "+" => "fadd",
-                        "-" => "fsub",
-                        "*" => "fmul",
-                        "/" => "fdiv",
-                        _ => "fadd",
-                    };
                     let left_v = if l_ty == "i64" {
                         let tmp = format!("%fconv_l_{}", dest.0);
                         out.push_str(&format!("  {} = sitofp i64 %v{} to double\n", tmp, left.0));
@@ -501,10 +517,44 @@ impl<'a> LlvmEmitter<'a> {
                     } else {
                         format!("%v{}", right.0)
                     };
-                    out.push_str(&format!(
-                        "  %v{} = {} double {}, {}\n",
-                        dest.0, llvm_op, left_v, right_v
-                    ));
+
+                    match op.as_str() {
+                        "==" | "!=" | "<" | "<=" | ">" | ">=" => {
+                            value_types.insert(*dest, "i64");
+                            let fcmp_op = match op.as_str() {
+                                "==" => "oeq",
+                                "!=" => "one",
+                                "<" => "olt",
+                                "<=" => "ole",
+                                ">" => "ogt",
+                                ">=" => "oge",
+                                _ => "oeq",
+                            };
+                            let cmp_temp = format!("%fcmp_{}", dest.0);
+                            out.push_str(&format!(
+                                "  {} = fcmp {} double {}, {}\n",
+                                cmp_temp, fcmp_op, left_v, right_v
+                            ));
+                            out.push_str(&format!(
+                                "  %v{} = zext i1 {} to i64\n",
+                                dest.0, cmp_temp
+                            ));
+                        }
+                        _ => {
+                            value_types.insert(*dest, "double");
+                            let llvm_op = match op.as_str() {
+                                "+" => "fadd",
+                                "-" => "fsub",
+                                "*" => "fmul",
+                                "/" => "fdiv",
+                                _ => "fadd",
+                            };
+                            out.push_str(&format!(
+                                "  %v{} = {} double {}, {}\n",
+                                dest.0, llvm_op, left_v, right_v
+                            ));
+                        }
+                    }
                 } else {
                     match op.as_str() {
                         "+" => {
@@ -620,6 +670,16 @@ impl<'a> LlvmEmitter<'a> {
                 } else if op == "!" {
                     value_types.insert(*dest, "i64");
                     out.push_str(&format!("  %v{} = xor i64 %v{}, 1\n", dest.0, operand.0));
+                } else if op == "copy" {
+                    let oty = value_types.get(operand).copied().unwrap_or("i64");
+                    value_types.insert(*dest, oty);
+                    if oty == "double" {
+                        out.push_str(&format!("  %v{} = fadd double %v{}, 0.0\n", dest.0, operand.0));
+                    } else if oty == "ptr" {
+                        out.push_str(&format!("  %v{} = getelementptr inbounds i8, ptr %v{}, i64 0\n", dest.0, operand.0));
+                    } else {
+                        out.push_str(&format!("  %v{} = or i64 %v{}, 0\n", dest.0, operand.0));
+                    }
                 } else {
                     value_types.insert(*dest, "i64");
                     out.push_str(&format!("  %v{} = sub i64 0, %v{}\n", dest.0, operand.0));
@@ -852,14 +912,19 @@ impl<'a> LlvmEmitter<'a> {
                     other => other,
                 };
 
-                let args_str = args
-                    .iter()
-                    .map(|a| {
-                        let aty = value_types.get(a).copied().unwrap_or("i64");
-                        format!("{} %v{}", aty, a.0)
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let is_str_concat = actual_func.starts_with("datara_rt_str_concat");
+                let mut converted_args = Vec::new();
+                for (idx, a) in args.iter().enumerate() {
+                    let aty = value_types.get(a).copied().unwrap_or("i64");
+                    if is_str_concat && aty != "ptr" {
+                        let tmp = format!("%sc_arg_{}_{}", dest.0, idx);
+                        out.push_str(&format!("  {} = call ptr @datara_rt_int_to_str(i64 %v{})\n", tmp, a.0));
+                        converted_args.push(format!("ptr {}", tmp));
+                    } else {
+                        converted_args.push(format!("{} %v{}", aty, a.0));
+                    }
+                }
+                let args_str = converted_args.join(", ");
 
                 if ret_ty == "void" {
                     out.push_str(&format!("  call void @{}({})\n", actual_func, args_str));
@@ -880,6 +945,14 @@ impl<'a> LlvmEmitter<'a> {
                 let ret_ty = self.dmir_type_to_llvm(ty);
                 value_types.insert(*dest, ret_ty);
 
+                let actual_func = if module.functions.contains_key(method) {
+                    method.clone()
+                } else if let Some(k) = module.functions.keys().find(|k| k.ends_with(&format!("_{}", method))) {
+                    k.clone()
+                } else {
+                    method.clone()
+                };
+
                 let mut all_args = vec![format!("ptr %v{}", object.0)];
                 for a in args {
                     let aty = value_types.get(a).copied().unwrap_or("i64");
@@ -888,11 +961,11 @@ impl<'a> LlvmEmitter<'a> {
                 let args_str = all_args.join(", ");
 
                 if ret_ty == "void" {
-                    out.push_str(&format!("  call void @{}({})\n", method, args_str));
+                    out.push_str(&format!("  call void @{}({})\n", actual_func, args_str));
                 } else {
                     out.push_str(&format!(
                         "  %v{} = call {} @{}({})\n",
-                        dest.0, ret_ty, method, args_str
+                        dest.0, ret_ty, actual_func, args_str
                     ));
                 }
             }
@@ -1058,6 +1131,37 @@ impl<'a> LlvmEmitter<'a> {
                     "  %v{} = select i1 {}, {} %v{}, {} %v{}\n",
                     dest.0, cmp_temp, vty, then_val.0, vty, else_val.0
                 ));
+            }
+            Inst::Decide {
+                dest,
+                arms,
+                else_val,
+                ty,
+            } => {
+                let vty = if ty == "Float" {
+                    "double"
+                } else if ty == "String" || ty == "Str" {
+                    "ptr"
+                } else {
+                    "i64"
+                };
+                value_types.insert(*dest, vty);
+                let default_val = else_val.unwrap_or(ValueId(0));
+                let mut curr_val_str = format!("%v{}", default_val.0);
+                for (idx, (cond, val)) in arms.iter().enumerate().rev() {
+                    let cmp_temp = format!("%dec_c_{}_{}", dest.0, idx);
+                    let sel_temp = if idx == 0 {
+                        format!("%v{}", dest.0)
+                    } else {
+                        format!("%dec_s_{}_{}", dest.0, idx)
+                    };
+                    out.push_str(&format!("  {} = icmp ne i64 %v{}, 0\n", cmp_temp, cond.0));
+                    out.push_str(&format!(
+                        "  {} = select i1 {}, {} %v{}, {} {}\n",
+                        sel_temp, cmp_temp, vty, val.0, vty, curr_val_str
+                    ));
+                    curr_val_str = sel_temp;
+                }
             }
             _ => {}
         }

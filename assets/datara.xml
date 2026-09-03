@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+    <mime-type type="text/x-datara">
+        <comment>Datara Source Code</comment>
+        <comment xml:lang="ru">Исходный код Datara</comment>
+        <glob pattern="*.dtr"/>
+        <glob pattern="*.datara"/>
+        <icon name="text-x-datara"/>
+        <sub-class-of type="text/plain"/>
+    </mime-type>
+</mime-info>

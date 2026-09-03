@@ -136,6 +136,20 @@ fn check_declarations(program: &Program, diags: &mut Vec<LintDiagnostic>) {
                 }
             }
 
+            Decl::Enum(e) => {
+                if !is_pascal_case(&e.name) {
+                    let suggested = to_pascal_case(&e.name);
+                    diags.push(
+                        LintDiagnostic::new(
+                            "style::non_camel_case_types",
+                            format!("enum `{}` should have a PascalCase name", e.name),
+                            e.span.clone(),
+                        )
+                        .with_help(format!("convert to PascalCase: `{}`", suggested)),
+                    );
+                }
+            }
+
             Decl::Component(c) => {
                 if !is_pascal_case(&c.name) {
                     let suggested = to_pascal_case(&c.name);

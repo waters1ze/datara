@@ -11,6 +11,7 @@ pub struct Program {
 pub enum Decl {
     Use(UseDecl),
     Class(ClassDecl),
+    Enum(EnumDecl),
     Behavior(BehaviorDecl),
     Component(ComponentDecl),
     Role(RoleDecl),
@@ -26,6 +27,7 @@ impl Decl {
         match self {
             Decl::Use(d) => &d.span,
             Decl::Class(d) => &d.span,
+            Decl::Enum(d) => &d.span,
             Decl::Behavior(d) => &d.span,
             Decl::Component(d) => &d.span,
             Decl::Role(d) => &d.span,
@@ -52,6 +54,22 @@ pub struct ClassDecl {
     pub compositions: Vec<String>,
     pub body_items: Vec<ClassItem>,
     pub is_export: bool,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnumDecl {
+    pub name: String,
+    pub generic_params: Vec<String>,
+    pub variants: Vec<EnumVariant>,
+    pub is_export: bool,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnumVariant {
+    pub name: String,
+    pub fields: Vec<TypeNode>,
     pub span: SourceSpan,
 }
 

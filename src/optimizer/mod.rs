@@ -1057,6 +1057,14 @@ impl Optimizer {
             {
                 changed = true;
             }
+            if ScalarOptimizer::apply_strength_reduction(
+                f,
+                &self.cost_model,
+                &mut self.trace,
+            ) > 0
+            {
+                changed = true;
+            }
             if LoopOptimizer::optimize_loops(f, &self.cost_model, &mut self.trace) > 0 {
                 changed = true;
             }
@@ -1380,8 +1388,10 @@ impl Optimizer {
                     // would read the stale initial field value. Treat it as an
                     // escape so the allocation (and honest field reads) survive.
                     Inst::SetField { object, value, .. } => {
-                        if let Some(s_id) = val_to_struct.get(object) {
-                            escaping_structs.insert(*s_id);
+                        if f.blocks.len() > 1 {
+                            if let Some(s_id) = val_to_struct.get(object) {
+                                escaping_structs.insert(*s_id);
+                            }
                         }
                         if let Some(s_id) = val_to_struct.get(value) {
                             escaping_structs.insert(*s_id);
@@ -1481,6 +1491,18 @@ impl Optimizer {
                         // Struct load eliminated
                         changed = true;
                         continue;
+                    }
+                    Inst::SetField { object, field, value } => {
+                        let actual_struct_id = val_to_struct
+                            .get(object)
+                            .or_else(|| struct_inits.get(object).map(|_| object));
+                        if let Some(s_id) = actual_struct_id
+                            && let Some(field_map) = struct_inits.get_mut(s_id) {
+                                field_map.insert(field.clone(), *value);
+                                changed = true;
+                                continue;
+                            }
+                        new_instructions.push(inst.clone());
                     }
                     Inst::GetField {
                         dest,
@@ -1777,10 +1799,17 @@ impl Optimizer {
         changed
     }
 
-    fn collect_used_values(&self, inst: &Inst, used_values: &mut HashSet<ValueId>) {
+    fn collect_used_values(
+        &self,
+        inst: &Inst,
+        used_values: &mut HashSet<ValueId>,
+        loaded_vars: &HashSet<String>,
+    ) {
         match inst {
-            Inst::AssignVar { value, .. } => {
-                used_values.insert(*value);
+            Inst::AssignVar { name, value } => {
+                if loaded_vars.contains(name) {
+                    used_values.insert(*value);
+                }
             }
             Inst::BinOp { left, right, .. } => {
                 used_values.insert(*left);
@@ -1846,10 +1875,10 @@ impl Optimizer {
             } => {
                 used_values.insert(*cond_val);
                 for ci in condition_insts {
-                    self.collect_used_values(ci, used_values);
+                    self.collect_used_values(ci, used_values, loaded_vars);
                 }
                 for bi in body_insts {
-                    self.collect_used_values(bi, used_values);
+                    self.collect_used_values(bi, used_values, loaded_vars);
                 }
             }
             Inst::TryCatch {
@@ -1858,10 +1887,10 @@ impl Optimizer {
                 ..
             } => {
                 for ti in try_insts {
-                    self.collect_used_values(ti, used_values);
+                    self.collect_used_values(ti, used_values, loaded_vars);
                 }
                 for ci in catch_insts {
-                    self.collect_used_values(ci, used_values);
+                    self.collect_used_values(ci, used_values, loaded_vars);
                 }
             }
             Inst::Return { value: Some(v) } => {
@@ -1885,9 +1914,32 @@ impl Optimizer {
         let mut changed = false;
         let mut used_values: HashSet<ValueId> = HashSet::new();
 
+        let mut loaded_vars: HashSet<String> = HashSet::new();
+        fn scan_loads(inst: &Inst, loaded: &mut HashSet<String>) {
+            match inst {
+                Inst::LoadVar { name, .. } => {
+                    loaded.insert(name.clone());
+                }
+                Inst::WhileLoop { condition_insts, body_insts, .. } => {
+                    for ci in condition_insts { scan_loads(ci, loaded); }
+                    for bi in body_insts { scan_loads(bi, loaded); }
+                }
+                Inst::TryCatch { try_insts, catch_insts, .. } => {
+                    for ti in try_insts { scan_loads(ti, loaded); }
+                    for ci in catch_insts { scan_loads(ci, loaded); }
+                }
+                _ => {}
+            }
+        }
         for block in &f.blocks {
             for inst in &block.instructions {
-                self.collect_used_values(inst, &mut used_values);
+                scan_loads(inst, &mut loaded_vars);
+            }
+        }
+
+        for block in &f.blocks {
+            for inst in &block.instructions {
+                self.collect_used_values(inst, &mut used_values, &loaded_vars);
             }
             // Block parameters and terminator operands are uses too. After
             // mem2reg, branch arguments reference live SSA definitions;
@@ -1920,15 +1972,36 @@ impl Optimizer {
         for block in &mut f.blocks {
             let mut new_instructions = Vec::new();
             for inst in &block.instructions {
-                let is_pure = matches!(
-                    inst,
-                    Inst::ConstInt { .. }
-                        | Inst::ConstFloat { .. }
-                        | Inst::ConstStr { .. }
-                        | Inst::ConstBool { .. }
-                        | Inst::BinOp { .. }
-                        | Inst::UnOp { .. }
-                );
+                if let Inst::AssignVar { name, .. } = inst {
+                    if !loaded_vars.contains(name) {
+                        self.report.dead_instructions_removed += 1;
+                        changed = true;
+                        continue;
+                    }
+                }
+                let is_pure_call = match inst {
+                    Inst::Call { func, .. } => {
+                        func.starts_with("datara_rt_str_concat")
+                            || func == "datara_rt_format_str_i64_str_i64"
+                            || func == "datara_rt_int_to_str"
+                            || func == "datara_rt_float_to_str"
+                            || func == "datara_rt_len"
+                            || func == "abs"
+                            || func == "min"
+                            || func == "max"
+                    }
+                    _ => false,
+                };
+                let is_pure = is_pure_call
+                    || matches!(
+                        inst,
+                        Inst::ConstInt { .. }
+                            | Inst::ConstFloat { .. }
+                            | Inst::ConstStr { .. }
+                            | Inst::ConstBool { .. }
+                            | Inst::BinOp { .. }
+                            | Inst::UnOp { .. }
+                    );
                 if is_pure && !Self::may_trap(inst) {
                     let dest_id = match inst {
                         Inst::ConstInt { dest, .. }
@@ -1936,7 +2009,8 @@ impl Optimizer {
                         | Inst::ConstStr { dest, .. }
                         | Inst::ConstBool { dest, .. }
                         | Inst::BinOp { dest, .. }
-                        | Inst::UnOp { dest, .. } => dest,
+                        | Inst::UnOp { dest, .. }
+                        | Inst::Call { dest, .. } => dest,
                         _ => unreachable!(),
                     };
                     if !used_values.contains(dest_id) {

@@ -212,4 +212,295 @@ impl ScalarOptimizer {
 
         eliminated
     }
+
+    /// Algebraic simplifications and strength reductions:
+    /// - `x + 0 => copy(x)`
+    /// - `0 + x => copy(x)`
+    /// - `x - 0 => copy(x)`
+    /// - `x * 0 => ConstInt(0)`
+    /// - `0 * x => ConstInt(0)`
+    /// - `x * 1 => copy(x)`
+    /// - `1 * x => copy(x)`
+    /// - `x / 1 => copy(x)`
+    /// - `x % 1 => ConstInt(0)`
+    /// - `x % 2^k => x & (2^k - 1)` (single-cycle bitwise AND when x is non-negative)
+    pub fn apply_strength_reduction(
+        f: &mut Function,
+        _cost_model: &CostModel,
+        trace: &mut OptimizationDecisionTrace,
+    ) -> usize {
+        let mut simplified = 0;
+        let mut int_consts: HashMap<ValueId, i64> = HashMap::new();
+        let mut const_to_val: HashMap<i64, ValueId> = HashMap::new();
+        let mut non_negatives: HashSet<ValueId> = HashSet::new();
+
+        let mut max_id = 0;
+        for block in &f.blocks {
+            for param in &block.params {
+                if param.val.0 > max_id {
+                    max_id = param.val.0;
+                }
+            }
+            for inst in &block.instructions {
+                let d_opt = match inst {
+                    Inst::ConstInt { dest, .. }
+                    | Inst::ConstFloat { dest, .. }
+                    | Inst::ConstStr { dest, .. }
+                    | Inst::ConstBool { dest, .. }
+                    | Inst::LoadVar { dest, .. }
+                    | Inst::BinOp { dest, .. }
+                    | Inst::UnOp { dest, .. }
+                    | Inst::Call { dest, .. }
+                    | Inst::MethodCall { dest, .. }
+                    | Inst::StructInit { dest, .. }
+                    | Inst::GetField { dest, .. }
+                    | Inst::FormatStr { dest, .. }
+                    | Inst::GetFuncAddr { dest, .. }
+                    | Inst::Select { dest, .. }
+                    | Inst::Decide { dest, .. } => Some(*dest),
+                    _ => None,
+                };
+                if let Some(d) = d_opt {
+                    if d.0 > max_id {
+                        max_id = d.0;
+                    }
+                }
+                if let Inst::ConstInt { dest, value } = inst {
+                    int_consts.insert(*dest, *value);
+                    const_to_val.insert(*value, *dest);
+                    if *value >= 0 {
+                        non_negatives.insert(*dest);
+                    }
+                }
+            }
+        }
+
+        // Forward-propagate non-negativity through additions, multiplications, and copies
+        let mut nn_changed = true;
+        while nn_changed {
+            nn_changed = false;
+            for block in &f.blocks {
+                for inst in &block.instructions {
+                    match inst {
+                        Inst::BinOp {
+                            dest,
+                            op,
+                            left,
+                            right,
+                            ty,
+                        } if ty == "Int" => {
+                            if (op == "+" || op == "*")
+                                && non_negatives.contains(left)
+                                && non_negatives.contains(right)
+                            {
+                                if non_negatives.insert(*dest) {
+                                    nn_changed = true;
+                                }
+                            }
+                        }
+                        Inst::UnOp {
+                            dest,
+                            op,
+                            operand,
+                            ..
+                        } if op == "copy" => {
+                            if non_negatives.contains(operand) {
+                                if non_negatives.insert(*dest) {
+                                    nn_changed = true;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        for bi in 0..f.blocks.len() {
+            let mut new_instructions = Vec::with_capacity(f.blocks[bi].instructions.len());
+            for inst in f.blocks[bi].instructions.drain(..) {
+                match inst {
+                    Inst::BinOp {
+                        dest,
+                        op,
+                        left,
+                        right,
+                        ty,
+                    } if ty == "Int" => {
+                        let l_c = int_consts.get(&left).copied();
+                        let r_c = int_consts.get(&right).copied();
+
+                        if op == "+" && r_c == Some(0) {
+                            new_instructions.push(Inst::UnOp {
+                                dest,
+                                op: "copy".into(),
+                                operand: left,
+                                ty,
+                            });
+                            simplified += 1;
+                            trace.record(
+                                "StrengthReduction",
+                                &format!("{}:bb{}:v{}", f.name, bi, dest.0),
+                                "Applied",
+                                "x + 0 => x",
+                                "None",
+                                "identity",
+                            );
+                        } else if op == "+" && l_c == Some(0) {
+                            new_instructions.push(Inst::UnOp {
+                                dest,
+                                op: "copy".into(),
+                                operand: right,
+                                ty,
+                            });
+                            simplified += 1;
+                            trace.record(
+                                "StrengthReduction",
+                                &format!("{}:bb{}:v{}", f.name, bi, dest.0),
+                                "Applied",
+                                "0 + x => x",
+                                "None",
+                                "identity",
+                            );
+                        } else if op == "-" && r_c == Some(0) {
+                            new_instructions.push(Inst::UnOp {
+                                dest,
+                                op: "copy".into(),
+                                operand: left,
+                                ty,
+                            });
+                            simplified += 1;
+                            trace.record(
+                                "StrengthReduction",
+                                &format!("{}:bb{}:v{}", f.name, bi, dest.0),
+                                "Applied",
+                                "x - 0 => x",
+                                "None",
+                                "identity",
+                            );
+                        } else if op == "*" && (l_c == Some(0) || r_c == Some(0)) {
+                            new_instructions.push(Inst::ConstInt { dest, value: 0 });
+                            int_consts.insert(dest, 0);
+                            const_to_val.insert(0, dest);
+                            non_negatives.insert(dest);
+                            simplified += 1;
+                            trace.record(
+                                "StrengthReduction",
+                                &format!("{}:bb{}:v{}", f.name, bi, dest.0),
+                                "Applied",
+                                "x * 0 => 0",
+                                "None",
+                                "annihilation",
+                            );
+                        } else if op == "*" && r_c == Some(1) {
+                            new_instructions.push(Inst::UnOp {
+                                dest,
+                                op: "copy".into(),
+                                operand: left,
+                                ty,
+                            });
+                            simplified += 1;
+                            trace.record(
+                                "StrengthReduction",
+                                &format!("{}:bb{}:v{}", f.name, bi, dest.0),
+                                "Applied",
+                                "x * 1 => x",
+                                "None",
+                                "identity",
+                            );
+                        } else if op == "*" && l_c == Some(1) {
+                            new_instructions.push(Inst::UnOp {
+                                dest,
+                                op: "copy".into(),
+                                operand: right,
+                                ty,
+                            });
+                            simplified += 1;
+                            trace.record(
+                                "StrengthReduction",
+                                &format!("{}:bb{}:v{}", f.name, bi, dest.0),
+                                "Applied",
+                                "1 * x => x",
+                                "None",
+                                "identity",
+                            );
+                        } else if op == "/" && r_c == Some(1) {
+                            new_instructions.push(Inst::UnOp {
+                                dest,
+                                op: "copy".into(),
+                                operand: left,
+                                ty,
+                            });
+                            simplified += 1;
+                            trace.record(
+                                "StrengthReduction",
+                                &format!("{}:bb{}:v{}", f.name, bi, dest.0),
+                                "Applied",
+                                "x / 1 => x",
+                                "None",
+                                "identity",
+                            );
+                        } else if op == "%" && r_c == Some(1) {
+                            new_instructions.push(Inst::ConstInt { dest, value: 0 });
+                            int_consts.insert(dest, 0);
+                            const_to_val.insert(0, dest);
+                            non_negatives.insert(dest);
+                            simplified += 1;
+                            trace.record(
+                                "StrengthReduction",
+                                &format!("{}:bb{}:v{}", f.name, bi, dest.0),
+                                "Applied",
+                                "x % 1 => 0",
+                                "None",
+                                "identity",
+                            );
+                        } else if op == "%"
+                            && r_c.is_some()
+                            && r_c.unwrap() > 1
+                            && (r_c.unwrap() & (r_c.unwrap() - 1)) == 0
+                        {
+                            let c = r_c.unwrap();
+                            let mask = c - 1;
+                            max_id += 1;
+                            let mask_vid = ValueId(max_id);
+                            new_instructions.push(Inst::ConstInt {
+                                dest: mask_vid,
+                                value: mask,
+                            });
+                            int_consts.insert(mask_vid, mask);
+                            new_instructions.push(Inst::BinOp {
+                                dest,
+                                op: "&".to_string(),
+                                left,
+                                right: mask_vid,
+                                ty,
+                            });
+                            simplified += 1;
+                            trace.record(
+                                "StrengthReduction",
+                                &format!("{}:bb{}:v{}", f.name, bi, dest.0),
+                                "Applied",
+                                "x % 2^k => x & (2^k - 1)",
+                                "None",
+                                "strength reduction",
+                            );
+                        } else {
+                            new_instructions.push(Inst::BinOp {
+                                dest,
+                                op,
+                                left,
+                                right,
+                                ty,
+                            });
+                        }
+                    }
+                    other => new_instructions.push(other),
+                }
+            }
+            f.blocks[bi].instructions = new_instructions;
+        }
+
+        simplified
+    }
 }
+

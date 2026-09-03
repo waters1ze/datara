@@ -30,7 +30,7 @@ impl Lexer {
         // of reporting it as an unexpected character.
         if self.chars.first() == Some(&'\u{FEFF}') {
             self.pos = 1;
-            self.col = 2;
+            self.col = 1;
         }
 
         while !self.is_at_end() {
@@ -655,6 +655,7 @@ impl Lexer {
                         "function" => TokenType::Function,
                         "class" => TokenType::Class,
                         "record" => TokenType::Record,
+                        "enum" => TokenType::Enum,
                         "component" => TokenType::Component,
                         "role" => TokenType::Role,
                         "behavior" => TokenType::Behavior,

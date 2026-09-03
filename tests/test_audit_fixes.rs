@@ -171,3 +171,24 @@ fn main() {
     assert_eq!(code_ret, 0);
     assert!(out.contains("INPUT_LINKED_OK"));
 }
+
+#[test]
+fn test_mutable_sroa_scalarization() {
+    let code = r#"
+class Point {
+    x: Int
+    y: Int
+}
+
+fn main() {
+    mut p = Point { x: 10, y: 20 }
+    p.x = 42
+    p.y = p.y + 5
+    out "X={p.x} Y={p.y}"
+}
+"#;
+    let (out, code_ret) = run_datara(code, "test_mutable_sroa.dtr");
+    assert_eq!(code_ret, 0);
+    assert!(out.contains("X=42 Y=25"), "output was: {:?}", out);
+}
+

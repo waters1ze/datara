@@ -10,6 +10,7 @@ pub enum TokenType {
     Function,
     Class,
     Record,
+    Enum,
     Component,
     Role,
     Behavior,
