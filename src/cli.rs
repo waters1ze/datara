@@ -459,62 +459,62 @@ pub fn run_cli() {
                             exe_p.display()
                         );
 
-                    if let Some(ref dmir) = res.dmir_module {
-                        for fn_name in dmir.functions.keys() {
-                            py_code.push_str(&format!(
+                        if let Some(ref dmir) = res.dmir_module {
+                            for fn_name in dmir.functions.keys() {
+                                py_code.push_str(&format!(
                                 "def {}(*args):\n    _fn = getattr(_lib, \"{}\")\n    _fn.restype = ctypes.c_int64\n    return _fn(*args)\n\n",
                                 fn_name, fn_name
                             ));
+                            }
+                        }
+
+                        if let Err(e) = fs::write(&py_path, py_code) {
+                            eprintln!("Warning: Failed to write Python wrapper: {}", e);
+                        } else {
+                            println!(
+                                "[Forgen Python FFI] Synthesized Python module: {}",
+                                py_path.display()
+                            );
                         }
                     }
 
-                    if let Err(e) = fs::write(&py_path, py_code) {
-                        eprintln!("Warning: Failed to write Python wrapper: {}", e);
-                    } else {
-                        println!(
-                            "[Forgen Python FFI] Synthesized Python module: {}",
-                            py_path.display()
-                        );
-                    }
-                }
-
-                if args.iter().any(|a| a == "--ledger")
-                    && let Some(report) = &res.optimization_report
-                {
-                    let ledger_path = exe_p.with_extension("ledger.json");
-                    let ledger_data = serde_json::json!({
-                        "version": "1.0",
-                        "compiler": "forgen",
-                        "mode": mode,
-                        "summary": {
-                            "variables_promoted": report.variables_promoted,
-                            "constants_folded": report.constants_folded,
-                            "dead_instructions_removed": report.dead_instructions_removed,
-                            "functions_inlined": report.functions_inlined,
-                            "allocations_eliminated": report.allocations_eliminated,
-                            "evidence_downgrades": report.evidence_downgrades,
-                        },
-                        "decision_trace": report.decision_trace,
-                    });
-                    if let Ok(json) = serde_json::to_string_pretty(&ledger_data)
-                        && fs::write(&ledger_path, json).is_ok()
+                    if args.iter().any(|a| a == "--ledger")
+                        && let Some(report) = &res.optimization_report
                     {
-                        println!("[Forgen] Ledger:  {}", ledger_path.display());
+                        let ledger_path = exe_p.with_extension("ledger.json");
+                        let ledger_data = serde_json::json!({
+                            "version": "1.0",
+                            "compiler": "forgen",
+                            "mode": mode,
+                            "summary": {
+                                "variables_promoted": report.variables_promoted,
+                                "constants_folded": report.constants_folded,
+                                "dead_instructions_removed": report.dead_instructions_removed,
+                                "functions_inlined": report.functions_inlined,
+                                "allocations_eliminated": report.allocations_eliminated,
+                                "evidence_downgrades": report.evidence_downgrades,
+                            },
+                            "decision_trace": report.decision_trace,
+                        });
+                        if let Ok(json) = serde_json::to_string_pretty(&ledger_data)
+                            && fs::write(&ledger_path, json).is_ok()
+                        {
+                            println!("[Forgen] Ledger:  {}", ledger_path.display());
+                        }
                     }
-                }
 
-                if args.iter().any(|a| a == "--graph")
-                    && let Some(graph) = &res.semantic_graph
-                {
-                    let graph_path = exe_p.with_extension("graph.json");
-                    if let Ok(json) = serde_json::to_string_pretty(graph)
-                        && fs::write(&graph_path, json).is_ok()
+                    if args.iter().any(|a| a == "--graph")
+                        && let Some(graph) = &res.semantic_graph
                     {
-                        println!("[Forgen] Graph:   {}", graph_path.display());
+                        let graph_path = exe_p.with_extension("graph.json");
+                        if let Ok(json) = serde_json::to_string_pretty(graph)
+                            && fs::write(&graph_path, json).is_ok()
+                        {
+                            println!("[Forgen] Graph:   {}", graph_path.display());
+                        }
                     }
                 }
-            }
-        } else {
+            } else {
                 eprintln!(
                     "{}",
                     res.error.unwrap_or_else(|| "Compilation failed".into())
@@ -1676,13 +1676,22 @@ pub fn run_cli() {
 
                         if matches_filter {
                             if let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-                                && (stem == "forgen" || stem == "datara" || stem == "dpm" || stem == "cargo" || stem == "rustc")
+                                && (stem == "forgen"
+                                    || stem == "datara"
+                                    || stem == "dpm"
+                                    || stem == "cargo"
+                                    || stem == "rustc")
                             {
                                 continue;
                             }
                             if ext == "exe" && !is_all {
                                 let has_dtr = path.with_extension("dtr").exists()
-                                    || Path::new("src").join(format!("{}.dtr", path.file_stem().unwrap().to_string_lossy())).exists();
+                                    || Path::new("src")
+                                        .join(format!(
+                                            "{}.dtr",
+                                            path.file_stem().unwrap().to_string_lossy()
+                                        ))
+                                        .exists();
                                 let is_dtr_exe = path.to_string_lossy().ends_with(".dtr.exe");
                                 if !has_dtr && !is_dtr_exe {
                                     continue;

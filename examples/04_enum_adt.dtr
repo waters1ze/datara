@@ -18,7 +18,7 @@ fn main() {
     let r = Shape.Rect(20.0, 30.0)
     let p = Shape.Point
 
-    println("Shape 1: {describe(c)}")
-    println("Shape 2: {describe(r)}")
-    println("Shape 3: {describe(p)}")
+    println(fmt"Shape 1: {describe(c)}")
+    println(fmt"Shape 2: {describe(r)}")
+    println(fmt"Shape 3: {describe(p)}")
 }

@@ -264,11 +264,11 @@ use stdlib.math
 fn main() {
     let language = "Datara"
     let version = 1
-    out "Welcome to {language} v{version}!"
+    out fmt"Welcome to {language} v{version}!"
     
     let radius = 5.0
     let area = 3.1415926535 * radius * radius
-    out "Circle area: {area}"
+    out fmt"Circle area: {area}"
 }
 ```
 
@@ -409,6 +409,23 @@ let r = 0..100        // Range from 0 up to (excluding) 100
 let inclusive = 0..=10 // Inclusive range from 0 to 10
 ```
 
+#### String Literals vs Interpolated Strings (`fmt"..."`)
+Following modern systems programming standards (Rust, C#, Python, C++):
+- **Literal Strings (`"..."`)**: Standard strings are **100% pure literal text**. Any `{identifier}` inside a regular string is preserved verbatim as `{identifier}` text and is **never executed or interpolated**.
+- **Interpolated Strings (`fmt"..."` / `$"..."` / `f"..."`)**: Prefixing the string with `fmt` explicitly activates compiler template interpolation, evaluating expressions in-place with zero intermediate allocations:
+
+```datara
+let user = "Alice"
+
+// 1. Literal string: preserves braces as plain text (no accidental evaluation)
+let literal = "User pattern: {user}"
+out literal   // Outputs: User pattern: {user}
+
+// 2. Interpolated string: explicitly evaluated by the compiler
+let greeting = fmt"Hello, {user}!"
+out greeting  // Outputs: Hello, Alice!
+```
+
 ---
 
 ### Operators, Expressions & Bitwise Intrinsics
@@ -536,7 +553,7 @@ mut sum = 0
 for i in 0..1000 {
     sum = sum + i
 }
-out "Sum: {sum}"
+out fmt"Sum: {sum}"
 ```
 
 #### `while` Loops
@@ -552,7 +569,7 @@ while n > 1 {
     }
     steps = steps + 1
 }
-out "Collatz steps: {steps}"
+out fmt"Collatz steps: {steps}"
 ```
 
 ---
@@ -640,7 +657,7 @@ behavior Point3D {
 fn main() {
     let p = Point3D { x: 1.0, y: 2.0, z: 3.0 }
     let len_sq = p.length_squared()
-    out "Length squared: {len_sq}"
+    out fmt"Length squared: {len_sq}"
 }
 ```
 
@@ -664,13 +681,13 @@ out p2.x     // Valid!
 To inspect an object without taking ownership, borrow it with `view`:
 ```datara
 fn print_point(pt: view Point3D) {
-    out "Point: ({pt.x}, {pt.y}, {pt.z})"
+    out fmt"Point: ({pt.x}, {pt.y}, {pt.z})"
 }
 
 fn main() {
     let p = Point3D { x: 5.0, y: 12.0, z: 0.0 }
     print_point(view p)   // Borrowed immutably without moving!
-    out "Still accessible: {p.x}" // Valid!
+    out fmt"Still accessible: {p.x}" // Valid!
 }
 ```
 
@@ -751,7 +768,7 @@ fn setup_server(port_str: Str) -> Int! {
 Provide inline fallback values if an operation fails:
 ```datara
 let active_port = parse_port("invalid") or 8080
-out "Listening on port: {active_port}"  // Outputs 8080
+out fmt"Listening on port: {active_port}"  // Outputs 8080
 ```
 
 ---
@@ -762,7 +779,7 @@ Datara provides RAII-style scope-based deterministic resource cleanup through `w
 ```datara
 with file = open_file("data.csv") {
     let content = file.read_all()
-    out "Length: {str_len(content)}"
+    out fmt"Length: {str_len(content)}"
 } // 'file' is automatically and deterministically closed here, even on early exit!
 ```
 
@@ -798,7 +815,7 @@ let v2 = float4(5.0, 6.0, 7.0, 8.0)
 
 // AVX2 / NEON hardware fused dot product in 1 CPU cycle
 let d = dot(v1, v2)
-out "Dot product: {d}" // 70.0
+out fmt"Dot product: {d}" // 70.0
 
 // Lane-wise minimum and maximum
 let lowest = min4(v1, v2)
@@ -892,7 +909,7 @@ fn main() {
     let user_id = parser.get_int(payload, "id")
     let is_active = parser.get_bool(payload, "active")
     
-    out "User: {user_name}, ID: {user_id}, Active: {is_active}"
+    out fmt"User: {user_name}, ID: {user_id}, Active: {is_active}"
 }
 ```
 

@@ -71,7 +71,7 @@ fn main() {
     }
 
     let remaining = purchase(user, store, 250)
-    out "paid 250, balance: {remaining}"
-    out "adult: {user.is_adult(20)}"
-    out "stock left: {store.stock}"
+    out fmt"paid 250, balance: {remaining}"
+    out fmt"adult: {user.is_adult(20)}"
+    out fmt"stock left: {store.stock}"
 }

@@ -1263,7 +1263,9 @@ pub fn run_dpm_cli_args(args: &[String]) {
                 }
             };
             let mut lock = DataraLock::load(current_dir).unwrap_or_default();
-            println!(":: [DPM] Checking and updating dependencies from HyperGrid and Git sources...");
+            println!(
+                ":: [DPM] Checking and updating dependencies from HyperGrid and Git sources..."
+            );
             let mut updated_count = 0;
             for (dep_name, _) in &manifest.dependencies {
                 let pkg_dir = current_dir.join("packages").join(dep_name);
@@ -1273,13 +1275,17 @@ pub fn run_dpm_cli_args(args: &[String]) {
                         .arg("pull")
                         .current_dir(&pkg_dir)
                         .status();
-                    if let Ok(s) = status && s.success() {
+                    if let Ok(s) = status
+                        && s.success()
+                    {
                         println!("[DONE] Pulled latest git changes for '{}'", dep_name);
                         updated_count += 1;
                     }
                 } else if let Some(pkg) = registry.lookup(dep_name) {
                     let current_locked = lock.packages.get(dep_name);
-                    let needs_update = current_locked.map(|l| l.version != pkg.version).unwrap_or(true);
+                    let needs_update = current_locked
+                        .map(|l| l.version != pkg.version)
+                        .unwrap_or(true);
                     if needs_update {
                         println!("[.....] Updating '{}' to v{}...", dep_name, pkg.version);
                         if registry.install(pkg, current_dir).is_ok() {
@@ -1294,12 +1300,18 @@ pub fn run_dpm_cli_args(args: &[String]) {
                             updated_count += 1;
                         }
                     } else {
-                        println!("  • '{}' (v{}) is already up-to-date", dep_name, pkg.version);
+                        println!(
+                            "  • '{}' (v{}) is already up-to-date",
+                            dep_name, pkg.version
+                        );
                     }
                 }
             }
             let _ = lock.save(current_dir);
-            println!("[DONE] Dependencies checked ({} updated, datara.lock synchronized)", updated_count);
+            println!(
+                "[DONE] Dependencies checked ({} updated, datara.lock synchronized)",
+                updated_count
+            );
         }
 
         "search" => {

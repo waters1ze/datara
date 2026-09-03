@@ -1344,7 +1344,9 @@ impl ForgenCompiler {
                     // 2. Smart Rust Crate Interop Detection (Global / local Cargo & cdylibs)
                     if first_seg == Some("rust") {
                         let rust_crate = u.path.get(1).map(|s| s.as_str()).unwrap_or("");
-                        if !rust_crate.is_empty() && checked_rust_crates.insert(rust_crate.to_string()) {
+                        if !rust_crate.is_empty()
+                            && checked_rust_crates.insert(rust_crate.to_string())
+                        {
                             let cargo_has_dep =
                                 if let Ok(manifest) = std::fs::read_to_string("Cargo.toml") {
                                     manifest.contains(&format!("{} =", rust_crate))

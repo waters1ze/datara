@@ -1,4 +1,4 @@
 fn main() {
-    println("Hello, Datara World! 🚀")
+    println("Hello, Datara World!")
     println("Welcome to High-Performance Post-OOP Systems Language.")
 }
