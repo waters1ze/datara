@@ -25,6 +25,7 @@ WORKDIR /workspace
 
 # Install compiler binary and stdlib
 COPY --from=builder /build/target/release/forgen /usr/local/bin/forgen
+RUN ln -s /usr/local/bin/forgen /usr/local/bin/datara
 COPY --from=builder /build/stdlib /usr/local/share/datara/stdlib
 
 ENV DATARA_HOME=/usr/local/share/datara

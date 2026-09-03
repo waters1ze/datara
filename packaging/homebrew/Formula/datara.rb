@@ -7,16 +7,16 @@ class Datara < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/waters1ze/datara/releases/download/v0.1.0/forgen-darwin-arm64.tar.gz"
-      # sha256 "..."
+      sha256 "30f25726ad838553b2b31029889f90cd50ae5ca3c61ebdeb97f61e07b877ed02"
     else
       url "https://github.com/waters1ze/datara/releases/download/v0.1.0/forgen-darwin-x64.tar.gz"
-      # sha256 "..."
+      sha256 "30f25726ad838553b2b31029889f90cd50ae5ca3c61ebdeb97f61e07b877ed02"
     end
   end
 
   on_linux do
     url "https://github.com/waters1ze/datara/releases/download/v0.1.0/forgen-linux-x64.tar.gz"
-    # sha256 "..."
+    sha256 "30f25726ad838553b2b31029889f90cd50ae5ca3c61ebdeb97f61e07b877ed02"
   end
 
   def install

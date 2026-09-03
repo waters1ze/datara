@@ -117,6 +117,49 @@ source ~/.zshrc    # On macOS / Zsh
 
 ---
 
+### Package Managers
+
+Install Datara seamlessly via your operating system's native package manager:
+
+#### Windows: Winget (Microsoft Official)
+```powershell
+winget install waters1ze.Datara
+```
+
+#### Windows: Scoop
+```powershell
+scoop install https://raw.githubusercontent.com/waters1ze/datara/main/packaging/scoop/datara.json
+```
+
+#### macOS & Linux: Homebrew
+```bash
+brew install waters1ze/tap/datara
+```
+
+#### Arch Linux: AUR
+```bash
+yay -S datara-bin
+```
+
+---
+
+### Docker & GitHub Packages (GHCR)
+
+Run Datara without installing anything locally via the official container image from GitHub Packages:
+
+```bash
+# Pull official image from GitHub Container Registry
+docker pull ghcr.io/waters1ze/datara:latest
+
+# Launch interactive REPL inside container
+docker run -it --rm ghcr.io/waters1ze/datara:latest
+
+# Build and run a local Datara file
+docker run --rm -v ${PWD}:/workspace -w /workspace ghcr.io/waters1ze/datara:latest run main.dtr
+```
+
+---
+
 ### Building from Source
 
 If you have Rust 1.80+ and Cargo installed:
@@ -1052,20 +1095,25 @@ forgen completions fish > ~/.config/fish/completions/forgen.fish
 
 # 6. Datara Execution Tiers & Architecture
 
-Datara provides a multi-tiered compilation and execution ladder designed to eliminate all friction throughout the software development lifecycle:
+Datara provides a multi-tiered compilation and execution ladder designed to eliminate all friction throughout the entire software development lifecycle:
 
-| Execution Tier | Invocation Command | Compilation Latency | Optimization Pipeline | Code Generator | Effect System & Safety | Primary Purpose |
+| Execution Tier | Invocation Command | Latency | Optimization Pipeline | Code Generator | Effect System & Safety | Primary Purpose |
 |---|---|---|---|---|---|---|
-| **Type & Effect Verification** | `forgen check` | **< 15 ms** | AST Type Checker & Effect Lattice | No emission (0 binaries) | Full static validation | Instant pre-commit / IDE linting |
-| **Zero-Latency JIT REPL** | `forgen repl` | **Instant (< 5 ms)** | Single-pass constant folding | In-memory Cranelift JIT | Sandboxed interactive runtime | Prototyping, algorithm exploration |
-| **Fast-Dev Native Execution** | `forgen run` | **30–50 ms** | Evidence Gate: SROA, Mem2Reg, LoopFold | Native object emission (Cranelift) | Strict affine ownership + XOR | Rapid dev cycle, unit & integration tests |
-| **Production AOT Release** | `forgen build --llvm` | **1.2–2.0 s** | Full SSA + LLVM -O3 + LTO + SIMD Vectorization | Target-specific native machine code | Hardened runtime + stack canary | Production cloud, HFT, games, bare-metal |
+| **Type & Effect Verification** | `forgen check` | **< 15 ms** | AST Type Checker & Effect Lattice | No emission (0 binaries) | Full static validation | Instant pre-commit / IDE real-time linting |
+| **Zero-Latency JIT REPL** | `datara` / `forgen repl` | **Instant (< 5 ms)** | Single-pass constant folding & JIT eval | In-memory Cranelift JIT | Sandboxed interactive runtime | Interactive exploration, algorithm prototyping |
+| **Fast-Dev Single-File Run** | `forgen run <file.dtr>` | **30–50 ms** | Evidence Gate: SROA, Mem2Reg, LoopFold | Native memory emission (Cranelift) | Strict affine ownership + XOR | Inner development loop, quick scripts |
+| **Fast AOT Binary Build** | `forgen build <target>` | **40–70 ms** | Evidence Gate SSA + Cranelift Codegen | Standalone native `.exe` / ELF binary | Strict affine ownership + Stack checks | Fast local distribution, staging deployment |
+| **Production AOT Release** | `forgen build --llvm` | **1.2–2.0 s** | Full SSA + LLVM -O3 + LTO + SIMD | Machine-tuned native binary (LLVM) | Hardened runtime + stack canaries | Production microservices, HFT, games |
+| **Profile-Guided Optimization** | `forgen build --profile`| **1.5–2.5 s** | PGO Branch Weighting + LLVM -O3 | Machine-tuned native binary (LLVM) | Hot-path branch optimization | Critical throughput services |
+| **In-Memory Test Runner** | `forgen test` | **20–40 ms** | Isolated parallel test harness | In-memory Cranelift JIT | Assertion verification | Instant CI & local test verification |
+| **Statistical Micro-Bench** | `forgen bench` | **Varies** | Statistical warm-up & nano-timer harness | In-memory Cranelift / LLVM | Monotonic precision timers | Algorithmic regression tracking |
 
 ### Key Architectural Pillars
-1. **Zero Garbage Collection Pauses**: Memory is governed deterministically through affine ownership semantics and zero-copy references (`view`). No runtime GC cycles or tracing overhead.
-2. **Mathematical Evidence Gate**: Compiler transformations (SROA, Mem2Reg, Closed-Form LoopFold, Horner Reassociation) verify invariants mathematically before emission.
+1. **Zero Garbage Collection Pauses**: Memory is governed deterministically through affine ownership semantics and zero-copy references (`view`). No runtime GC cycles, stop-the-world pauses, or tracing overhead.
+2. **Mathematical Evidence Gate**: Compiler transformations (SROA, Mem2Reg, Closed-Form LoopFold, Horner Reassociation) verify invariants mathematically before emission, rolling back any pass that doesn't reduce execution weights.
 3. **Hardware-Adaptive Portability**: Machine code generation strictly adheres to target architecture constraints (`generic_x86_64` baseline with SSE2, `generic_aarch64` with NEON), dynamically leveraging AVX2/AVX-512 without illegal instruction faults.
-4. **Decoupled Data & Behavior**: Post-OOP design with `entity`, `behavior`, `role`, `component`, `packet`, and payload-bearing `enum` tagged unions enables cache-friendly data-oriented programming with direct dispatch.
+4. **Decoupled Data & Behavior**: Post-OOP design with `entity`, `behavior`, `role`, `component`, `packet`, and payload-bearing `enum` tagged unions enables cache-friendly data-oriented programming with monomorphic direct dispatch (zero vtables).
+5. **Universal Ecosystem**: Standalone single-click installer (`Datara-Setup.exe`), Start Menu integration, cross-platform file icons (`.dtr`), and package manager manifests for Winget, Scoop, Homebrew, and AUR.
 
 ---
 
