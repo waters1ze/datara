@@ -35,7 +35,6 @@ pub fn get_embedded_stdlib_source(module_path: &str) -> Option<&'static str> {
         "ui.native" => Some(include_str!("../stdlib/ui/native.dtr")),
         "ui.page" => Some(include_str!("../stdlib/ui/page.dtr")),
         "ui.reactive" => Some(include_str!("../stdlib/ui/reactive.dtr")),
-        "ui.react_compat" => Some(include_str!("../stdlib/ui/react_compat.dtr")),
         "ui.styles" => Some(include_str!("../stdlib/ui/styles.dtr")),
         "ui.web" => Some(include_str!("../stdlib/ui/web.dtr")),
         _ => None,
@@ -73,7 +72,6 @@ pub const ALL_EMBEDDED_MODULES: &[&str] = &[
     "ui.native",
     "ui.page",
     "ui.reactive",
-    "ui.react_compat",
     "ui.styles",
     "ui.web",
 ];

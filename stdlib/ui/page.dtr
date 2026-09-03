@@ -1,25 +1,18 @@
 class Page {
     title: Str
-    brand_name: Str
+    head_extra: Str
     body_html: Str
-    custom_css: Str
 }
 
 behavior Page {
     render() -> Str {
         let doctype = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>" + this.title + "</title>"
-        
-        let reset_css = "<style>:root{--bg:#0a0e17;--card-bg:#121a2d;--border:#1f2e4d;--text:#f1f5f9;--muted:#94a3b8;--primary:#00f0ff;--accent:#0072ff}*{box-sizing:border-box;margin:0;padding:0}body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;padding:32px 16px;display:flex;flex-direction:column;align-items:center}.container{width:100%;max-width:1080px;display:flex;flex-direction:column;gap:24px}.navbar{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;background:var(--card-bg);border:1px solid var(--border);border-radius:14px}.brand{font-size:20px;font-weight:800;color:var(--primary);letter-spacing:1px}.card{background:var(--card-bg);border:1px solid var(--border);border-radius:14px;padding:24px;box-shadow:0 12px 30px rgba(0,0,0,0.4)}.badge{background:rgba(0,240,255,0.12);color:var(--primary);border:1px solid rgba(0,240,255,0.3);padding:4px 10px;border-radius:12px;font-size:11px;font-weight:700;text-transform:uppercase;display:inline-block;margin-bottom:12px}.row{display:flex;gap:16px;flex-wrap:wrap}.column{display:flex;flex-direction:column;gap:16px}.metric-card{flex:1;min-width:200px;background:#0d1424;border:1px solid var(--border);border-radius:12px;padding:18px}.metric-label{font-size:13px;color:var(--muted);font-weight:600}.metric-value{font-size:28px;font-weight:800;color:var(--primary);margin:6px 0}.metric-delta{font-size:12px;color:#10b981;font-weight:600}.btn{display:inline-block;padding:10px 20px;border-radius:8px;font-size:14px;font-weight:700;text-decoration:none;cursor:pointer;transition:all 0.2s}.btn-primary{background:linear-gradient(135deg,var(--primary),var(--accent));color:#000}.btn-secondary{background:#1e293b;color:var(--text);border:1px solid var(--border)}.tab-input{display:none}.tab-label{padding:10px 18px;cursor:pointer;font-weight:700;font-size:14px;color:var(--muted);border-radius:8px;display:inline-block}.tab-input:checked+label{background:rgba(0,240,255,0.15);color:var(--primary)}.tab-content{display:none;margin-top:16px}.tab-input:checked+label+.tab-content{display:block}</style>"
-        
-        mut custom = ""
-        if this.custom_css != "" {
-            custom = "<style>" + this.custom_css + "</style>"
+        mut head = ""
+        if this.head_extra != "" {
+            head = this.head_extra
         }
-        let head_end = "</head><body><div class='container'>"
-        let nav = "<div class='navbar'><div class='brand'>" + this.brand_name + "</div><div><span class='badge'>PURE DATARA 0-JS ENGINE</span></div></div>"
-        let footer = "</div></body></html>"
-
-        return doctype + reset_css + custom + head_end + nav + this.body_html + footer
+        let body = "</head><body>" + this.body_html + "</body></html>"
+        return doctype + head + body
     }
 
     save(path: Str) -> Bool {
