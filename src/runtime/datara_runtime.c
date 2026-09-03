@@ -95,11 +95,11 @@ void datara_rt_exit(int32_t code) {
 #define DATARA_TLS __thread
 #endif
 
-DATARA_TLS static char tls_int_bufs[32][32];
-DATARA_TLS static uint32_t tls_int_idx = 0;
+static DATARA_TLS char tls_int_bufs[32][32];
+static DATARA_TLS uint32_t tls_int_idx = 0;
 
-DATARA_TLS static char* tls_scratch_ring = NULL;
-DATARA_TLS static size_t tls_scratch_offset = 0;
+static DATARA_TLS char* tls_scratch_ring = NULL;
+static DATARA_TLS size_t tls_scratch_offset = 0;
 
 static inline char* datara_scratch_alloc(size_t len) {
     if (!tls_scratch_ring) {
@@ -384,8 +384,8 @@ void datara_rt_out_val(uint64_t box) {
 
 // Ultra-Fast Zero-Allocation Streaming Terminal I/O Subsystem
 #define DATARA_OUT_BUF_SIZE 65536
-DATARA_TLS static char datara_out_buf[DATARA_OUT_BUF_SIZE];
-DATARA_TLS static size_t datara_out_pos = 0;
+static DATARA_TLS char datara_out_buf[DATARA_OUT_BUF_SIZE];
+static DATARA_TLS size_t datara_out_pos = 0;
 
 static inline size_t datara_fast_i64toa(int64_t val, char* dst) {
     char temp[32];
@@ -635,6 +635,10 @@ int64_t* datara_rt_list_create_capacity(int64_t cap) {
     int64_t* list = (int64_t*)(hdr + 1);
     list[0] = 0;
     return list;
+}
+
+int64_t* datara_rt_list_create(int64_t cap) {
+    return datara_rt_list_create_capacity(cap);
 }
 
 int64_t* datara_rt_list_append(int64_t* list, int64_t v) {

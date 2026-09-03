@@ -67,14 +67,15 @@ int64_t     datara_rt_args_count(void);
 const char* datara_rt_args_get(int64_t index);
 
 // Collections & Data Structures
-void*       datara_rt_list_create(int64_t cap);
+int64_t*    datara_rt_list_create(int64_t cap);
+int64_t*    datara_rt_list_create_capacity(int64_t cap);
 int64_t*    datara_rt_list_append(int64_t* list, int64_t val);
-int64_t     datara_rt_list_len(void* list);
-int64_t     datara_rt_list_get(void* list, int64_t idx);
-int64_t     datara_rt_list_pop(void* list);
+int64_t     datara_rt_list_len(int64_t* list);
+int64_t     datara_rt_list_get(int64_t* list, int64_t idx);
+int64_t     datara_rt_list_pop(int64_t* list);
 void*       datara_rt_map_create(void);
 int64_t*    datara_rt_map_insert(int64_t* map, const char* key, int64_t val);
-int64_t     datara_rt_map_get(void* map, const char* key);
+int64_t     datara_rt_map_get(int64_t* map, const char* key);
 void        datara_rt_map_free(void* map);
 
 // Network Sockets
