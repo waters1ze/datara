@@ -133,6 +133,12 @@ jobs:
         run: |
           npm pack ./packages/npm --pack-destination ./dist
 
+      - name: Publish NPM to GitHub Packages
+        run: |
+          npm publish ./packages/npm || true
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Package Crates.io Crate
         run: |
           cargo package --allow-dirty --no-verify
@@ -187,7 +193,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist-all/*
+            dist-all/Datara-Setup.exe
+            dist-all/forgen-*.zip
+            dist-all/forgen-*.tar.gz
+            dist-all/SHA256SUMS.txt
           generate_release_notes: true
           draft: false
           prerelease: false
