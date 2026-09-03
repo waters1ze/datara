@@ -1207,7 +1207,7 @@ pub fn run_dpm_cli_args(args: &[String]) {
             }
         }
 
-        "verify" => {
+        "verify" | "verify-pkg" => {
             println!(":: [DPM] Verifying package integrity against datara.lock...");
             match registry.verify(current_dir) {
                 Ok(results) => {
@@ -1247,6 +1247,59 @@ pub fn run_dpm_cli_args(args: &[String]) {
                     std::process::exit(1);
                 }
             }
+        }
+
+        "update" | "upgrade" => {
+            let manifest_path = current_dir.join("datara.toml");
+            if !manifest_path.exists() {
+                eprintln!("[ERR] No 'datara.toml' found in current directory.");
+                std::process::exit(1);
+            }
+            let manifest = match DataraManifest::from_file(&manifest_path) {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("[ERR] Failed to read manifest: {}", e);
+                    std::process::exit(1);
+                }
+            };
+            let mut lock = DataraLock::load(current_dir).unwrap_or_default();
+            println!(":: [DPM] Checking and updating dependencies from HyperGrid and Git sources...");
+            let mut updated_count = 0;
+            for (dep_name, _) in &manifest.dependencies {
+                let pkg_dir = current_dir.join("packages").join(dep_name);
+                if pkg_dir.join(".git").exists() {
+                    println!("[.....] Updating git dependency '{}'...", dep_name);
+                    let status = std::process::Command::new("git")
+                        .arg("pull")
+                        .current_dir(&pkg_dir)
+                        .status();
+                    if let Ok(s) = status && s.success() {
+                        println!("[DONE] Pulled latest git changes for '{}'", dep_name);
+                        updated_count += 1;
+                    }
+                } else if let Some(pkg) = registry.lookup(dep_name) {
+                    let current_locked = lock.packages.get(dep_name);
+                    let needs_update = current_locked.map(|l| l.version != pkg.version).unwrap_or(true);
+                    if needs_update {
+                        println!("[.....] Updating '{}' to v{}...", dep_name, pkg.version);
+                        if registry.install(pkg, current_dir).is_ok() {
+                            lock.insert_or_update(
+                                &pkg.name,
+                                &pkg.version,
+                                &pkg.digest,
+                                "hypergrid",
+                                pkg.dependencies.clone(),
+                            );
+                            println!("[DONE] Updated '{}' to v{}", dep_name, pkg.version);
+                            updated_count += 1;
+                        }
+                    } else {
+                        println!("  • '{}' (v{}) is already up-to-date", dep_name, pkg.version);
+                    }
+                }
+            }
+            let _ = lock.save(current_dir);
+            println!("[DONE] Dependencies checked ({} updated, datara.lock synchronized)", updated_count);
         }
 
         "search" => {

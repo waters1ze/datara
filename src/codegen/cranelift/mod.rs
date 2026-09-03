@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 pub use self::backend::RealCraneliftBackend;
 pub use self::clif::{ClifEmitter, FunctionCodegenInspection, ModuleCodegenInspection};
 
+#[derive(Clone)]
 pub struct CraneliftBackend {
     pub target: TargetInfo,
     pub real_backend: RealCraneliftBackend,

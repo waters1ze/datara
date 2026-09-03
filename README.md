@@ -288,10 +288,14 @@ forgen build hello.dtr --llvm
 ```
 
 Explore more verified examples in [`examples/`](examples/):
-- [`examples/01_hello_world.dtr`](examples/01_hello_world.dtr) — Basic console output and strings
+- [`examples/01_hello_world.dtr`](examples/01_hello_world.dtr) — Basic console output and string interpolation
 - [`examples/02_math_and_loops.dtr`](examples/02_math_and_loops.dtr) — Closed-form arithmetic reduction ($O(1)$)
 - [`examples/03_post_oop_class.dtr`](examples/03_post_oop_class.dtr) — Post-OOP classes with zero-vtable direct calls
 - [`examples/04_enum_adt.dtr`](examples/04_enum_adt.dtr) — Algebraic data types (tagged unions) with pattern matching
+- [`examples/08_text_analyzer_cli.dtr`](examples/08_text_analyzer_cli.dtr) — Coleman-Liau readability index & phonetic ASCII bar generator
+- [`examples/09_matrix_math_cli.dtr`](examples/09_matrix_math_cli.dtr) — 3D linear algebra, Sarrus matrix determinant, and trace
+- [`examples/10_database_query_cli.dtr`](examples/10_database_query_cli.dtr) — Relational in-memory database with SQL-like aggregations
+- [`examples/11_crypto_pow_cli.dtr`](examples/11_crypto_pow_cli.dtr) — Blockchain block mining (Proof-of-Work) & Knuth hash cipher
 
 ---
 
@@ -323,6 +327,26 @@ Datara projects support three progressive complexity tiers:
 - **Level 1 (Scripting / Single-File)**: Just `forgen run file.dtr`. Zero manifests or setup needed.
 - **Level 2 (Folder Project)**: Any folder with a `main.dtr`. Forgen auto-discovers all peer `.dtr` modules without configuration.
 - **Level 3 (Enterprise Application / Library)**: Initialized via `forgen init myapp`. Contains `datara.toml`, `src/`, `tests/`, and `benches/`.
+
+#### Project Toolchain & Package Management Workflow
+```bash
+# Initialize a new structured project
+forgen init my_service
+
+# Multi-module file watcher (instant re-execution / test / check on file save)
+forgen watch run
+forgen watch test
+forgen watch check
+
+# Dependency updates from HyperGrid and Git sources (updates datara.lock)
+forgen update          # or: dpm update
+
+# Cryptographic package verification against datara.lock
+dpm verify
+
+# Offline packaging (recursively vendors nested dependencies into vendor/)
+forgen vendor
+```
 
 ---
 

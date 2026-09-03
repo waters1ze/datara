@@ -61,7 +61,7 @@ impl ForgenCompiler {
         Self {
             mode: mode.to_string(),
             locale: "en".to_string(),
-            codegen: CraneliftBackend::for_host(),
+            codegen: backend.clone(),
             cranelift: backend,
             use_llvm: false,
             pgo_profile: None,
@@ -291,6 +291,182 @@ impl ForgenCompiler {
                 llvm_source: None,
                 timings: CompilationTimings::default(),
             },
+        }
+    }
+
+    pub fn check_files(&self, paths: &[PathBuf]) -> CompilationResult {
+        let total_start = Instant::now();
+        let mut timings = CompilationTimings::default();
+        let mut diag = DiagnosticEngine::new(&self.locale);
+        let mut combined_declarations = Vec::new();
+
+        if paths.is_empty() {
+            return CompilationResult {
+                success: true,
+                exe_path: None,
+                error: None,
+                program: None,
+                semantic_graph: None,
+                dmir_module: None,
+                optimization_report: None,
+                diagnostics: String::new(),
+                clif_source: None,
+                llvm_source: None,
+                timings,
+            };
+        }
+
+        let parse_start = Instant::now();
+        for p in paths {
+            let src = match fs::read_to_string(p) {
+                Ok(s) => s,
+                Err(e) => {
+                    return CompilationResult {
+                        success: false,
+                        exe_path: None,
+                        error: Some(format!("Failed to read '{}': {}", p.display(), e)),
+                        program: None,
+                        semantic_graph: None,
+                        dmir_module: None,
+                        optimization_report: None,
+                        diagnostics: format!("Failed to read '{}': {}", p.display(), e),
+                        clif_source: None,
+                        llvm_source: None,
+                        timings,
+                    };
+                }
+            };
+            diag.set_source(p.to_str().unwrap_or("file"), &src);
+
+            let mut lexer = Lexer::new(&src, p.to_str().unwrap_or("file"));
+            let tokens = lexer.tokenize(&mut diag);
+            if diag.has_errors() {
+                timings.total_ms = total_start.elapsed().as_millis();
+                let d_str = diag.format_all();
+                return CompilationResult {
+                    success: false,
+                    exe_path: None,
+                    error: Some(d_str.clone()),
+                    program: None,
+                    semantic_graph: None,
+                    dmir_module: None,
+                    optimization_report: None,
+                    diagnostics: d_str,
+                    clif_source: None,
+                    llvm_source: None,
+                    timings,
+                };
+            }
+
+            let mut parser = Parser::new(tokens, &mut diag, p.to_str().unwrap_or("file"));
+            let prog = parser.parse_program();
+            if diag.has_errors() {
+                timings.total_ms = total_start.elapsed().as_millis();
+                let d_str = diag.format_all();
+                return CompilationResult {
+                    success: false,
+                    exe_path: None,
+                    error: Some(d_str.clone()),
+                    program: Some(prog),
+                    semantic_graph: None,
+                    dmir_module: None,
+                    optimization_report: None,
+                    diagnostics: d_str,
+                    clif_source: None,
+                    llvm_source: None,
+                    timings,
+                };
+            }
+
+            combined_declarations.extend(prog.declarations);
+        }
+        timings.parse_ms = parse_start.elapsed().as_millis();
+
+        let main_file = paths[0].to_str().unwrap_or("main.dtr");
+        let mut combined_program = Program {
+            declarations: combined_declarations,
+            file: main_file.to_string(),
+        };
+
+        let base_dirs = self.module_base_dirs(paths[0].as_path());
+        self.resolve_modules(&mut combined_program, &mut diag, paths, base_dirs);
+
+        // 2. Resolver
+        let res_start = Instant::now();
+        let mut resolver = Resolver::new();
+        resolver.resolve_program(&combined_program, &mut diag);
+        timings.resolve_ms = res_start.elapsed().as_millis();
+        if diag.has_errors() {
+            timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
+            return CompilationResult {
+                success: false,
+                exe_path: None,
+                error: Some(d_str.clone()),
+                program: Some(combined_program),
+                semantic_graph: None,
+                dmir_module: None,
+                optimization_report: None,
+                diagnostics: d_str,
+                clif_source: None,
+                llvm_source: None,
+                timings,
+            };
+        }
+
+        // 3. Type Checker
+        let tc_start = Instant::now();
+        let mut type_checker = TypeChecker::new(&resolver);
+        type_checker.check_program(&combined_program, &mut diag);
+        timings.typecheck_ms = tc_start.elapsed().as_millis();
+        if diag.has_errors() {
+            timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
+            return CompilationResult {
+                success: false,
+                exe_path: None,
+                error: Some(d_str.clone()),
+                program: Some(combined_program),
+                semantic_graph: None,
+                dmir_module: None,
+                optimization_report: None,
+                diagnostics: d_str,
+                clif_source: None,
+                llvm_source: None,
+                timings,
+            };
+        }
+
+        // 4. Effects
+        let eff_start = Instant::now();
+        let mut effects = EffectAnalyzer::new();
+        effects.analyze_program(&combined_program);
+        timings.effects_ms = eff_start.elapsed().as_millis();
+
+        // 5. Ownership
+        let own_start = Instant::now();
+        let mut ownership = OwnershipTracker::new(&resolver);
+        ownership.check_program(&combined_program, &mut diag);
+        timings.ownership_ms = own_start.elapsed().as_millis();
+
+        timings.total_ms = total_start.elapsed().as_millis();
+        let diag_str = diag.format_all();
+        CompilationResult {
+            success: !diag.has_errors(),
+            exe_path: None,
+            error: if diag.has_errors() {
+                Some(diag_str.clone())
+            } else {
+                None
+            },
+            program: Some(combined_program),
+            semantic_graph: None,
+            dmir_module: None,
+            optimization_report: None,
+            diagnostics: diag_str,
+            clif_source: None,
+            llvm_source: None,
+            timings,
         }
     }
 
@@ -656,6 +832,22 @@ impl ForgenCompiler {
         let mut timings = CompilationTimings::default();
         let mut diag = DiagnosticEngine::new(&self.locale);
         let mut combined_declarations = Vec::new();
+
+        if paths.is_empty() {
+            return CompilationResult {
+                success: false,
+                exe_path: None,
+                error: Some("No source files provided for compilation".to_string()),
+                program: None,
+                semantic_graph: None,
+                dmir_module: None,
+                optimization_report: None,
+                diagnostics: "No source files provided for compilation".to_string(),
+                clif_source: None,
+                llvm_source: None,
+                timings,
+            };
+        }
 
         let parse_start = Instant::now();
         for p in paths {
@@ -1102,6 +1294,10 @@ impl ForgenCompiler {
             .collect();
         let mut visited: HashSet<PathBuf> = HashSet::new();
         let mut errored_uses: HashSet<String> = HashSet::new();
+        let mut checked_python_pkgs: HashSet<String> = HashSet::new();
+        let mut checked_rust_crates: HashSet<String> = HashSet::new();
+        let mut checked_c_libs: HashSet<String> = HashSet::new();
+        let mut checked_js_pkgs: HashSet<String> = HashSet::new();
         // file -> module files it imports (for cycle detection)
         let mut deps: Vec<(PathBuf, Vec<PathBuf>)> = Vec::new();
 
@@ -1114,7 +1310,7 @@ impl ForgenCompiler {
                     // 1. Smart Python Package Interop Detection (Global site-packages / sys.path)
                     if first_seg == Some("python") {
                         let py_pkg = u.path.get(1).map(|s| s.as_str()).unwrap_or("");
-                        if !py_pkg.is_empty() {
+                        if !py_pkg.is_empty() && checked_python_pkgs.insert(py_pkg.to_string()) {
                             let check_cmd = std::process::Command::new("python")
                                 .arg("-c")
                                 .arg(format!("import {}; print(getattr({}, '__file__', 'built-in')); print(getattr({}, '__version__', 'builtin'))", py_pkg, py_pkg, py_pkg))
@@ -1148,7 +1344,7 @@ impl ForgenCompiler {
                     // 2. Smart Rust Crate Interop Detection (Global / local Cargo & cdylibs)
                     if first_seg == Some("rust") {
                         let rust_crate = u.path.get(1).map(|s| s.as_str()).unwrap_or("");
-                        if !rust_crate.is_empty() {
+                        if !rust_crate.is_empty() && checked_rust_crates.insert(rust_crate.to_string()) {
                             let cargo_has_dep =
                                 if let Ok(manifest) = std::fs::read_to_string("Cargo.toml") {
                                     manifest.contains(&format!("{} =", rust_crate))
@@ -1185,7 +1381,7 @@ impl ForgenCompiler {
                         || first_seg == Some("cxx")
                     {
                         let c_lib = u.path.get(1).map(|s| s.as_str()).unwrap_or("");
-                        if !c_lib.is_empty() {
+                        if !c_lib.is_empty() && checked_c_libs.insert(c_lib.to_string()) {
                             if let Some(lib_path) = self.find_system_c_cpp_lib(c_lib) {
                                 println!(
                                     "[Forgen FFI] Successfully bound C/C++ library '{}' (found at: {})",
@@ -1212,7 +1408,7 @@ impl ForgenCompiler {
                         || first_seg == Some("npm")
                     {
                         let js_pkg = u.path.get(1).map(|s| s.as_str()).unwrap_or("");
-                        if !js_pkg.is_empty() {
+                        if !js_pkg.is_empty() && checked_js_pkgs.insert(js_pkg.to_string()) {
                             if let Some(pkg_path) = self.find_js_ts_package(js_pkg) {
                                 println!(
                                     "[Forgen FFI] Successfully bound JS/TS package '{}' (found at: {})",
@@ -1405,7 +1601,51 @@ impl ForgenCompiler {
                         }),
                         Decl::Behavior(b) => program.declarations.iter().any(|existing| {
                             if let Decl::Behavior(eb) = existing {
-                                eb.target_type == b.target_type
+                                if eb.target_type == b.target_type {
+                                    b.body_items.iter().all(|item| {
+                                        if let crate::ast::ClassItem::Method(m) = item {
+                                            eb.body_items.iter().any(|eitem| {
+                                                if let crate::ast::ClassItem::Method(em) = eitem {
+                                                    em.name == m.name
+                                                } else {
+                                                    false
+                                                }
+                                            })
+                                        } else {
+                                            true
+                                        }
+                                    })
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        }),
+                        Decl::Function(f) => program.declarations.iter().any(|existing| {
+                            if let Decl::Function(ef) = existing {
+                                ef.name == f.name
+                            } else {
+                                false
+                            }
+                        }),
+                        Decl::Component(c) => program.declarations.iter().any(|existing| {
+                            if let Decl::Component(ec) = existing {
+                                ec.name == c.name
+                            } else {
+                                false
+                            }
+                        }),
+                        Decl::Role(r) => program.declarations.iter().any(|existing| {
+                            if let Decl::Role(er) = existing {
+                                er.name == r.name
+                            } else {
+                                false
+                            }
+                        }),
+                        Decl::Packet(p) => program.declarations.iter().any(|existing| {
+                            if let Decl::Packet(ep) = existing {
+                                ep.name == p.name
                             } else {
                                 false
                             }

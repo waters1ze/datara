@@ -185,7 +185,12 @@ impl ProjectDiscovery {
                             || name == "target"
                             || name == "tests"
                             || name == "examples"
-                            || name == "benches")
+                            || name == "benches"
+                            || name == "packages"
+                            || name == "vendor"
+                            || name == "node_modules"
+                            || name == "dist"
+                            || name == "build")
                     {
                         continue;
                     }

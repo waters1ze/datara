@@ -1,4 +1,4 @@
-use crate::driver::{CompilationResult, ForgenCompiler};
+use crate::driver::ForgenCompiler;
 use crate::pgo::ProfileData;
 use crate::project::{DataraManifest, ProjectDiscovery, ProjectInitializer, ProjectRunner};
 use std::collections::HashMap;
@@ -66,7 +66,11 @@ pub fn run_cli() {
         }
 
         "check" => {
-            let target_opt = args.get(2).filter(|s| !s.starts_with("-")).map(Path::new);
+            let target_opt = args
+                .iter()
+                .skip(2)
+                .find(|a| !a.starts_with("-") && *a != "--")
+                .map(Path::new);
             let layout = match ProjectDiscovery::discover(target_opt) {
                 Ok(l) => l,
                 Err(e) => {
@@ -77,30 +81,13 @@ pub fn run_cli() {
 
             let compiler = ForgenCompiler::new("check");
             let start = Instant::now();
-            // Check EVERY source file, not just the entry point: type errors
-            // in library modules must surface under `check` too.
-            let mut combined = String::new();
-            let mut entry_res = None;
-            for f in &layout.source_files {
-                let r = compiler.check_file(f);
-                if f == &layout.entry_point {
-                    entry_res = Some(r.clone());
-                }
-                if !r.success {
-                    combined.push_str(&r.diagnostics);
-                    combined.push('\n');
-                }
-            }
-            let base_entry = entry_res.unwrap_or_else(|| compiler.check_file(&layout.entry_point));
-            let res = if combined.is_empty() {
-                base_entry
+
+            let res = if layout.source_files.len() == 1 {
+                compiler.check_file(&layout.source_files[0])
             } else {
-                CompilationResult {
-                    success: false,
-                    diagnostics: combined,
-                    ..base_entry
-                }
+                compiler.check_files(&layout.source_files)
             };
+
             let elapsed = start.elapsed().as_millis();
 
             if res.success {
@@ -124,7 +111,11 @@ pub fn run_cli() {
         }
 
         "ui" => {
-            let target_opt = args.get(2).filter(|s| !s.starts_with("-")).map(Path::new);
+            let target_opt = args
+                .iter()
+                .skip(2)
+                .find(|a| !a.starts_with("-") && *a != "--")
+                .map(Path::new);
             let layout = match ProjectDiscovery::discover(target_opt) {
                 Ok(l) => l,
                 Err(e) => {
@@ -192,7 +183,24 @@ pub fn run_cli() {
         }
 
         "quick" | "run" | "start" => {
-            let target_opt = args.get(2).filter(|s| !s.starts_with("-")).map(Path::new);
+            let mut target_arg: Option<&str> = None;
+            let mut run_args = Vec::new();
+            let mut after_dash_dash = false;
+
+            for arg in args.iter().skip(2) {
+                if after_dash_dash {
+                    run_args.push(arg.clone());
+                } else if arg == "--" {
+                    after_dash_dash = true;
+                } else if arg.starts_with("-") {
+                    // compiler flag, e.g. --llvm, --domain
+                } else if target_arg.is_none() {
+                    target_arg = Some(arg.as_str());
+                } else {
+                    run_args.push(arg.clone());
+                }
+            }
+            let target_opt = target_arg.map(Path::new);
             let layout = match ProjectDiscovery::discover(target_opt) {
                 Ok(l) => l,
                 Err(e) => {
@@ -209,17 +217,6 @@ pub fn run_cli() {
             let is_llvm = args.iter().any(|a| a == "--llvm");
             let compiler = ForgenCompiler::new(mode).with_llvm(is_llvm);
 
-            let run_args_start = if target_opt.is_some() && !args[2].starts_with("-") {
-                3
-            } else {
-                2
-            };
-            let run_args: Vec<String> = if args.len() > run_args_start {
-                args[run_args_start..].to_vec()
-            } else {
-                Vec::new()
-            };
-
             // Incremental caching check: if target binary is newer than all source files, run directly
             let bin_name = layout.binary_name();
             let exe_target = if layout.source_files.len() == 1 && layout.manifest.is_none() {
@@ -227,6 +224,19 @@ pub fn run_cli() {
             } else {
                 layout.root.join(format!("{}.exe", bin_name))
             };
+
+            let cache_dir = layout.root.join(".forgen_cache");
+            let mut inc_cache = crate::incremental::IncrementalCache::load_from_dir(&cache_dir);
+            let mut all_fresh = !inc_cache.fingerprints.is_empty();
+            for sf in &layout.source_files {
+                if let Ok(content) = fs::read_to_string(sf) {
+                    if !inc_cache.is_module_fresh(sf, &content) {
+                        all_fresh = false;
+                    }
+                } else {
+                    all_fresh = false;
+                }
+            }
 
             let mut newest_source_mod = None;
             for sf in &layout.source_files {
@@ -253,6 +263,7 @@ pub fn run_cli() {
                 .ok()
                 .flatten();
             let need_recompile = is_llvm
+                || !all_fresh
                 || match (newest_source_mod, exe_mod) {
                     (Some(s), Some(e)) => s > e,
                     _ => true,
@@ -276,6 +287,13 @@ pub fn run_cli() {
 
             match compiler.run_project(&layout, &run_args) {
                 Ok((stdout, stderr, code, _)) => {
+                    for sf in &layout.source_files {
+                        if let Ok(content) = fs::read_to_string(sf) {
+                            inc_cache.update_module(sf, &content, Vec::new());
+                        }
+                    }
+                    let _ = inc_cache.save_to_dir(&cache_dir);
+
                     print!("{}", stdout);
                     if !stderr.is_empty() {
                         eprint!("{}", stderr);
@@ -292,7 +310,11 @@ pub fn run_cli() {
         }
 
         "test" => {
-            let target_opt = args.get(2).filter(|s| !s.starts_with("-")).map(Path::new);
+            let target_opt = args
+                .iter()
+                .skip(2)
+                .find(|a| !a.starts_with("-") && *a != "--")
+                .map(Path::new);
             let layout = match ProjectDiscovery::discover(target_opt) {
                 Ok(l) => l,
                 Err(e) => {
@@ -301,7 +323,8 @@ pub fn run_cli() {
                 }
             };
 
-            let compiler = ForgenCompiler::new("release");
+            let is_llvm = args.iter().any(|a| a == "--llvm");
+            let compiler = ForgenCompiler::new("release").with_llvm(is_llvm);
             let rep = ProjectRunner::run_tests(&layout, &compiler);
 
             println!(
@@ -338,7 +361,11 @@ pub fn run_cli() {
         }
 
         "bench" => {
-            let target_opt = args.get(2).filter(|s| !s.starts_with("-")).map(Path::new);
+            let target_opt = args
+                .iter()
+                .skip(2)
+                .find(|a| !a.starts_with("-") && *a != "--")
+                .map(Path::new);
             let layout = match ProjectDiscovery::discover(target_opt) {
                 Ok(l) => l,
                 Err(e) => {
@@ -347,7 +374,8 @@ pub fn run_cli() {
                 }
             };
 
-            let compiler = ForgenCompiler::new("release");
+            let is_llvm = args.iter().any(|a| a == "--llvm");
+            let compiler = ForgenCompiler::new("release").with_llvm(is_llvm);
             if let Err(e) = ProjectRunner::run_benches(&layout, &compiler) {
                 eprintln!("Benchmark failed: {}", e);
                 std::process::exit(1);
@@ -355,7 +383,11 @@ pub fn run_cli() {
         }
 
         "build" | "release" | "debug" | "verify" => {
-            let target_opt = args.get(2).filter(|s| !s.starts_with("-")).map(Path::new);
+            let target_opt = args
+                .iter()
+                .skip(2)
+                .find(|a| !a.starts_with("-") && *a != "--")
+                .map(Path::new);
             let layout = match ProjectDiscovery::discover(target_opt) {
                 Ok(l) => l,
                 Err(e) => {
@@ -416,16 +448,16 @@ pub fn run_cli() {
                     layout.name,
                     layout.source_files.len()
                 );
-                let exe_p = res.exe_path.as_ref().unwrap();
-                println!("[Forgen] Output:  {}", exe_p.display());
+                if let Some(exe_p) = res.exe_path.as_ref() {
+                    println!("[Forgen] Output:  {}", exe_p.display());
 
-                if is_python_target {
-                    let py_path = exe_p.with_extension("py");
-                    let mut py_code = format!(
-                        "# Auto-generated Datara Python Bridge for {}\nimport ctypes\nimport os\n\n_dll_path = os.path.abspath(r\"{}\")\n_lib = ctypes.CDLL(_dll_path)\n\n",
-                        bin_name,
-                        exe_p.display()
-                    );
+                    if is_python_target {
+                        let py_path = exe_p.with_extension("py");
+                        let mut py_code = format!(
+                            "# Auto-generated Datara Python Bridge for {}\nimport ctypes\nimport os\n\n_dll_path = os.path.abspath(r\"{}\")\n_lib = ctypes.CDLL(_dll_path)\n\n",
+                            bin_name,
+                            exe_p.display()
+                        );
 
                     if let Some(ref dmir) = res.dmir_module {
                         for fn_name in dmir.functions.keys() {
@@ -481,7 +513,8 @@ pub fn run_cli() {
                         println!("[Forgen] Graph:   {}", graph_path.display());
                     }
                 }
-            } else {
+            }
+        } else {
                 eprintln!(
                     "{}",
                     res.error.unwrap_or_else(|| "Compilation failed".into())
@@ -491,7 +524,11 @@ pub fn run_cli() {
         }
 
         "sae" => {
-            let target_opt = args.get(2).filter(|s| !s.starts_with("-")).map(Path::new);
+            let target_opt = args
+                .iter()
+                .skip(2)
+                .find(|a| !a.starts_with("-") && *a != "--")
+                .map(Path::new);
             let layout = match ProjectDiscovery::discover(target_opt) {
                 Ok(l) => l,
                 Err(e) => {
@@ -609,7 +646,10 @@ pub fn run_cli() {
                     json_obj.insert(
                         "outputBinary".into(),
                         serde_json::Value::String(
-                            res.exe_path.unwrap().to_string_lossy().to_string(),
+                            res.exe_path
+                                .as_ref()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_default(),
                         ),
                     );
                     if let Some(ref p) = pgo_profile {
@@ -670,7 +710,10 @@ pub fn run_cli() {
                 println!("   Total:       {:>4}ms", t.total_ms);
                 println!(
                     " Output binary:              {}",
-                    res.exe_path.unwrap().display()
+                    res.exe_path
+                        .as_ref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "none".to_string())
                 );
                 println!("============================================================");
             } else {
@@ -840,7 +883,11 @@ pub fn run_cli() {
         }
 
         "profile" => {
-            let target_opt = args.get(2).filter(|s| !s.starts_with("-")).map(Path::new);
+            let target_opt = args
+                .iter()
+                .skip(2)
+                .find(|a| !a.starts_with("-") && *a != "--")
+                .map(Path::new);
             let layout = match ProjectDiscovery::discover(target_opt) {
                 Ok(l) => l,
                 Err(e) => {
@@ -1595,6 +1642,11 @@ pub fn run_cli() {
                 }
             }
 
+            let inc_dir = Path::new(".forgen_cache");
+            if inc_dir.exists() {
+                let _ = fs::remove_dir_all(inc_dir);
+            }
+
             // Also clean local build artifacts like *.exe, *.ll, *.pdb, *.pgo in current dir
             if let Ok(entries) = fs::read_dir(".") {
                 for entry in entries.flatten() {
@@ -1623,11 +1675,18 @@ pub fn run_cli() {
                         };
 
                         if matches_filter {
-                            // Don't delete forgen.exe itself!
                             if let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-                                && (stem == "forgen" || stem == "datara")
+                                && (stem == "forgen" || stem == "datara" || stem == "dpm" || stem == "cargo" || stem == "rustc")
                             {
                                 continue;
+                            }
+                            if ext == "exe" && !is_all {
+                                let has_dtr = path.with_extension("dtr").exists()
+                                    || Path::new("src").join(format!("{}.dtr", path.file_stem().unwrap().to_string_lossy())).exists();
+                                let is_dtr_exe = path.to_string_lossy().ends_with(".dtr.exe");
+                                if !has_dtr && !is_dtr_exe {
+                                    continue;
+                                }
                             }
                             if let Ok(meta) = entry.metadata() {
                                 freed_bytes += meta.len();
@@ -1760,6 +1819,15 @@ pub fn run_cli() {
             println!("[Forgen watch] Press Ctrl+C to stop.\n");
 
             let mut last_modified_map: HashMap<PathBuf, std::time::SystemTime> = HashMap::new();
+            if let Ok(layout) = ProjectDiscovery::discover(target_opt) {
+                for file_path in &layout.source_files {
+                    if let Ok(meta) = fs::metadata(file_path)
+                        && let Ok(mtime) = meta.modified()
+                    {
+                        last_modified_map.insert(file_path.clone(), mtime);
+                    }
+                }
+            }
             run_watch_iteration(subcmd, &args);
 
             loop {
@@ -1769,19 +1837,25 @@ pub fn run_cli() {
                     Err(_) => continue,
                 };
 
-                let mut changed = false;
+                let mut changed = layout.source_files.len() != last_modified_map.len();
+                let mut current_map = HashMap::new();
                 for file_path in &layout.source_files {
                     if let Ok(meta) = fs::metadata(file_path)
                         && let Ok(mtime) = meta.modified()
                     {
-                        if let Some(&prev) = last_modified_map.get(file_path)
-                            && mtime > prev
-                        {
-                            changed = true;
+                        match last_modified_map.get(file_path) {
+                            Some(&prev) if mtime > prev => {
+                                changed = true;
+                            }
+                            None => {
+                                changed = true;
+                            }
+                            _ => {}
                         }
-                        last_modified_map.insert(file_path.clone(), mtime);
+                        current_map.insert(file_path.clone(), mtime);
                     }
                 }
+                last_modified_map = current_map;
 
                 if changed {
                     println!("\n==================================================");
@@ -2014,29 +2088,7 @@ pub fn run_cli() {
                 eprintln!("Update error: No 'datara.toml' found in current directory.");
                 std::process::exit(1);
             }
-
-            match crate::project::manifest::DataraManifest::from_file(manifest_path) {
-                Ok(manifest) => {
-                    println!(
-                        "[Forgen update] Checking HyperGrid registry for dependency updates..."
-                    );
-                    let count = manifest.dependencies.len();
-                    for dep in manifest.dependencies.keys() {
-                        println!(
-                            "  Checking '{}'... up to date (Merkle digest verified)",
-                            dep
-                        );
-                    }
-                    println!(
-                        "[Forgen update] All {} dependencies verified and locked in datara.toml",
-                        count
-                    );
-                }
-                Err(e) => {
-                    eprintln!("Failed to parse datara.toml: {}", e);
-                    std::process::exit(1);
-                }
-            }
+            crate::project::pm::run_dpm_cli_args(&["dpm".to_string(), "update".to_string()]);
         }
 
         "vendor" => {
@@ -2053,17 +2105,9 @@ pub fn run_cli() {
                     if p.is_dir() {
                         let name = p.file_name().unwrap_or_default();
                         let dest = vendor_dir.join(name);
-                        let _ = fs::create_dir_all(&dest);
-                        if let Ok(sub_entries) = fs::read_dir(&p) {
-                            for sub in sub_entries.flatten() {
-                                let sub_path = sub.path();
-                                if sub_path.is_file() {
-                                    let sub_name = sub_path.file_name().unwrap();
-                                    let _ = fs::copy(&sub_path, dest.join(sub_name));
-                                }
-                            }
+                        if copy_dir_recursive(&p, &dest).is_ok() {
+                            vendored_count += 1;
                         }
-                        vendored_count += 1;
                     }
                 }
             }
@@ -2173,12 +2217,17 @@ complete -c forgen -l all -d "Apply to all targets""#
 }
 
 fn run_watch_iteration(subcmd: &str, args: &[String]) {
+    let target_opt = args
+        .iter()
+        .skip(3)
+        .find(|s| !s.starts_with("-") && *s != "--")
+        .map(Path::new);
+
     match subcmd {
         "run" => {
-            let target_opt = args.get(3).filter(|s| !s.starts_with("-")).map(Path::new);
             if let Ok(layout) = ProjectDiscovery::discover(target_opt) {
                 let compiler = ForgenCompiler::new("quick");
-                if let Ok((stdout, stderr, _, _)) = compiler.run_file(&layout.entry_point, &[]) {
+                if let Ok((stdout, stderr, _, _)) = compiler.run_project(&layout, &[]) {
                     print!("{}", stdout);
                     if !stderr.is_empty() {
                         eprint!("{}", stderr);
@@ -2187,7 +2236,6 @@ fn run_watch_iteration(subcmd: &str, args: &[String]) {
             }
         }
         "test" => {
-            let target_opt = args.get(3).filter(|s| !s.starts_with("-")).map(Path::new);
             if let Ok(layout) = ProjectDiscovery::discover(target_opt) {
                 let compiler = ForgenCompiler::new("quick");
                 let report = ProjectRunner::run_tests(&layout, &compiler);
@@ -2198,7 +2246,6 @@ fn run_watch_iteration(subcmd: &str, args: &[String]) {
             }
         }
         "lint" => {
-            let target_opt = args.get(3).filter(|s| !s.starts_with("-")).map(Path::new);
             if let Ok(layout) = ProjectDiscovery::discover(target_opt) {
                 for file_path in &layout.source_files {
                     if let Ok(diags) = crate::lint::lint_file(file_path) {
@@ -2210,13 +2257,17 @@ fn run_watch_iteration(subcmd: &str, args: &[String]) {
             }
         }
         _ => {
-            let target_opt = args.get(3).filter(|s| !s.starts_with("-")).map(Path::new);
             if let Ok(layout) = ProjectDiscovery::discover(target_opt) {
                 let compiler = ForgenCompiler::new("check");
-                let res = compiler.check_file(&layout.entry_point);
+                let res = if layout.source_files.len() == 1 {
+                    compiler.check_file(&layout.source_files[0])
+                } else {
+                    compiler.check_files(&layout.source_files)
+                };
                 if res.success {
                     println!(
-                        "[Forgen check] Verified 100% OK (0 errors, valid ownership & effects)"
+                        "[Forgen check] Verified 100% OK ({} modules, 0 errors, valid ownership & effects)",
+                        layout.source_files.len()
                     );
                 } else {
                     eprintln!("{}", res.diagnostics);
@@ -2224,6 +2275,21 @@ fn run_watch_iteration(subcmd: &str, args: &[String]) {
             }
         }
     }
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dest_child = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_recursive(&entry.path(), &dest_child)?;
+        } else {
+            fs::copy(entry.path(), &dest_child)?;
+        }
+    }
+    Ok(())
 }
 
 fn explain_code(code: &str) {

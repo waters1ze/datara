@@ -157,12 +157,32 @@ impl ProjectRunner {
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .unwrap_or("bench");
-            let res = compiler.compile_file(bench_file, None);
+
+            let mut compile_paths = vec![bench_file.clone()];
+            for src in &layout.source_files {
+                if src.file_name().and_then(|n| n.to_str()) != Some("main.dtr") && src != bench_file
+                {
+                    compile_paths.push(src.clone());
+                }
+            }
+
+            let res = if compile_paths.len() == 1 {
+                compiler.compile_file(bench_file, None)
+            } else {
+                compiler.compile_files(&compile_paths, None)
+            };
+
             if !res.success {
                 eprintln!("Bench '{}' failed to compile: {:?}", name, res.error);
                 continue;
             }
-            let exe = res.exe_path.unwrap();
+            let exe = match res.exe_path {
+                Some(p) => p,
+                None => {
+                    eprintln!("Bench '{}' failed: no executable produced", name);
+                    continue;
+                }
+            };
             let (_, _, code, run_ms) = compiler.codegen.run_executable(&exe, &[])?;
             println!("  bench {} ... {} ms (exit {})", name, run_ms, code);
         }

@@ -22,6 +22,7 @@ use crate::types::TypeChecker;
 
 use crate::codegen::linker::linker_lock;
 
+#[derive(Clone)]
 pub struct RealCraneliftBackend {
     pub target: TargetInfo,
 }
