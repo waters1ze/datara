@@ -58,6 +58,9 @@ Datara completely eliminates garbage collection pauses and reference-counting cy
    - [Datara Performance & Optimization Matrix](#benchmarks-matrix)
 5. [The Forgen Developer Tooling Ecosystem (DX Suite)](#5-the-forgen-developer-tooling-ecosystem)
    - [`forgen run`, `build [--llvm]`, `check`, `test`, `bench`](#core-cli-commands)
+   - [`forgen domain` & `domain --llvm` (Whole-Program Domain Specialization)](#forgen-domain--domain---llvm)
+   - [`forgen sae` (Semantic Adaptation Engine Inspector)](#forgen-sae)
+   - [`forgen profile` (Static & Runtime Execution Profiler)](#forgen-profile)
    - [`forgen format` (Official Formatter & Granular Flags)](#forgen-format)
    - [`forgen repl` (Zero-Latency Interactive JIT Console)](#forgen-repl)
    - [`forgen watch` (50ms Instant Hot-Loop Live Reload)](#forgen-watch)
@@ -66,6 +69,8 @@ Datara completely eliminates garbage collection pauses and reference-counting cy
    - [`forgen explain <code|rule>` (Interactive Error Encyclopedia)](#forgen-explain)
    - [`forgen doc [--open]` (Autonomous Single-File SPA Generator)](#forgen-doc)
    - [`forgen tree [--effects]` (Dependency Hierarchy & Security Scanner)](#forgen-tree)
+   - [`forgen why` & `forgen context` (AI Semantic Optimization API)](#forgen-why--context)
+   - [`forgen ui` (Zero-JS Web & Native GUI Application Runner)](#forgen-ui)
    - [`forgen vendor` & `forgen update` (Air-Gapped 100% Offline Builds)](#forgen-vendor--update)
    - [`dpm` (Datara Package Manager & HyperGrid CAS Registry)](#dpm-datara-package-manager)
    - [`forgen export` (C99/C++ Header & Shared Library `.dll`/`.so`)](#forgen-export)
@@ -953,6 +958,12 @@ Project Commands:
   check [target]          Instant type, ownership, and effect verification (0 binaries)
   test [target]           Auto-discover and execute test suites in tests/
   bench [target]          Auto-discover and execute benchmarks in benches/
+  domain [target] [--llvm] Whole-program specialization & SAE adaptation report
+  sae [target]            Inspect Semantic Adaptation Engine optimization decisions
+  profile [target]        Profile call-graph frequency and generate PGO runtime data
+  ui [target]             Build and launch pure Datara Frontend (Zero-JS Web or Native GUI)
+  why <symbol> [target]   Explain why optimizations were applied or rejected
+  context <symbol> [tgt]  Structured AI Semantic Metadata API (JSON)
   format, fmt [path]      Official code formatter (flags: --check, --indent, --operators, --loops, --style, --mut, --all)
   repl                    Zero-latency interactive JIT console
   watch [cmd] [target]    Instant 50ms hot-loop file watcher (re-runs run/test/check)
@@ -966,6 +977,85 @@ Project Commands:
   update, upgrade         Check and update dependency versions with Merkle verification
   completions <shell>     Generate terminal auto-completions (bash, zsh, fish, powershell)
 ```
+
+---
+
+### Core CLI Commands: `forgen run`, `build [--llvm]`, `check`, `test`, `bench`
+
+The core commands for daily development across all project levels (Single file, Folder, Manifest):
+
+```bash
+# 1. Single-file execution (30–50ms instant Cranelift JIT)
+forgen run hello.dtr
+
+# 2. Project execution (Auto-detects main.dtr / datara.toml)
+forgen run
+
+# 3. Production AOT Binary Compilation
+forgen build                      # Fast Cranelift AOT binary (< 70ms)
+forgen build --llvm               # Peak machine-speed LLVM -O3 + LTO (1.2–2.0s)
+forgen build -o custom_name.exe   # Specify custom output binary path
+
+# 4. Instant static type, ownership & effect verification (0 binaries emitted)
+forgen check
+
+# 5. Automated test suite runner (runs all test cases in tests/)
+forgen test
+
+# 6. Statistical nano-benchmarking (runs microbenchmarks in benches/)
+forgen bench
+```
+
+---
+
+### `forgen domain` & `domain --llvm` (Whole-Program Domain Specialization)
+
+The highest tier of the Datara compilation ladder. While `forgen build` compiles modules with traditional SSA optimization, **`forgen domain`** performs whole-program interprocedural analysis, aggressive fixed-point optimization (10 iterative passes), and domain-specific specialization:
+
+```bash
+# Whole-program domain specialization with Cranelift codegen (150–350ms)
+forgen domain
+
+# Peak production domain compilation with LLVM AOT + -O3 + LTO + SIMD (1.5–2.5s)
+forgen domain --llvm
+
+# Whole-program domain compilation with Profile-Guided Optimization (PGO)
+forgen domain --pgo target/pgo/app.pgo --llvm
+
+# Output machine-readable JSON optimization and reachability report
+forgen domain --json
+```
+
+#### What happens during Domain Specialization:
+1. **Whole-Program Reachability & Dead Symbol Elimination**: Any function, type, or runtime module not transitively reachable from `main()` is stripped before code generation.
+2. **Aggressive Fixed-Point Iteration (10 passes)**: Deep iterative optimization runs until no further mathematical reductions (SROA, Mem2Reg, Closed-Form LoopFold, Constant Folding) can be proven.
+3. **Sibling Recursion & Tail-Call Elimination**: Transforms recursive patterns into flat branchless loops.
+4. **Inter-procedural Inlining & Monomorphization**: Inlines hot cross-module function calls and eliminates dynamic dispatch.
+5. **Specialization Report**: Emits a comprehensive telemetry report detailing modules analyzed, reachable symbols, removed dead symbols, generic specializations, and pipeline timings.
+
+---
+
+### `forgen sae` (Semantic Adaptation Engine Inspector)
+
+Inspects the decisions made by Datara's **Semantic Adaptation Engine (SAE)**, which translates high-level semantic intent (*WHAT*) into mechanically optimal machine representation (*HOW*):
+
+```bash
+forgen sae
+# or with JSON output for automated CI analysis:
+forgen sae --json
+```
+Displays categorized adaptation records (Memory, Concurrency, Vectorization, Dispatch) showing the candidate construct, the compiler's decision, benefit ratio (e.g. `2.4x`), cost ratio, mathematical reason, and formal evidence.
+
+---
+
+### `forgen profile` (Static & Runtime Execution Profiler)
+
+Runs project execution profiling, analyzes call graph topology, and generates profile data for Profile-Guided Optimization (PGO):
+
+```bash
+forgen profile
+```
+Generates `.forgen_profile/<project>.json` and measures execution time, stdout/stderr streams, and static call-site frequency distributions.
 
 ---
 
@@ -1113,6 +1203,32 @@ myapp v0.1.0
 
 ---
 
+### `forgen why` & `forgen context` (AI Semantic Optimization API)
+
+Datara features native semantic introspection tools designed for both human developers and AI autonomous coding agents:
+
+```bash
+# Explain why optimizations (inlining, SROA, vectorization) were applied or rejected:
+forgen why calculate_tax src/main.dtr
+
+# Structured semantic metadata API (JSON) providing types, effects, and invariants:
+forgen context User src/models.dtr
+```
+
+---
+
+### `forgen ui` (Zero-JS Reactive Web & Native Windows GUI Runner)
+
+Datara includes built-in UI execution via `stdlib.ui`:
+
+```bash
+# Build and launch a pure Datara UI application
+forgen ui
+```
+Runs reactive zero-JS Web applications or native Win32/macOS desktop windows without requiring Node.js, Electron, or external browser runtimes.
+
+---
+
 ### `forgen export` (C-Header & Shared Library)
 
 Export Datara code for integration into C, C++, Rust, Python, or C#:
@@ -1236,7 +1352,10 @@ Datara provides a multi-tiered compilation and execution ladder designed to elim
 | **Fast-Dev Single-File Run** | `forgen run <file.dtr>` | **30–50 ms** | Evidence Gate: SROA, Mem2Reg, LoopFold | Native memory emission (Cranelift) | Strict affine ownership + XOR | Inner development loop, quick scripts |
 | **Fast AOT Binary Build** | `forgen build <target>` | **40–70 ms** | Evidence Gate SSA + Cranelift Codegen | Standalone native `.exe` / ELF binary | Strict affine ownership + Stack checks | Fast local distribution, staging deployment |
 | **Production AOT Release** | `forgen build --llvm` | **1.2–2.0 s** | Full SSA + LLVM -O3 + LTO + SIMD | Machine-tuned native binary (LLVM) | Hardened runtime + stack canaries | Production microservices, HFT, games |
-| **Profile-Guided Optimization** | `forgen build --profile`| **1.5–2.5 s** | PGO Branch Weighting + LLVM -O3 | Machine-tuned native binary (LLVM) | Hot-path branch optimization | Critical throughput services |
+| **Whole-Program Domain Specialization** | `forgen domain <target>` | **150–350 ms** | SAE Aggressive Fixed-Point (10 passes), Sibling Recursion, DSE | Native executable (Cranelift) | Whole-program reachability + DSE | High-throughput domain microservices |
+| **Peak Domain AOT Release** | `forgen domain <target> --llvm` | **1.5–2.5 s** | SAE Specialization + LLVM -O3 + LTO + SIMD | Machine-tuned native binary (LLVM) | Max mathematical reduction + LTO | Peak bare-metal performance, financial engines |
+| **Profile-Guided Optimization** | `forgen profile` / `forgen domain --pgo` | **1.5–2.5 s** | PGO Branch Weighting + LLVM -O3 | Machine-tuned native binary (LLVM) | Hot-path branch optimization | Critical throughput services |
+| **Content-Addressed Package Sync** | `dpm install` / `dpm add` | **< 20 ms** | CAS Merkle Hash Verification | Direct project linking (`packages/`) | Cryptographic digest enforcement | Zero-drift dependency supply chain |
 | **In-Memory Test Runner** | `forgen test` | **20–40 ms** | Isolated parallel test harness | In-memory Cranelift JIT | Assertion verification | Instant CI & local test verification |
 | **Statistical Micro-Bench** | `forgen bench` | **Varies** | Statistical warm-up & nano-timer harness | In-memory Cranelift / LLVM | Monotonic precision timers | Algorithmic regression tracking |
 

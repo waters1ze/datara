@@ -136,6 +136,14 @@ impl<'a> LlvmEmitter<'a> {
         ir.push_str("declare void @datara_rt_out_bool(i64)\n");
         ir.push_str("declare void @datara_rt_out_str(ptr)\n");
         ir.push_str("declare void @datara_rt_err(ptr)\n");
+        ir.push_str("declare void @datara_rt_print_str(ptr)\n");
+        ir.push_str("declare void @datara_rt_print_int(i64)\n");
+        ir.push_str("declare void @datara_rt_print_float(double)\n");
+        ir.push_str("declare void @datara_rt_print_bool(i64)\n");
+        ir.push_str("declare void @datara_rt_print_space()\n");
+        ir.push_str("declare void @datara_rt_print_newline()\n");
+        ir.push_str("declare void @datara_rt_flush()\n");
+        ir.push_str("declare void @datara_rt_print_list(ptr)\n");
         ir.push_str("declare ptr @datara_rt_str_concat(ptr, ptr)\n");
         ir.push_str("declare ptr @datara_rt_str_concat_3(ptr, ptr, ptr)\n");
         ir.push_str("declare ptr @datara_rt_str_concat_4(ptr, ptr, ptr, ptr)\n");

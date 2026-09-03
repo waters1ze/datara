@@ -364,13 +364,22 @@ pub fn run_cli() {
                 }
             };
 
-            let mode = if command == "build" {
+            let pgo_profile = args
+                .iter()
+                .position(|a| a == "--pgo")
+                .and_then(|i| args.get(i + 1))
+                .map(PathBuf::from);
+            let mode = if args.iter().any(|a| a == "--domain") {
+                "domain"
+            } else if command == "build" {
                 "release"
             } else {
                 command
             };
             let is_llvm = args.iter().any(|a| a == "--llvm");
-            let compiler = ForgenCompiler::new(mode).with_llvm(is_llvm);
+            let compiler = ForgenCompiler::new(mode)
+                .with_llvm(is_llvm)
+                .with_pgo(pgo_profile);
 
             let start = Instant::now();
             let bin_name = layout.binary_name();
