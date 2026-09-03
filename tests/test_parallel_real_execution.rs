@@ -87,8 +87,8 @@ fn main() {
         r1 = compute_worker(10)
         r2 = compute_worker(20)
     }
-    out "Result 1: {r1}"
-    out "Result 2: {r2}"
+    out fmt"Result 1: {r1}"
+    out fmt"Result 2: {r2}"
 }
 "#;
 

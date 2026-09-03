@@ -2,5 +2,5 @@ fn double(x: Int) -> Int => x * 2
 
 fn main() {
     let val = 15 |> double()
-    out "Pipeline result: {val}"
+    out fmt"Pipeline result: {val}"
 }

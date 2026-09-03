@@ -129,7 +129,7 @@ fn if_conversion_select_infers_float_type() {
 fn llvm_float_interpolation_uses_real_runtime_symbol() {
     let source = r#"
 fn main() {
-    out("v={1.5}")
+    out(fmt"v={1.5}")
 }
 "#;
     let compiler = ForgenCompiler::new("release").with_llvm(true);

@@ -8,6 +8,6 @@ fn grade(score: Int) -> Str {
 }
 
 fn main() {
-    out "Score 85 Grade: {grade(85)}"
-    out "Score 50 Grade: {grade(50)}"
+    out fmt"Score 85 Grade: {grade(85)}"
+    out fmt"Score 50 Grade: {grade(50)}"
 }

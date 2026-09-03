@@ -4,7 +4,7 @@ class User {
 }
 
 behavior User {
-    greet() -> Str => "Hello {name} ({age})"
+    greet() -> Str => fmt"Hello {name} ({age})"
 }
 
 fn main() {

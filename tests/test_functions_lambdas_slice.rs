@@ -15,7 +15,7 @@ fn compute(val: Int) -> Int {
 fn main() {
     let x = 4
     let res = compute(x)
-    out "Result: {res}"
+    out fmt"Result: {res}"
 }
 "#;
 

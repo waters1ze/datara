@@ -101,7 +101,7 @@ fn test_bool_string_interpolation() {
 fn main() {
     mut flag = false
     flag = 3 > 1
-    out "flag: {flag}"
+    out fmt"flag: {flag}"
 }
 "#,
         "test_bool_interp.dtr",

@@ -28,25 +28,31 @@ fn main() {
     assert_eq!(code, 0);
     assert_eq!(stdout.trim(), "Hello from Datara v1!");
 
-    // 2. Test Datara default interpolation (without f prefix)
-    let src_default = temp_dir.join("test_default_interp.dtr");
-    let code_default = r#"
+    // 2. Test Datara Format Stream Template: fmt"..."
+    let src_fmt = temp_dir.join("test_fmt_stream.dtr");
+    let code_fmt = r#"
 fn main() {
     let x = 10
     let y = 20
-    println("Sum of {x} + {y} = {x + y}")
+    println(fmt"Sum of {x} + {y} = {x + y}")
+    println($"Dollar stream: {x * y}")
+    // 3. Test that regular strings are 100% literal (no accidental interpolation of {})
+    println("Literal: {x} + {y} and JSON: {\"key\": 100}")
 }
 "#;
-    fs::write(&src_default, code_default).unwrap();
-    let res2 = compiler.run_file(&src_default, &[]);
+    fs::write(&src_fmt, code_fmt).unwrap();
+    let res2 = compiler.run_file(&src_fmt, &[]);
     assert!(
         res2.is_ok(),
-        "default interpolation must succeed: {:?}",
+        "fmt stream compilation must succeed: {:?}",
         res2.err()
     );
     let (stdout2, _, code2, _) = res2.unwrap();
     assert_eq!(code2, 0);
-    assert_eq!(stdout2.trim(), "Sum of 10 + 20 = 30");
+    let lines: Vec<&str> = stdout2.lines().collect();
+    assert_eq!(lines[0], "Sum of 10 + 20 = 30");
+    assert_eq!(lines[1], "Dollar stream: 200");
+    assert_eq!(lines[2], "Literal: {x} + {y} and JSON: {\"key\": 100}");
 
     let _ = fs::remove_dir_all(&temp_dir);
 }
@@ -108,9 +114,9 @@ fn test_repl_session_in_process_speed_and_state() {
     let print_res = session.eval_line("print(\"hello\", x)").unwrap();
     assert_eq!(print_res, "=> hello 100");
 
-    // 5. F-string in REPL
-    let fstr_res = session.eval_line("f\"Count: {x + 5}\"").unwrap();
-    assert_eq!(fstr_res, "=> Count: 105");
+    // 5. Fmt-stream in REPL
+    let fmt_res = session.eval_line("fmt\"Count: {x + 5}\"").unwrap();
+    assert_eq!(fmt_res, "=> Count: 105");
 
     // 6. Bare function name introspection
     let input_fn_res = session.eval_line("input").unwrap();

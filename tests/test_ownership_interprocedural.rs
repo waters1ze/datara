@@ -47,7 +47,7 @@ fn allocate_buffer(size: Int) -> Buffer {
 fn main() {
     // Caller receives full ownership of returned buffer
     let my_buf = allocate_buffer(1024)
-    out "Allocated: {my_buf.capacity}"
+    out fmt"Allocated: {my_buf.capacity}"
 }
 "#;
 
@@ -109,7 +109,7 @@ fn main() {
     let v = view(p)
     let intermediate = step1(v)
     let final_res = step2(intermediate)
-    out "Final: {final_res}"
+    out fmt"Final: {final_res}"
 }
 "#;
 

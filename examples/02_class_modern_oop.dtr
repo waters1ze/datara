@@ -1,7 +1,7 @@
 class User {
     name: Str
     age: Int
-    greet() -> Str => "Hello {name}"
+    greet() -> Str => fmt"Hello {name}"
 }
 
 fn main() {

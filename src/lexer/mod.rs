@@ -504,76 +504,33 @@ impl Lexer {
                     }
                 }
 
-                '"' | 'f' | 'F' if ch == '"' || self.peek() == '"' => {
-                    if ch != '"' {
-                        self.advance(); // consume the opening quote after f/F prefix
-                    }
-                    let mut s = String::new();
-                    let mut is_interpolated = false;
-                    let mut closed = false;
+                // Stream Template with `fmt` prefix: fmt"..." or FMT"..."
+                'f' | 'F'
+                    if self.peek() == 'm'
+                        && self.peek_next() == 't'
+                        && self.chars.get(self.pos + 2) == Some(&'"') =>
+                {
+                    self.advance(); // consume 'm'
+                    self.advance(); // consume 't'
+                    self.advance(); // consume opening quote '"'
+                    self.scan_string_literal(start_line, start_col, true, diag, &mut tokens);
+                }
 
-                    while !self.is_at_end() {
-                        let c = self.advance();
-                        if c == '"' {
-                            closed = true;
-                            break;
-                        }
-                        if c == '\\' {
-                            if self.is_at_end() {
-                                break;
-                            }
-                            let next_c = self.advance();
-                            match next_c {
-                                'n' => s.push('\n'),
-                                't' => s.push('\t'),
-                                'r' => s.push('\r'),
-                                '\\' => s.push('\\'),
-                                '"' => s.push('"'),
-                                '0' => s.push('\0'),
-                                '{' => {
-                                    // Escaped bracket preserved so parser doesn't interpolate it
-                                    s.push('\\');
-                                    s.push('{');
-                                }
-                                other => {
-                                    s.push('\\');
-                                    s.push(other);
-                                }
-                            }
-                            continue;
-                        }
-                        if c == '{' {
-                            is_interpolated = true;
-                        }
-                        s.push(c);
-                    }
+                // Stream Template with `$` operator: $"..."
+                '$' if self.peek() == '"' => {
+                    self.advance(); // consume opening quote '"'
+                    self.scan_string_literal(start_line, start_col, true, diag, &mut tokens);
+                }
 
-                    let span = SourceSpan::new(
-                        start_line,
-                        start_col,
-                        self.line,
-                        self.col,
-                        self.file.clone(),
-                    );
-                    if !closed {
-                        diag.error(
-                            ErrorCode::SyntaxUnterminatedString,
-                            "Unterminated string literal".into(),
-                            Some(span.clone()),
-                        );
-                    } else if is_interpolated && s.contains('}') {
-                        tokens.push(Token::new(
-                            TokenType::InterpolatedString(s.clone()),
-                            format!("\"{}\"", s),
-                            span,
-                        ));
-                    } else {
-                        tokens.push(Token::new(
-                            TokenType::StringLiteral(s.clone()),
-                            format!("\"{}\"", s),
-                            span,
-                        ));
-                    }
+                // Compatibility format prefix: f"..." or F"..."
+                'f' | 'F' if self.peek() == '"' => {
+                    self.advance(); // consume opening quote '"'
+                    self.scan_string_literal(start_line, start_col, true, diag, &mut tokens);
+                }
+
+                // Standard string literal: "..." (100% pure literal by default, {} not interpolated!)
+                '"' => {
+                    self.scan_string_literal(start_line, start_col, false, diag, &mut tokens);
                 }
 
                 _ if ch.is_ascii_digit() => {
@@ -777,6 +734,85 @@ impl Lexer {
                 }
                 _ => break,
             }
+        }
+    }
+
+    fn scan_string_literal(
+        &mut self,
+        start_line: usize,
+        start_col: usize,
+        allow_interpolation: bool,
+        diag: &mut DiagnosticEngine,
+        tokens: &mut Vec<Token>,
+    ) {
+        let mut s = String::new();
+        let mut is_interpolated = false;
+        let mut closed = false;
+
+        while !self.is_at_end() {
+            let c = self.advance();
+            if c == '"' {
+                closed = true;
+                break;
+            }
+            if c == '\\' {
+                if self.is_at_end() {
+                    break;
+                }
+                let next_c = self.advance();
+                match next_c {
+                    'n' => s.push('\n'),
+                    't' => s.push('\t'),
+                    'r' => s.push('\r'),
+                    '\\' => s.push('\\'),
+                    '"' => s.push('"'),
+                    '0' => s.push('\0'),
+                    '{' => {
+                        if allow_interpolation {
+                            s.push('\\');
+                            s.push('{');
+                        } else {
+                            s.push('{');
+                        }
+                    }
+                    other => {
+                        s.push('\\');
+                        s.push(other);
+                    }
+                }
+                continue;
+            }
+            if allow_interpolation && c == '{' {
+                is_interpolated = true;
+            }
+            s.push(c);
+        }
+
+        let span = SourceSpan::new(
+            start_line,
+            start_col,
+            self.line,
+            self.col,
+            self.file.clone(),
+        );
+        if !closed {
+            diag.error(
+                ErrorCode::SyntaxUnterminatedString,
+                "Unterminated string literal".into(),
+                Some(span.clone()),
+            );
+        } else if allow_interpolation && is_interpolated && s.contains('}') {
+            tokens.push(Token::new(
+                TokenType::InterpolatedString(s.clone()),
+                format!("\"{}\"", s),
+                span,
+            ));
+        } else {
+            tokens.push(Token::new(
+                TokenType::StringLiteral(s.clone()),
+                format!("\"{}\"", s),
+                span,
+            ));
         }
     }
 

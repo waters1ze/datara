@@ -53,7 +53,7 @@ fn main() {
     let b = classify(2)
     let c = classify(15)
     let d = classify(5)
-    out "{a},{b},{c},{d}"
+    out fmt"{a},{b},{c},{d}"
 }
 "#;
     let (out, code_ret) = run_datara(code, "test_pattern_matching.dtr");
@@ -75,7 +75,7 @@ fn main() {
         sum2 = sum2 + j
     }
 
-    out "SUMS: {sum1},{sum2}"
+    out fmt"SUMS: {sum1},{sum2}"
 }
 "#;
     let (out, code_ret) = run_datara(code, "test_for_scoping.dtr");
@@ -111,7 +111,7 @@ fn check_opt(x: Int?) -> Str {
 fn main() {
     let s = check_opt(42)
     let n = check_opt(None)
-    out "{s},{n}"
+    out fmt"{s},{n}"
 }
 "#;
     let (out, code_ret) = run_datara(code, "test_opt_narrowing.dtr");
@@ -138,8 +138,8 @@ fn test_str_to_float_and_conversions() {
 fn main() {
     let i = str_to_int("42")
     let f = str_to_float("3.14159")
-    out "{i}"
-    out "{f}"
+    out fmt"{i}"
+    out fmt"{f}"
     out "CONVERSIONS_OK"
 }
 "#;
@@ -184,7 +184,7 @@ fn main() {
     mut p = Point { x: 10, y: 20 }
     p.x = 42
     p.y = p.y + 5
-    out "X={p.x} Y={p.y}"
+    out fmt"X={p.x} Y={p.y}"
 }
 "#;
     let (out, code_ret) = run_datara(code, "test_mutable_sroa.dtr");

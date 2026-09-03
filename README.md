@@ -353,22 +353,28 @@ let ored           = or(a, 0x80)    // Bitwise OR (OR)
 
 Strings in Datara are UTF-8 encoded, immutable, and optimized with local scratch arenas to ensure **zero allocator lock contention**.
 
-#### High-Speed String Interpolation & Python f-strings
-Datara supports both automatic string interpolation and Python parity syntax (`f"..."` / `F"..."`):
+#### Format Stream Templates (`fmt"..."`) & Zero-Allocation Stream Fusion (ZASF)
+Datara separates pure literal strings from formatted templates:
+- **Pure Literal Strings (`"..."`)**: Regular strings never interpolate `{}` by default. They are 100% literal static strings — JSON payloads (`"{\"status\": 200}"`), regexes (`"^[a-z]{3,5}$"`), and templates remain completely intact without escaping.
+- **Format Stream Templates (`fmt"..."`)**: Activated explicitly with the `fmt` prefix (or stream operator `$"..."`).
+- **Zero-Allocation Stream Fusion (ZASF)**: When `fmt"..."` is passed to `println(...)`, `print(...)`, or I/O streams, the compiler decomposes it into direct hardware streaming calls. **Zero intermediate string objects are allocated on the heap!**
 
 ```datara
 let user = "Alice"
 let score = 98.5
 let passed = true
 
-// 1. Python-style f-strings (explicit 'f' prefix)
-let pythonic = f"Candidate {user} scored {score}. Status: {passed}!"
+// 1. Datara Format Stream Template (fmt prefix)
+let msg = fmt"Candidate {user} scored {score}. Status: {passed}!"
 
-// 2. Datara default interpolation (no prefix required)
-let concise = "Candidate {user} scored {score}. Status: {passed}!"
+// 2. Stream operator alias ($ prefix)
+let log = $"Event: score={score * 2.0}"
 
-// 3. Complex expressions inside braces
-println(f"Next level: {score + 10.0}")
+// 3. Pure literal string (braces {} are plain text, perfect for JSON)
+let json = "{\"user\": \"Alice\", \"items\": [1, 2, 3]}"
+
+// 4. Zero-allocation stream fusion into println
+println(fmt"Next level target: {score + 10.0}")
 ```
 
 #### Supported Escape Sequences

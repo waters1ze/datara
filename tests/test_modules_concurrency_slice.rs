@@ -13,7 +13,7 @@ fn process_data(val: Int) -> Int {
 
 fn main() {
     let res = process_data(10)
-    out "Processed: {res}"
+    out fmt"Processed: {res}"
 }
 "#;
 
