@@ -53,3 +53,8 @@ tests/debug_*.dtr
 /dist/
 /scratch/
 
+# Internal design roadmaps & future concepts
+/ROADMAP.md
+/ИДЕИ_НА_БУДУЩЕЕ_ROADMAP.md
+
+
