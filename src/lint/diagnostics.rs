@@ -58,7 +58,13 @@ impl LintDiagnostic {
     /// Render diagnostic in Rust/Cargo style with colored ANSI output and source context.
     pub fn render(&self, source_code: Option<&str>) -> String {
         let (color_warn, color_blue, color_cyan, color_reset, color_bold) = if is_terminal() {
-            ("\x1b[1;33m", "\x1b[1;34m", "\x1b[1;36m", "\x1b[0m", "\x1b[1m")
+            (
+                "\x1b[1;33m",
+                "\x1b[1;34m",
+                "\x1b[1;36m",
+                "\x1b[0m",
+                "\x1b[1m",
+            )
         } else {
             ("", "", "", "", "")
         };
@@ -110,7 +116,14 @@ impl LintDiagnostic {
                 if let Some(help) = &self.help {
                     out.push_str(&format!(
                         "  {}|{} {}{}{} {}help: {}{}\n",
-                        color_blue, color_reset, indent, color_warn, carets, color_cyan, help, color_reset
+                        color_blue,
+                        color_reset,
+                        indent,
+                        color_warn,
+                        carets,
+                        color_cyan,
+                        help,
+                        color_reset
                     ));
                 } else {
                     out.push_str(&format!(

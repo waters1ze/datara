@@ -7,7 +7,8 @@ pub fn is_snake_case(s: &str) -> bool {
     if s.is_empty() {
         return true;
     }
-    s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+    s.chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
         && !s.contains("__")
 }
 
@@ -24,7 +25,8 @@ pub fn is_screaming_snake_case(s: &str) -> bool {
     if s.is_empty() {
         return true;
     }
-    s.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+    s.chars()
+        .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
 }
 
 pub fn to_snake_case(s: &str) -> String {
@@ -79,7 +81,9 @@ fn check_declarations(program: &Program, diags: &mut Vec<LintDiagnostic>) {
                             f.span.clone(),
                         )
                         .with_help(format!("convert to snake_case: `{}`", suggested))
-                        .with_note("Datara naming convention enforces snake_case for functions".into()),
+                        .with_note(
+                            "Datara naming convention enforces snake_case for functions".into(),
+                        ),
                     );
                 }
 
@@ -94,7 +98,10 @@ fn check_declarations(program: &Program, diags: &mut Vec<LintDiagnostic>) {
                                 p.span.clone(),
                             )
                             .with_help(format!("convert to snake_case: `{}`", suggested))
-                            .with_note("Datara naming convention enforces snake_case for parameters".into()),
+                            .with_note(
+                                "Datara naming convention enforces snake_case for parameters"
+                                    .into(),
+                            ),
                         );
                     }
                 }
@@ -113,7 +120,10 @@ fn check_declarations(program: &Program, diags: &mut Vec<LintDiagnostic>) {
                             c.span.clone(),
                         )
                         .with_help(format!("convert to PascalCase: `{}`", suggested))
-                        .with_note("Datara naming convention enforces PascalCase for types and classes".into()),
+                        .with_note(
+                            "Datara naming convention enforces PascalCase for types and classes"
+                                .into(),
+                        ),
                     );
                 }
                 for item in &c.body_items {
@@ -178,18 +188,17 @@ fn check_declarations(program: &Program, diags: &mut Vec<LintDiagnostic>) {
                 }
             }
 
-            Decl::Packet(p)
-                if !is_pascal_case(&p.name) => {
-                    let suggested = to_pascal_case(&p.name);
-                    diags.push(
-                        LintDiagnostic::new(
-                            "style::non_camel_case_types",
-                            format!("packet `{}` should have a PascalCase name", p.name),
-                            p.span.clone(),
-                        )
-                        .with_help(format!("convert to PascalCase: `{}`", suggested)),
-                    );
-                }
+            Decl::Packet(p) if !is_pascal_case(&p.name) => {
+                let suggested = to_pascal_case(&p.name);
+                diags.push(
+                    LintDiagnostic::new(
+                        "style::non_camel_case_types",
+                        format!("packet `{}` should have a PascalCase name", p.name),
+                        p.span.clone(),
+                    )
+                    .with_help(format!("convert to PascalCase: `{}`", suggested)),
+                );
+            }
 
             _ => {}
         }
@@ -209,8 +218,14 @@ fn check_body(stmt: &Stmt, diags: &mut Vec<LintDiagnostic>) {
                     format!("variable `{}` does not need to be mutable", name),
                     span.clone(),
                 )
-                .with_help(format!("remove `mut` to declare an immutable variable: `let {}`", name))
-                .with_note(format!("`{}` is never reassigned after initialization", name))
+                .with_help(format!(
+                    "remove `mut` to declare an immutable variable: `let {}`",
+                    name
+                ))
+                .with_note(format!(
+                    "`{}` is never reassigned after initialization",
+                    name
+                ))
                 .with_fix(format!("let {}", name)),
             );
         }
@@ -223,8 +238,14 @@ fn check_body(stmt: &Stmt, diags: &mut Vec<LintDiagnostic>) {
                     format!("unused variable `{}`", name),
                     span.clone(),
                 )
-                .with_help(format!("if this is intentional, prefix with an underscore: `_{}`", name))
-                .with_note(format!("`{}` is defined but its value is never evaluated", name)),
+                .with_help(format!(
+                    "if this is intentional, prefix with an underscore: `_{}`",
+                    name
+                ))
+                .with_note(format!(
+                    "`{}` is defined but its value is never evaluated",
+                    name
+                )),
             );
         }
 
@@ -238,7 +259,9 @@ fn check_body(stmt: &Stmt, diags: &mut Vec<LintDiagnostic>) {
                     span.clone(),
                 )
                 .with_help(format!("convert to snake_case: `{}`", suggested))
-                .with_note("Datara naming convention enforces snake_case for local variables".into()),
+                .with_note(
+                    "Datara naming convention enforces snake_case for local variables".into(),
+                ),
             );
         }
     }
@@ -306,14 +329,19 @@ fn check_stmt_structure(stmt: &Stmt, diags: &mut Vec<LintDiagnostic>) {
                         format!("loop variable `{}` should have a snake_case name", var_name),
                         span.clone(),
                     )
-                    .with_help(format!("convert to snake_case: `{}`", to_snake_case(var_name))),
+                    .with_help(format!(
+                        "convert to snake_case: `{}`",
+                        to_snake_case(var_name)
+                    )),
                 );
             }
             check_expr_idioms(iterable, diags);
             check_stmt_structure(body, diags);
         }
 
-        Stmt::Assign { target: _, value, .. } => {
+        Stmt::Assign {
+            target: _, value, ..
+        } => {
             check_expr_idioms(value, diags);
         }
 
@@ -343,27 +371,30 @@ fn check_expr_idioms(expr: &Expr, diags: &mut Vec<LintDiagnostic>) {
         } => {
             // Check bool comparisons like x == true or x == false
             if op == "=="
-                && let Expr::Literal(LiteralValue::Bool(b), _) = right.as_ref() {
-                    if *b {
-                        diags.push(
-                            LintDiagnostic::new(
-                                "style::bool_comparison",
-                                "redundant comparison with `true`".into(),
-                                span.clone(),
-                            )
-                            .with_help("simplify condition to evaluate boolean expression directly".into()),
-                        );
-                    } else {
-                        diags.push(
-                            LintDiagnostic::new(
-                                "style::bool_comparison",
-                                "comparison with `false` can be inverted".into(),
-                                span.clone(),
-                            )
-                            .with_help("simplify condition by prefixing with negation `!`".into()),
-                        );
-                    }
+                && let Expr::Literal(LiteralValue::Bool(b), _) = right.as_ref()
+            {
+                if *b {
+                    diags.push(
+                        LintDiagnostic::new(
+                            "style::bool_comparison",
+                            "redundant comparison with `true`".into(),
+                            span.clone(),
+                        )
+                        .with_help(
+                            "simplify condition to evaluate boolean expression directly".into(),
+                        ),
+                    );
+                } else {
+                    diags.push(
+                        LintDiagnostic::new(
+                            "style::bool_comparison",
+                            "comparison with `false` can be inverted".into(),
+                            span.clone(),
+                        )
+                        .with_help("simplify condition by prefixing with negation `!`".into()),
+                    );
                 }
+            }
 
             check_expr_idioms(left, diags);
             check_expr_idioms(right, diags);
@@ -390,11 +421,12 @@ fn body_increments_var(stmt: &Stmt, var: &str) -> bool {
         Stmt::Assign { target, value, .. } => {
             if let Expr::Identifier(name, _) = target
                 && name == var
-                    && let Expr::Binary { op, left, .. } = value
-                        && op == "+"
-                            && let Expr::Identifier(l_name, _) = left.as_ref() {
-                                return l_name == var;
-                            }
+                && let Expr::Binary { op, left, .. } = value
+                && op == "+"
+                && let Expr::Identifier(l_name, _) = left.as_ref()
+            {
+                return l_name == var;
+            }
             false
         }
         _ => false,
@@ -418,15 +450,25 @@ impl VariableUsageTracker {
 
     fn analyze_stmt(&mut self, stmt: &Stmt) {
         match stmt {
-            Stmt::Let { name, init, span, .. } => {
+            Stmt::Let {
+                name, init, span, ..
+            } => {
                 self.declared.insert(name.clone(), (span.clone(), false));
                 self.analyze_expr(init);
             }
-            Stmt::Mut { name, init, span, .. } => {
+            Stmt::Mut {
+                name, init, span, ..
+            } => {
                 self.declared.insert(name.clone(), (span.clone(), true));
                 self.analyze_expr(init);
             }
-            Stmt::Val { name, init, is_mut, span, .. } => {
+            Stmt::Val {
+                name,
+                init,
+                is_mut,
+                span,
+                ..
+            } => {
                 self.declared.insert(name.clone(), (span.clone(), *is_mut));
                 self.analyze_expr(init);
             }
@@ -443,19 +485,33 @@ impl VariableUsageTracker {
                     self.analyze_stmt(s);
                 }
             }
-            Stmt::If { condition, then_branch, else_branch, .. } => {
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 self.analyze_expr(condition);
                 self.analyze_stmt(then_branch);
                 if let Some(eb) = else_branch {
                     self.analyze_stmt(eb);
                 }
             }
-            Stmt::While { condition, body, .. } => {
+            Stmt::While {
+                condition, body, ..
+            } => {
                 self.analyze_expr(condition);
                 self.analyze_stmt(body);
             }
-            Stmt::For { var_name, iterable, body, span, .. } => {
-                self.declared.insert(var_name.clone(), (span.clone(), false));
+            Stmt::For {
+                var_name,
+                iterable,
+                body,
+                span,
+                ..
+            } => {
+                self.declared
+                    .insert(var_name.clone(), (span.clone(), false));
                 self.analyze_expr(iterable);
                 self.analyze_stmt(body);
             }

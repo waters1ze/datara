@@ -1,4 +1,4 @@
-use forgen::fmt::rules::{format_source, FormatOptions};
+use forgen::fmt::rules::{FormatOptions, format_source};
 
 #[test]
 fn test_format_indentation_and_braces() {
@@ -40,8 +40,16 @@ fn test_format_operators() {
     };
 
     let (formatted, _) = format_source(unformatted, &opts);
-    assert!(formatted.contains("let total = x + y * 2 - z"), "Formatted: {}", formatted);
-    assert!(formatted.contains("let eq = (a == b) && (c != d)"), "Formatted: {}", formatted);
+    assert!(
+        formatted.contains("let total = x + y * 2 - z"),
+        "Formatted: {}",
+        formatted
+    );
+    assert!(
+        formatted.contains("let eq = (a == b) && (c != d)"),
+        "Formatted: {}",
+        formatted
+    );
 }
 
 #[test]
@@ -62,7 +70,11 @@ for (i in 0..10){
     };
 
     let (formatted, _) = format_source(unformatted, &opts);
-    assert!(formatted.contains("for i in 0..10 {"), "Formatted: {}", formatted);
+    assert!(
+        formatted.contains("for i in 0..10 {"),
+        "Formatted: {}",
+        formatted
+    );
     assert!(formatted.contains("if i > 5 {"), "Formatted: {}", formatted);
 }
 

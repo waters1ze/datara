@@ -6,8 +6,13 @@ use std::process::Command;
 
 /// Generates a C99/C++ compatible header file (.h) from Datara source
 pub fn export_c_header(source_path: &Path, output_header: &Path) -> Result<PathBuf, String> {
-    let content = fs::read_to_string(source_path)
-        .map_err(|e| format!("Failed to read source file '{}': {}", source_path.display(), e))?;
+    let content = fs::read_to_string(source_path).map_err(|e| {
+        format!(
+            "Failed to read source file '{}': {}",
+            source_path.display(),
+            e
+        )
+    })?;
 
     let stem = source_path
         .file_stem()
@@ -87,7 +92,12 @@ pub fn export_c_header(source_path: &Path, output_header: &Path) -> Result<PathB
                 };
 
                 let c_ret = map_datara_type_to_c(ret_type);
-                header.push_str(&format!("DATARA_API {} {}{};\n", c_ret, fn_name, rest[..rest.find("->").unwrap_or(rest.len())].trim()));
+                header.push_str(&format!(
+                    "DATARA_API {} {}{};\n",
+                    c_ret,
+                    fn_name,
+                    rest[..rest.find("->").unwrap_or(rest.len())].trim()
+                ));
             }
         }
     }
@@ -98,8 +108,13 @@ pub fn export_c_header(source_path: &Path, output_header: &Path) -> Result<PathB
     if let Some(parent) = output_header.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    fs::write(output_header, header)
-        .map_err(|e| format!("Failed to write header to '{}': {}", output_header.display(), e))?;
+    fs::write(output_header, header).map_err(|e| {
+        format!(
+            "Failed to write header to '{}': {}",
+            output_header.display(),
+            e
+        )
+    })?;
 
     Ok(output_header.to_path_buf())
 }
@@ -121,7 +136,9 @@ pub fn export_shared_library(source_path: &Path, output_lib: &Path) -> Result<Pa
     let mut cmd = Command::new(&current_exe);
     cmd.arg("build").arg(source_path).arg("--llvm");
 
-    let status = cmd.status().map_err(|e| format!("Failed to invoke forgen build: {}", e))?;
+    let status = cmd
+        .status()
+        .map_err(|e| format!("Failed to invoke forgen build: {}", e))?;
     if !status.success() {
         return Err("Export failed during standalone compilation.".to_string());
     }

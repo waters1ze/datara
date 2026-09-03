@@ -49,16 +49,17 @@ fn collect_and_parse_docs(dir: &Path, modules: &mut Vec<DocModule>) -> Result<()
     }
     if dir.is_file() {
         if let Some(ext) = dir.extension().and_then(|s| s.to_str())
-            && matches!(ext, "dtr" | "forge") {
-                let mod_name = dir.file_stem().and_then(|s| s.to_str()).unwrap_or("module");
-                let content = fs::read_to_string(dir).unwrap_or_default();
-                let items = parse_file_doc_items(&content, &dir.to_string_lossy());
-                modules.push(DocModule {
-                    name: mod_name.to_string(),
-                    path: dir.to_string_lossy().to_string(),
-                    items,
-                });
-            }
+            && matches!(ext, "dtr" | "forge")
+        {
+            let mod_name = dir.file_stem().and_then(|s| s.to_str()).unwrap_or("module");
+            let content = fs::read_to_string(dir).unwrap_or_default();
+            let items = parse_file_doc_items(&content, &dir.to_string_lossy());
+            modules.push(DocModule {
+                name: mod_name.to_string(),
+                path: dir.to_string_lossy().to_string(),
+                items,
+            });
+        }
         return Ok(());
     }
 
@@ -72,16 +73,20 @@ fn collect_and_parse_docs(dir: &Path, modules: &mut Vec<DocModule>) -> Result<()
             }
             collect_and_parse_docs(&path, modules)?;
         } else if let Some(ext) = path.extension().and_then(|s| s.to_str())
-            && matches!(ext, "dtr" | "forge") {
-                let mod_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("module");
-                let content = fs::read_to_string(&path).unwrap_or_default();
-                let items = parse_file_doc_items(&content, &path.to_string_lossy());
-                modules.push(DocModule {
-                    name: mod_name.to_string(),
-                    path: path.to_string_lossy().to_string(),
-                    items,
-                });
-            }
+            && matches!(ext, "dtr" | "forge")
+        {
+            let mod_name = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("module");
+            let content = fs::read_to_string(&path).unwrap_or_default();
+            let items = parse_file_doc_items(&content, &path.to_string_lossy());
+            modules.push(DocModule {
+                name: mod_name.to_string(),
+                path: path.to_string_lossy().to_string(),
+                items,
+            });
+        }
     }
     Ok(())
 }

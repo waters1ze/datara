@@ -8,9 +8,18 @@ fn test_fuzzy_matching_core() {
     assert_eq!(levenshtein_distance("calculate_total", "calc_total"), 5);
 
     let candidates = ["my_counter", "total_items", "user_account"];
-    assert_eq!(find_best_match("my_countr", candidates.iter().copied()), Some("my_counter"));
-    assert_eq!(find_best_match("totl_items", candidates.iter().copied()), Some("total_items"));
-    assert_eq!(find_best_match("completely_unrelated", candidates.iter().copied()), None);
+    assert_eq!(
+        find_best_match("my_countr", candidates.iter().copied()),
+        Some("my_counter")
+    );
+    assert_eq!(
+        find_best_match("totl_items", candidates.iter().copied()),
+        Some("total_items")
+    );
+    assert_eq!(
+        find_best_match("completely_unrelated", candidates.iter().copied()),
+        None
+    );
 }
 
 #[test]
@@ -23,10 +32,21 @@ fn main() {
 }
 "#;
     let res = compiler.compile_source_native(src, "typo_var", None);
-    assert!(!res.success, "Compilation should fail for undefined typo var");
+    assert!(
+        !res.success,
+        "Compilation should fail for undefined typo var"
+    );
     let diag = res.error.unwrap_or(res.diagnostics);
-    assert!(diag.contains("user_balance"), "Diagnostics should suggest 'user_balance': {}", diag);
-    assert!(diag.contains("similar name"), "Diagnostics should note similar name: {}", diag);
+    assert!(
+        diag.contains("user_balance"),
+        "Diagnostics should suggest 'user_balance': {}",
+        diag
+    );
+    assert!(
+        diag.contains("similar name"),
+        "Diagnostics should note similar name: {}",
+        diag
+    );
 }
 
 #[test]
@@ -40,9 +60,16 @@ fn main() {
 }
 "#;
     let res = compiler.compile_source_native(src, "immutable_reassign", None);
-    assert!(!res.success, "Compilation should fail for immutable reassignment");
+    assert!(
+        !res.success,
+        "Compilation should fail for immutable reassignment"
+    );
     let diag = res.error.unwrap_or(res.diagnostics);
-    assert!(diag.contains("mut total"), "Diagnostics should suggest 'mut total': {}", diag);
+    assert!(
+        diag.contains("mut total"),
+        "Diagnostics should suggest 'mut total': {}",
+        diag
+    );
 }
 
 #[test]
@@ -57,5 +84,9 @@ fn main() {
     let res = compiler.compile_source_native(src, "type_mismatch", None);
     assert!(!res.success, "Compilation should fail for type mismatch");
     let diag = res.error.unwrap_or(res.diagnostics);
-    assert!(diag.contains("as Int") || diag.contains("math_floor"), "Diagnostics should suggest int conversion: {}", diag);
+    assert!(
+        diag.contains("as Int") || diag.contains("math_floor"),
+        "Diagnostics should suggest int conversion: {}",
+        diag
+    );
 }

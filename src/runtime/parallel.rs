@@ -116,12 +116,7 @@ impl ParallelRuntime {
         for chunk in items.chunks(chunk_size) {
             let chunk_vec: Vec<T> = chunk.to_vec();
             let f_clone = f.clone();
-            let handle = self.spawn(move || {
-                chunk_vec
-                    .into_iter()
-                    .map(f_clone)
-                    .collect::<Vec<R>>()
-            });
+            let handle = self.spawn(move || chunk_vec.into_iter().map(f_clone).collect::<Vec<R>>());
             handles.push(handle);
         }
 

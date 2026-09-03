@@ -169,7 +169,6 @@ fn visit_vids(inst: &Inst, f: &mut dyn FnMut(&ValueId)) {
 pub fn promote_function(function: &mut Function, next: &mut usize) -> usize {
     let mut original = Some(function.clone());
 
-    
     match promote_function_inner(function, next) {
         Ok(count) => {
             if count > 0 {
@@ -294,21 +293,21 @@ fn promote_function_inner(function: &mut Function, next: &mut usize) -> Result<u
                                     var_type.insert(name.clone(), t.clone());
                                     changed = true;
                                 }
-                                Some(prev) if prev != t
-                                    && !bad_names.contains(name) => {
-                                        bad_names.insert(name.clone());
-                                        changed = true;
-                                    }
+                                Some(prev) if prev != t && !bad_names.contains(name) => {
+                                    bad_names.insert(name.clone());
+                                    changed = true;
+                                }
                                 _ => {}
                             }
                         }
                     }
                     Inst::LoadVar { dest, name } => {
                         if let Some(t) = var_type.get(name)
-                            && !def_type.contains_key(dest) {
-                                def_type.insert(*dest, t.clone());
-                                changed = true;
-                            }
+                            && !def_type.contains_key(dest)
+                        {
+                            def_type.insert(*dest, t.clone());
+                            changed = true;
+                        }
                     }
                     other => seed_def_types(other, &mut def_type, &var_type),
                 }

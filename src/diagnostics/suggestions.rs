@@ -86,7 +86,9 @@ where
         // Check if candidate is a prefix or suffix with minor variation
         let is_prefix_or_suffix = candidate.starts_with(needle) || needle.starts_with(candidate);
 
-        if (dist <= max_allowed_dist || (is_prefix_or_suffix && dist <= max_allowed_dist + 1) || sim >= 0.68)
+        if (dist <= max_allowed_dist
+            || (is_prefix_or_suffix && dist <= max_allowed_dist + 1)
+            || sim >= 0.68)
             && dist < min_distance
         {
             min_distance = dist;
@@ -117,14 +119,26 @@ mod tests {
     #[test]
     fn test_find_best_match() {
         let candidates = ["counter", "total_sum", "item_count", "user_id"];
-        assert_eq!(find_best_match("countr", candidates.iter().copied()), Some("counter"));
-        assert_eq!(find_best_match("totl_sum", candidates.iter().copied()), Some("total_sum"));
-        assert_eq!(find_best_match("completely_unrelated", candidates.iter().copied()), None);
+        assert_eq!(
+            find_best_match("countr", candidates.iter().copied()),
+            Some("counter")
+        );
+        assert_eq!(
+            find_best_match("totl_sum", candidates.iter().copied()),
+            Some("total_sum")
+        );
+        assert_eq!(
+            find_best_match("completely_unrelated", candidates.iter().copied()),
+            None
+        );
     }
 
     #[test]
     fn test_case_insensitive_match() {
         let candidates = ["myVariable", "my_variable"];
-        assert_eq!(find_best_match("myvariable", candidates.iter().copied()), Some("myVariable"));
+        assert_eq!(
+            find_best_match("myvariable", candidates.iter().copied()),
+            Some("myVariable")
+        );
     }
 }

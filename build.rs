@@ -56,9 +56,15 @@ fn main() {
                     let ucrt = p.join("ucrt");
                     let shared = p.join("shared");
                     let um = p.join("um");
-                    if ucrt.exists() { build.include(ucrt); }
-                    if shared.exists() { build.include(shared); }
-                    if um.exists() { build.include(um); }
+                    if ucrt.exists() {
+                        build.include(ucrt);
+                    }
+                    if shared.exists() {
+                        build.include(shared);
+                    }
+                    if um.exists() {
+                        build.include(um);
+                    }
                 }
             }
         }
@@ -91,12 +97,18 @@ fn main() {
     // Mirror the latest archive to runtime/ directory for installer and release packages
     let dest_runtime_dir = PathBuf::from("runtime");
     let _ = std::fs::create_dir_all(&dest_runtime_dir);
-    let _ = std::fs::copy(&archive, dest_runtime_dir.join(archive.file_name().unwrap()));
+    let _ = std::fs::copy(
+        &archive,
+        dest_runtime_dir.join(archive.file_name().unwrap()),
+    );
 
     if let Ok(home) = env::var("DATARA_HOME") {
         let home_runtime_dir = PathBuf::from(home).join("runtime");
         let _ = std::fs::create_dir_all(&home_runtime_dir);
-        let _ = std::fs::copy(&archive, home_runtime_dir.join(archive.file_name().unwrap()));
+        let _ = std::fs::copy(
+            &archive,
+            home_runtime_dir.join(archive.file_name().unwrap()),
+        );
     }
 
     println!("cargo:rustc-env=DATARA_RUNTIME_LIB={}", archive.display());

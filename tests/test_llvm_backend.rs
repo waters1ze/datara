@@ -22,13 +22,31 @@ fn main() {
     let llvm = res.llvm_source.expect("LLVM IR source must be generated");
 
     // Verify LLVM IR structure
-    assert!(llvm.contains("target triple ="), "Must contain target triple");
-    assert!(llvm.contains("define i64 @calculate("), "Must declare calculate");
-    assert!(llvm.contains("add i64"), "Must contain integer add instruction");
-    assert!(llvm.contains("mul i64"), "Must contain integer mul instruction");
-    assert!(llvm.contains("sub i64"), "Must contain integer sub instruction");
+    assert!(
+        llvm.contains("target triple ="),
+        "Must contain target triple"
+    );
+    assert!(
+        llvm.contains("define i64 @calculate("),
+        "Must declare calculate"
+    );
+    assert!(
+        llvm.contains("add i64"),
+        "Must contain integer add instruction"
+    );
+    assert!(
+        llvm.contains("mul i64"),
+        "Must contain integer mul instruction"
+    );
+    assert!(
+        llvm.contains("sub i64"),
+        "Must contain integer sub instruction"
+    );
     assert!(llvm.contains("define i32 @main()"), "Main must return i32");
-    assert!(llvm.contains("call void @datara_rt_out_int("), "Must call datara_rt_out_int");
+    assert!(
+        llvm.contains("call void @datara_rt_out_int("),
+        "Must call datara_rt_out_int"
+    );
 }
 
 #[test]
@@ -57,10 +75,16 @@ fn main() {
     let llvm = res.llvm_source.expect("LLVM IR source must be generated");
 
     // Verify control flow in LLVM IR
-    assert!(llvm.contains("define i64 @count_sum("), "Must contain count_sum function");
+    assert!(
+        llvm.contains("define i64 @count_sum("),
+        "Must contain count_sum function"
+    );
     assert!(llvm.contains("icmp"), "Must contain loop condition icmp");
     assert!(llvm.contains("br i1"), "Must contain conditional branch");
-    assert!(llvm.contains("br label"), "Must contain unconditional branch");
+    assert!(
+        llvm.contains("br label"),
+        "Must contain unconditional branch"
+    );
 }
 
 #[test]
@@ -90,10 +114,22 @@ fn main() {
     println!("VEC LLVM IR:\n{}", llvm);
 
     // Verify object memory instructions
-    assert!(llvm.contains("getelementptr inbounds i8, ptr %v"), "Must contain GEP for field access");
-    assert!(llvm.contains("fmul double"), "Must contain floating point multiplications");
-    assert!(llvm.contains("fadd double"), "Must contain floating point addition");
-    assert!(llvm.contains("call void @datara_rt_out_float(double %v"), "Must output float");
+    assert!(
+        llvm.contains("getelementptr inbounds i8, ptr %v"),
+        "Must contain GEP for field access"
+    );
+    assert!(
+        llvm.contains("fmul double"),
+        "Must contain floating point multiplications"
+    );
+    assert!(
+        llvm.contains("fadd double"),
+        "Must contain floating point addition"
+    );
+    assert!(
+        llvm.contains("call void @datara_rt_out_float(double %v"),
+        "Must output float"
+    );
 }
 
 #[test]
@@ -118,11 +154,21 @@ fn main() {
     let res = compiler.compile_file(&src_path, Some(&exe_path));
 
     assert!(res.success, "Compilation must succeed: {:?}", res.error);
-    assert!(ll_path.exists(), "The .ll file must be generated on disk: {}", ll_path.display());
+    assert!(
+        ll_path.exists(),
+        "The .ll file must be generated on disk: {}",
+        ll_path.display()
+    );
 
     let ll_content = fs::read_to_string(&ll_path).unwrap();
-    assert!(ll_content.contains("Hello from LLVM backend!"), "LLVM IR must contain string literal");
-    assert!(ll_content.contains("datara_rt_out_str"), "LLVM IR must call datara_rt_out_str");
+    assert!(
+        ll_content.contains("Hello from LLVM backend!"),
+        "LLVM IR must contain string literal"
+    );
+    assert!(
+        ll_content.contains("datara_rt_out_str"),
+        "LLVM IR must call datara_rt_out_str"
+    );
 
     // Cleanup
     let _ = fs::remove_file(&src_path);

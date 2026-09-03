@@ -299,10 +299,7 @@ impl ScalarOptimizer {
                             }
                         }
                         Inst::UnOp {
-                            dest,
-                            op,
-                            operand,
-                            ..
+                            dest, op, operand, ..
                         } if op == "copy" => {
                             if non_negatives.contains(operand) {
                                 if non_negatives.insert(*dest) {
@@ -503,4 +500,3 @@ impl ScalarOptimizer {
         simplified
     }
 }
-

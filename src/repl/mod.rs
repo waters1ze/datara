@@ -69,14 +69,17 @@ impl ReplSession {
         self.history.push(trimmed.to_string());
 
         // Check if line is a declaration (let, mut, val, fn, class, use)
-        if trimmed.starts_with("let ")
-            || trimmed.starts_with("mut ")
-            || trimmed.starts_with("val ")
+        if trimmed.starts_with("let ") || trimmed.starts_with("mut ") || trimmed.starts_with("val ")
         {
             // Extract variable name
             let parts: Vec<&str> = trimmed.split_whitespace().collect();
             if parts.len() >= 2 {
-                let var_name = parts[1].trim_end_matches(':').split('=').next().unwrap_or("").trim();
+                let var_name = parts[1]
+                    .trim_end_matches(':')
+                    .split('=')
+                    .next()
+                    .unwrap_or("")
+                    .trim();
                 if !var_name.is_empty() && !self.variable_names.contains(&var_name.to_string()) {
                     self.variable_names.push(var_name.to_string());
                 }
@@ -106,7 +109,11 @@ impl ReplSession {
 
         source.push_str("fn main() {\n");
         // If expression looks like a statement (contains '=' or starts with 'out ', 'print'), execute as is
-        if expr.starts_with("out ") || expr.starts_with("println") || expr.starts_with("print") || expr.contains(" = ") {
+        if expr.starts_with("out ")
+            || expr.starts_with("println")
+            || expr.starts_with("print")
+            || expr.contains(" = ")
+        {
             source.push_str("    ");
             source.push_str(expr);
             source.push('\n');
@@ -157,10 +164,14 @@ impl ReplSession {
 
     /// Starts interactive terminal REPL loop
     pub fn run_interactive() {
-        println!("================================================================================");
+        println!(
+            "================================================================================"
+        );
         println!(" Datara Interactive REPL (Zero-Latency JIT Console v0.1.0)");
         println!(" Type ':help' for commands, ':exit' or Ctrl+C to quit.");
-        println!("================================================================================");
+        println!(
+            "================================================================================"
+        );
 
         let mut session = ReplSession::new();
         let stdin = io::stdin();

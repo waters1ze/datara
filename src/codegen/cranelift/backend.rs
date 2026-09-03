@@ -37,7 +37,9 @@ impl RealCraneliftBackend {
 
     fn clif_type(&self, ty_str: &str) -> ClifType {
         match ty_str {
-            "Int" | "Int64" | "UInt64" | "i64" | "u64" | "isize" | "usize" | "USize" => clif_types::I64,
+            "Int" | "Int64" | "UInt64" | "i64" | "u64" | "isize" | "usize" | "USize" => {
+                clif_types::I64
+            }
             "Int32" | "UInt32" | "i32" | "u32" => clif_types::I32,
             "Int16" | "UInt16" | "i16" | "u16" => clif_types::I16,
             "Int8" | "UInt8" | "i8" | "u8" | "Byte" => clif_types::I8,
@@ -70,11 +72,22 @@ impl RealCraneliftBackend {
 
         // Enable hardware CPU acceleration features strictly respecting target specification
         if matches!(self.target.arch, crate::codegen::target::Arch::X86_64) {
-            let allow_sse3 = self.target.cpu_features.contains("sse3") || self.target.cpu_features.contains("avx2");
-            let allow_sse4 = self.target.cpu_features.contains("sse4_2") || self.target.cpu_features.contains("avx2");
-            let allow_avx = self.target.vector_support.contains(&crate::codegen::target::VectorExtension::Avx)
-                || self.target.vector_support.contains(&crate::codegen::target::VectorExtension::Avx2);
-            let allow_avx2 = self.target.vector_support.contains(&crate::codegen::target::VectorExtension::Avx2);
+            let allow_sse3 = self.target.cpu_features.contains("sse3")
+                || self.target.cpu_features.contains("avx2");
+            let allow_sse4 = self.target.cpu_features.contains("sse4_2")
+                || self.target.cpu_features.contains("avx2");
+            let allow_avx = self
+                .target
+                .vector_support
+                .contains(&crate::codegen::target::VectorExtension::Avx)
+                || self
+                    .target
+                    .vector_support
+                    .contains(&crate::codegen::target::VectorExtension::Avx2);
+            let allow_avx2 = self
+                .target
+                .vector_support
+                .contains(&crate::codegen::target::VectorExtension::Avx2);
 
             if allow_sse3 {
                 let _ = isa_builder.set("has_sse3", "true");
@@ -395,13 +408,27 @@ impl RealCraneliftBackend {
             (rt_concat_5_id, rt_concat_5_sig),
         );
         let mut rt_format_sisi_sig = Signature::new(call_conv);
-        rt_format_sisi_sig.params.push(AbiParam::new(clif_types::I64));
-        rt_format_sisi_sig.params.push(AbiParam::new(clif_types::I64));
-        rt_format_sisi_sig.params.push(AbiParam::new(clif_types::I64));
-        rt_format_sisi_sig.params.push(AbiParam::new(clif_types::I64));
-        rt_format_sisi_sig.returns.push(AbiParam::new(clif_types::I64));
+        rt_format_sisi_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_format_sisi_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_format_sisi_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_format_sisi_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_format_sisi_sig
+            .returns
+            .push(AbiParam::new(clif_types::I64));
         let rt_format_sisi_id = module
-            .declare_function("datara_rt_format_str_i64_str_i64", Linkage::Import, &rt_format_sisi_sig)
+            .declare_function(
+                "datara_rt_format_str_i64_str_i64",
+                Linkage::Import,
+                &rt_format_sisi_sig,
+            )
             .expect("declare datara_rt_format_str_i64_str_i64");
         func_ids.insert(
             "datara_rt_format_str_i64_str_i64".into(),
@@ -433,7 +460,11 @@ impl RealCraneliftBackend {
         let mut now_precise_sig = Signature::new(call_conv);
         now_precise_sig.returns.push(AbiParam::new(clif_types::I64));
         let now_precise_id = module
-            .declare_function("datara_rt_now_precise_ms", Linkage::Import, &now_precise_sig)
+            .declare_function(
+                "datara_rt_now_precise_ms",
+                Linkage::Import,
+                &now_precise_sig,
+            )
             .map_err(|e| e.to_string())?;
         func_ids.insert("now_precise_ms".into(), (now_precise_id, now_precise_sig));
 
@@ -875,26 +906,63 @@ impl RealCraneliftBackend {
         );
 
         let mut rt_str_substring_sig = Signature::new(call_conv);
-        rt_str_substring_sig.params.push(AbiParam::new(clif_types::I64));
-        rt_str_substring_sig.params.push(AbiParam::new(clif_types::I64));
-        rt_str_substring_sig.params.push(AbiParam::new(clif_types::I64));
-        rt_str_substring_sig.returns.push(AbiParam::new(clif_types::I64));
+        rt_str_substring_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_str_substring_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_str_substring_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_str_substring_sig
+            .returns
+            .push(AbiParam::new(clif_types::I64));
         let rt_str_substring_id = module
-            .declare_function("datara_rt_str_substring", Linkage::Import, &rt_str_substring_sig)
+            .declare_function(
+                "datara_rt_str_substring",
+                Linkage::Import,
+                &rt_str_substring_sig,
+            )
             .map_err(|e| e.to_string())?;
-        func_ids.insert("datara_rt_str_substring".into(), (rt_str_substring_id, rt_str_substring_sig.clone()));
-        func_ids.insert("str_substring".into(), (rt_str_substring_id, rt_str_substring_sig.clone()));
-        func_ids.insert("substring".into(), (rt_str_substring_id, rt_str_substring_sig));
+        func_ids.insert(
+            "datara_rt_str_substring".into(),
+            (rt_str_substring_id, rt_str_substring_sig.clone()),
+        );
+        func_ids.insert(
+            "str_substring".into(),
+            (rt_str_substring_id, rt_str_substring_sig.clone()),
+        );
+        func_ids.insert(
+            "substring".into(),
+            (rt_str_substring_id, rt_str_substring_sig),
+        );
 
         let mut rt_str_char_at_sig = Signature::new(call_conv);
-        rt_str_char_at_sig.params.push(AbiParam::new(clif_types::I64));
-        rt_str_char_at_sig.params.push(AbiParam::new(clif_types::I64));
-        rt_str_char_at_sig.returns.push(AbiParam::new(clif_types::I64));
+        rt_str_char_at_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_str_char_at_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_str_char_at_sig
+            .returns
+            .push(AbiParam::new(clif_types::I64));
         let rt_str_char_at_id = module
-            .declare_function("datara_rt_str_char_at", Linkage::Import, &rt_str_char_at_sig)
+            .declare_function(
+                "datara_rt_str_char_at",
+                Linkage::Import,
+                &rt_str_char_at_sig,
+            )
             .map_err(|e| e.to_string())?;
-        func_ids.insert("datara_rt_str_char_at".into(), (rt_str_char_at_id, rt_str_char_at_sig.clone()));
-        func_ids.insert("str_char_at".into(), (rt_str_char_at_id, rt_str_char_at_sig.clone()));
+        func_ids.insert(
+            "datara_rt_str_char_at".into(),
+            (rt_str_char_at_id, rt_str_char_at_sig.clone()),
+        );
+        func_ids.insert(
+            "str_char_at".into(),
+            (rt_str_char_at_id, rt_str_char_at_sig.clone()),
+        );
         func_ids.insert("char_at".into(), (rt_str_char_at_id, rt_str_char_at_sig));
 
         // String equality: datara_rt_str_eq
@@ -1165,27 +1233,60 @@ impl RealCraneliftBackend {
         let rt_par_for_id = module
             .declare_function("datara_rt_parallel_for", Linkage::Import, &rt_par_for_sig)
             .map_err(|e| e.to_string())?;
-        func_ids.insert("datara_rt_parallel_for".into(), (rt_par_for_id, rt_par_for_sig.clone()));
+        func_ids.insert(
+            "datara_rt_parallel_for".into(),
+            (rt_par_for_id, rt_par_for_sig.clone()),
+        );
         func_ids.insert("parallel_for".into(), (rt_par_for_id, rt_par_for_sig));
 
         let mut rt_par_invoke_sig = Signature::new(call_conv);
-        rt_par_invoke_sig.params.push(AbiParam::new(clif_types::I64)); // fn1
-        rt_par_invoke_sig.params.push(AbiParam::new(clif_types::I64)); // ctx1
-        rt_par_invoke_sig.params.push(AbiParam::new(clif_types::I64)); // fn2
-        rt_par_invoke_sig.params.push(AbiParam::new(clif_types::I64)); // ctx2
+        rt_par_invoke_sig
+            .params
+            .push(AbiParam::new(clif_types::I64)); // fn1
+        rt_par_invoke_sig
+            .params
+            .push(AbiParam::new(clif_types::I64)); // ctx1
+        rt_par_invoke_sig
+            .params
+            .push(AbiParam::new(clif_types::I64)); // fn2
+        rt_par_invoke_sig
+            .params
+            .push(AbiParam::new(clif_types::I64)); // ctx2
         let rt_par_invoke_id = module
-            .declare_function("datara_rt_parallel_invoke", Linkage::Import, &rt_par_invoke_sig)
+            .declare_function(
+                "datara_rt_parallel_invoke",
+                Linkage::Import,
+                &rt_par_invoke_sig,
+            )
             .map_err(|e| e.to_string())?;
-        func_ids.insert("datara_rt_parallel_invoke".into(), (rt_par_invoke_id, rt_par_invoke_sig.clone()));
-        func_ids.insert("parallel_invoke".into(), (rt_par_invoke_id, rt_par_invoke_sig));
+        func_ids.insert(
+            "datara_rt_parallel_invoke".into(),
+            (rt_par_invoke_id, rt_par_invoke_sig.clone()),
+        );
+        func_ids.insert(
+            "parallel_invoke".into(),
+            (rt_par_invoke_id, rt_par_invoke_sig),
+        );
 
         let mut rt_num_workers_sig = Signature::new(call_conv);
-        rt_num_workers_sig.returns.push(AbiParam::new(clif_types::I64));
+        rt_num_workers_sig
+            .returns
+            .push(AbiParam::new(clif_types::I64));
         let rt_num_workers_id = module
-            .declare_function("datara_rt_num_workers", Linkage::Import, &rt_num_workers_sig)
+            .declare_function(
+                "datara_rt_num_workers",
+                Linkage::Import,
+                &rt_num_workers_sig,
+            )
             .map_err(|e| e.to_string())?;
-        func_ids.insert("datara_rt_num_workers".into(), (rt_num_workers_id, rt_num_workers_sig.clone()));
-        func_ids.insert("num_workers".into(), (rt_num_workers_id, rt_num_workers_sig));
+        func_ids.insert(
+            "datara_rt_num_workers".into(),
+            (rt_num_workers_id, rt_num_workers_sig.clone()),
+        );
+        func_ids.insert(
+            "num_workers".into(),
+            (rt_num_workers_id, rt_num_workers_sig),
+        );
 
         // Fast Math: 1-arg double -> double (sqrt, abs, sin, cos, tan, floor, ceil, round)
         let f64_1_funcs = [
@@ -1233,19 +1334,33 @@ impl RealCraneliftBackend {
         i64_2_sig.params.push(AbiParam::new(clif_types::I64));
         i64_2_sig.params.push(AbiParam::new(clif_types::I64));
         i64_2_sig.returns.push(AbiParam::new(clif_types::I64));
-        let rt_min_int_id = module.declare_function("datara_rt_math_min_int", Linkage::Import, &i64_2_sig).map_err(|e| e.to_string())?;
-        func_ids.insert("datara_rt_math_min_int".into(), (rt_min_int_id, i64_2_sig.clone()));
+        let rt_min_int_id = module
+            .declare_function("datara_rt_math_min_int", Linkage::Import, &i64_2_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_math_min_int".into(),
+            (rt_min_int_id, i64_2_sig.clone()),
+        );
         func_ids.insert("math_min_int".into(), (rt_min_int_id, i64_2_sig.clone()));
-        let rt_max_int_id = module.declare_function("datara_rt_math_max_int", Linkage::Import, &i64_2_sig).map_err(|e| e.to_string())?;
-        func_ids.insert("datara_rt_math_max_int".into(), (rt_max_int_id, i64_2_sig.clone()));
+        let rt_max_int_id = module
+            .declare_function("datara_rt_math_max_int", Linkage::Import, &i64_2_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_math_max_int".into(),
+            (rt_max_int_id, i64_2_sig.clone()),
+        );
         func_ids.insert("math_max_int".into(), (rt_max_int_id, i64_2_sig.clone()));
 
-        let rt_shr_id = module.declare_function("datara_rt_math_shr", Linkage::Import, &i64_2_sig).map_err(|e| e.to_string())?;
+        let rt_shr_id = module
+            .declare_function("datara_rt_math_shr", Linkage::Import, &i64_2_sig)
+            .map_err(|e| e.to_string())?;
         func_ids.insert("datara_rt_math_shr".into(), (rt_shr_id, i64_2_sig.clone()));
         func_ids.insert("math_shr".into(), (rt_shr_id, i64_2_sig.clone()));
         func_ids.insert("shr".into(), (rt_shr_id, i64_2_sig.clone()));
 
-        let rt_shl_id = module.declare_function("datara_rt_math_shl", Linkage::Import, &i64_2_sig).map_err(|e| e.to_string())?;
+        let rt_shl_id = module
+            .declare_function("datara_rt_math_shl", Linkage::Import, &i64_2_sig)
+            .map_err(|e| e.to_string())?;
         func_ids.insert("datara_rt_math_shl".into(), (rt_shl_id, i64_2_sig.clone()));
         func_ids.insert("math_shl".into(), (rt_shl_id, i64_2_sig.clone()));
         func_ids.insert("shl".into(), (rt_shl_id, i64_2_sig.clone()));
@@ -1253,26 +1368,39 @@ impl RealCraneliftBackend {
         let mut i64_1_sig = Signature::new(call_conv);
         i64_1_sig.params.push(AbiParam::new(clif_types::I64));
         i64_1_sig.returns.push(AbiParam::new(clif_types::I64));
-        let rt_abs_int_id = module.declare_function("datara_rt_math_abs_int", Linkage::Import, &i64_1_sig).map_err(|e| e.to_string())?;
-        func_ids.insert("datara_rt_math_abs_int".into(), (rt_abs_int_id, i64_1_sig.clone()));
+        let rt_abs_int_id = module
+            .declare_function("datara_rt_math_abs_int", Linkage::Import, &i64_1_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_math_abs_int".into(),
+            (rt_abs_int_id, i64_1_sig.clone()),
+        );
         func_ids.insert("math_abs_int".into(), (rt_abs_int_id, i64_1_sig.clone()));
 
-        let rt_ctz_id = module.declare_function("datara_rt_math_ctz", Linkage::Import, &i64_1_sig).map_err(|e| e.to_string())?;
+        let rt_ctz_id = module
+            .declare_function("datara_rt_math_ctz", Linkage::Import, &i64_1_sig)
+            .map_err(|e| e.to_string())?;
         func_ids.insert("datara_rt_math_ctz".into(), (rt_ctz_id, i64_1_sig.clone()));
         func_ids.insert("math_ctz".into(), (rt_ctz_id, i64_1_sig.clone()));
         func_ids.insert("ctz".into(), (rt_ctz_id, i64_1_sig));
 
-        let rt_xor_id = module.declare_function("datara_rt_math_xor", Linkage::Import, &i64_2_sig).map_err(|e| e.to_string())?;
+        let rt_xor_id = module
+            .declare_function("datara_rt_math_xor", Linkage::Import, &i64_2_sig)
+            .map_err(|e| e.to_string())?;
         func_ids.insert("datara_rt_math_xor".into(), (rt_xor_id, i64_2_sig.clone()));
         func_ids.insert("math_xor".into(), (rt_xor_id, i64_2_sig.clone()));
         func_ids.insert("xor".into(), (rt_xor_id, i64_2_sig.clone()));
 
-        let rt_and_id = module.declare_function("datara_rt_math_and", Linkage::Import, &i64_2_sig).map_err(|e| e.to_string())?;
+        let rt_and_id = module
+            .declare_function("datara_rt_math_and", Linkage::Import, &i64_2_sig)
+            .map_err(|e| e.to_string())?;
         func_ids.insert("datara_rt_math_and".into(), (rt_and_id, i64_2_sig.clone()));
         func_ids.insert("math_and".into(), (rt_and_id, i64_2_sig.clone()));
         func_ids.insert("and".into(), (rt_and_id, i64_2_sig.clone()));
 
-        let rt_or_id = module.declare_function("datara_rt_math_or", Linkage::Import, &i64_2_sig).map_err(|e| e.to_string())?;
+        let rt_or_id = module
+            .declare_function("datara_rt_math_or", Linkage::Import, &i64_2_sig)
+            .map_err(|e| e.to_string())?;
         func_ids.insert("datara_rt_math_or".into(), (rt_or_id, i64_2_sig.clone()));
         func_ids.insert("math_or".into(), (rt_or_id, i64_2_sig.clone()));
         func_ids.insert("or".into(), (rt_or_id, i64_2_sig));
@@ -1295,12 +1423,18 @@ impl RealCraneliftBackend {
         let rt_str_free_id = module
             .declare_function("datara_rt_str_free", Linkage::Import, &rt_free_sig)
             .map_err(|e| e.to_string())?;
-        func_ids.insert("datara_rt_str_free".into(), (rt_str_free_id, rt_free_sig.clone()));
+        func_ids.insert(
+            "datara_rt_str_free".into(),
+            (rt_str_free_id, rt_free_sig.clone()),
+        );
 
         let rt_list_free_id = module
             .declare_function("datara_rt_list_free", Linkage::Import, &rt_free_sig)
             .map_err(|e| e.to_string())?;
-        func_ids.insert("datara_rt_list_free".into(), (rt_list_free_id, rt_free_sig.clone()));
+        func_ids.insert(
+            "datara_rt_list_free".into(),
+            (rt_list_free_id, rt_free_sig.clone()),
+        );
 
         let rt_map_free_id = module
             .declare_function("datara_rt_map_free", Linkage::Import, &rt_free_sig)
@@ -1419,9 +1553,10 @@ impl RealCraneliftBackend {
         // routed to out_str as a raw integer (that is a segfault).
         for (key, ty) in &dmir_module.class_field_types {
             if ty.contains("Str")
-                && let Some((_, fname)) = key.rsplit_once('.') {
-                    string_fields.insert(fname.to_string());
-                }
+                && let Some((_, fname)) = key.rsplit_once('.')
+            {
+                string_fields.insert(fname.to_string());
+            }
         }
 
         // Pre-define all string literals in the module
@@ -1677,8 +1812,8 @@ impl RealCraneliftBackend {
                                     || ty.contains("Str"));
 
                             if is_string {
-                                let conv_ref = module
-                                    .declare_func_in_func(rt_int_to_str_id, builder.func);
+                                let conv_ref =
+                                    module.declare_func_in_func(rt_int_to_str_id, builder.func);
                                 let l_str = if left_is_str || (ty == "String" && !right_is_str) {
                                     raw_lv
                                 } else {
@@ -1855,7 +1990,8 @@ impl RealCraneliftBackend {
                                                 // unlike a bare arithmetic shift).
                                                 let k = c.trailing_zeros();
                                                 let sign = builder.ins().sshr_imm_s(lv, 63);
-                                                let bias = builder.ins().ushr_imm_u(sign, (64 - k) as i64);
+                                                let bias =
+                                                    builder.ins().ushr_imm_u(sign, (64 - k) as i64);
                                                 let sum = builder.ins().iadd(lv, bias);
                                                 builder.ins().sshr_imm_s(sum, k as i64)
                                             } else {
@@ -1872,7 +2008,8 @@ impl RealCraneliftBackend {
                                                 // dividend like srem, valid for negative x.
                                                 let k = c.trailing_zeros();
                                                 let sign = builder.ins().sshr_imm_s(lv, 63);
-                                                let bias = builder.ins().ushr_imm_u(sign, (64 - k) as i64);
+                                                let bias =
+                                                    builder.ins().ushr_imm_u(sign, (64 - k) as i64);
                                                 let sum = builder.ins().iadd(lv, bias);
                                                 let q = builder.ins().sshr_imm_s(sum, k as i64);
                                                 let scaled = builder.ins().ishl_imm_s(q, k as i64);
@@ -1909,8 +2046,8 @@ impl RealCraneliftBackend {
                                         {
                                             let (eq_id, _) =
                                                 func_ids.get("datara_rt_str_eq").unwrap();
-                                            let eq_ref = module
-                                                .declare_func_in_func(*eq_id, builder.func);
+                                            let eq_ref =
+                                                module.declare_func_in_func(*eq_id, builder.func);
                                             let call_inst = builder.ins().call(eq_ref, &[lv, rv]);
                                             builder.inst_results(call_inst)[0]
                                         } else {
@@ -1927,8 +2064,8 @@ impl RealCraneliftBackend {
                                         {
                                             let (eq_id, _) =
                                                 func_ids.get("datara_rt_str_eq").unwrap();
-                                            let eq_ref = module
-                                                .declare_func_in_func(*eq_id, builder.func);
+                                            let eq_ref =
+                                                module.declare_func_in_func(*eq_id, builder.func);
                                             let call_inst = builder.ins().call(eq_ref, &[lv, rv]);
                                             let res = builder.inst_results(call_inst)[0];
                                             let one = builder.ins().iconst(clif_types::I64, 1);
@@ -2064,63 +2201,63 @@ impl RealCraneliftBackend {
                             // never cover every arity. Build the
                             // [count, e0..eN-1] block inline for any N.
                             if let Some(rest) = func.strip_prefix("datara_rt_list_create_")
-                                && let Ok(n) = rest.parse::<usize>() {
-                                    let malloc_ref =
-                                        module.declare_func_in_func(malloc_id, builder.func);
-                                    let size_val =
-                                        builder.ins().iconst(clif_types::I64, ((n + 1) * 8) as i64);
-                                    let call_inst = builder.ins().call(malloc_ref, &[size_val]);
-                                    let slot_addr = builder.inst_results(call_inst)[0];
-                                    let flags = cranelift_codegen::ir::MachMemFlags::new();
-                                    let count_val = builder.ins().iconst(clif_types::I64, n as i64);
-                                    builder.ins().store(flags, count_val, slot_addr, 0);
-                                    for (i, a) in args.iter().enumerate() {
-                                        let elem = val_map.get(a).copied().unwrap_or_else(|| {
-                                            builder.ins().iconst(clif_types::I64, 0)
-                                        });
-                                        builder.ins().store(
-                                            flags,
-                                            elem,
-                                            slot_addr,
-                                            ((i + 1) * 8) as i32,
-                                        );
-                                    }
-                                    val_map.insert(*dest, slot_addr);
-                                    list_vids.insert(*dest);
-                                    continue;
+                                && let Ok(n) = rest.parse::<usize>()
+                            {
+                                let malloc_ref =
+                                    module.declare_func_in_func(malloc_id, builder.func);
+                                let size_val =
+                                    builder.ins().iconst(clif_types::I64, ((n + 1) * 8) as i64);
+                                let call_inst = builder.ins().call(malloc_ref, &[size_val]);
+                                let slot_addr = builder.inst_results(call_inst)[0];
+                                let flags = cranelift_codegen::ir::MachMemFlags::new();
+                                let count_val = builder.ins().iconst(clif_types::I64, n as i64);
+                                builder.ins().store(flags, count_val, slot_addr, 0);
+                                for (i, a) in args.iter().enumerate() {
+                                    let elem = val_map.get(a).copied().unwrap_or_else(|| {
+                                        builder.ins().iconst(clif_types::I64, 0)
+                                    });
+                                    builder.ins().store(
+                                        flags,
+                                        elem,
+                                        slot_addr,
+                                        ((i + 1) * 8) as i32,
+                                    );
                                 }
+                                val_map.insert(*dest, slot_addr);
+                                list_vids.insert(*dest);
+                                continue;
+                            }
                             if let Some(rest) = func.strip_prefix("datara_rt_tuple_create_")
-                                && let Ok(n) = rest.parse::<usize>() {
-                                    let malloc_ref =
-                                        module.declare_func_in_func(malloc_id, builder.func);
-                                    let size_val =
-                                        builder.ins().iconst(clif_types::I64, ((n + 1) * 8) as i64);
-                                    let call_inst = builder.ins().call(malloc_ref, &[size_val]);
-                                    let slot_addr = builder.inst_results(call_inst)[0];
-                                    let flags = cranelift_codegen::ir::MachMemFlags::new();
-                                    let count_val = builder.ins().iconst(clif_types::I64, n as i64);
-                                    builder.ins().store(flags, count_val, slot_addr, 0);
-                                    for (i, a) in args.iter().enumerate() {
-                                        let elem = val_map.get(a).copied().unwrap_or_else(|| {
-                                            builder.ins().iconst(clif_types::I64, 0)
-                                        });
-                                        builder.ins().store(
-                                            flags,
-                                            elem,
-                                            slot_addr,
-                                            ((i + 1) * 8) as i32,
-                                        );
-                                    }
-                                    val_map.insert(*dest, slot_addr);
-                                    continue;
+                                && let Ok(n) = rest.parse::<usize>()
+                            {
+                                let malloc_ref =
+                                    module.declare_func_in_func(malloc_id, builder.func);
+                                let size_val =
+                                    builder.ins().iconst(clif_types::I64, ((n + 1) * 8) as i64);
+                                let call_inst = builder.ins().call(malloc_ref, &[size_val]);
+                                let slot_addr = builder.inst_results(call_inst)[0];
+                                let flags = cranelift_codegen::ir::MachMemFlags::new();
+                                let count_val = builder.ins().iconst(clif_types::I64, n as i64);
+                                builder.ins().store(flags, count_val, slot_addr, 0);
+                                for (i, a) in args.iter().enumerate() {
+                                    let elem = val_map.get(a).copied().unwrap_or_else(|| {
+                                        builder.ins().iconst(clif_types::I64, 0)
+                                    });
+                                    builder.ins().store(
+                                        flags,
+                                        elem,
+                                        slot_addr,
+                                        ((i + 1) * 8) as i32,
+                                    );
                                 }
+                                val_map.insert(*dest, slot_addr);
+                                continue;
+                            }
                             // Only the _unchecked variants (emitted exclusively by the
                             // bounds-check-elimination pass, which must prove the trip
                             // count) may bypass the runtime bounds check. The checked
                             // variants always go through the real runtime call below.
-                            if (func == "datara_rt_list_get_unchecked")
-                                && args.len() == 2
-                            {
+                            if (func == "datara_rt_list_get_unchecked") && args.len() == 2 {
                                 let list_ptr = val_map
                                     .get(&args[0])
                                     .copied()
@@ -2137,9 +2274,7 @@ impl RealCraneliftBackend {
                                 val_map.insert(*dest, elem);
                                 continue;
                             }
-                            if (func == "datara_rt_list_set_unchecked")
-                                && args.len() == 3
-                            {
+                            if (func == "datara_rt_list_set_unchecked") && args.len() == 3 {
                                 let list_ptr = val_map
                                     .get(&args[0])
                                     .copied()
@@ -2194,12 +2329,12 @@ impl RealCraneliftBackend {
                                         })
                                         .unwrap_or({
                                             if std::env::var("DATARA_CODEGEN_TRACE").is_ok() {
-                                                eprintln!("[datara-codegen] UNRESOLVED CALL: {} in {}", func, f.name);
+                                                eprintln!(
+                                                    "[datara-codegen] UNRESOLVED CALL: {} in {}",
+                                                    func, f.name
+                                                );
                                             }
-                                            (
-                                                cranelift_module::FuncId::from_u32(0),
-                                                String::new(),
-                                            )
+                                            (cranelift_module::FuncId::from_u32(0), String::new())
                                         })
                                 }
                             };
@@ -2209,59 +2344,59 @@ impl RealCraneliftBackend {
                                     func, f.name
                                 ));
                             }
-                            let callee_ref =
-                                module.declare_func_in_func(callee_id, builder.func);
-                                let is_str_concat = callee_name.starts_with("datara_rt_str_concat");
-                                let mut arg_vals = Vec::new();
-                                for a in args {
-                                    if let Some(&av) = val_map.get(a) {
-                                        let final_av = if is_str_concat && !string_vids.contains(a) {
-                                            let conv_ref = module.declare_func_in_func(rt_int_to_str_id, builder.func);
-                                            let call = builder.ins().call(conv_ref, &[av]);
-                                            builder.inst_results(call)[0]
-                                        } else {
-                                            av
-                                        };
-                                        arg_vals.push(final_av);
-                                    }
+                            let callee_ref = module.declare_func_in_func(callee_id, builder.func);
+                            let is_str_concat = callee_name.starts_with("datara_rt_str_concat");
+                            let mut arg_vals = Vec::new();
+                            for a in args {
+                                if let Some(&av) = val_map.get(a) {
+                                    let final_av = if is_str_concat && !string_vids.contains(a) {
+                                        let conv_ref = module
+                                            .declare_func_in_func(rt_int_to_str_id, builder.func);
+                                        let call = builder.ins().call(conv_ref, &[av]);
+                                        builder.inst_results(call)[0]
+                                    } else {
+                                        av
+                                    };
+                                    arg_vals.push(final_av);
                                 }
-                                let call_inst = builder.ins().call(callee_ref, &arg_vals);
-                                let results = builder.inst_results(call_inst);
-                                if let Some(&r) = results.first() {
-                                    val_map.insert(*dest, r);
-                                    let ret_ty = dmir_module
-                                        .functions
-                                        .get(&callee_name)
-                                        .map(|f| f.return_type.as_str())
-                                        .unwrap_or("");
-                                    let first_arg_is_str_class = args
-                                        .first()
-                                        .and_then(|a| val_to_class.get(a))
-                                        .map(|c| c.ends_with("String") || c.ends_with("Str"))
-                                        .unwrap_or(false);
-                                    if ty == "String"
-                                        || ty.contains("Str")
-                                        || ret_ty == "String"
-                                        || ret_ty == "Str"
-                                        || (ret_ty == "T" && first_arg_is_str_class)
-                                        || func == "datara_rt_range_str"
-                                        || func == "datara_rt_int_to_str"
-                                        || func == "datara_rt_str_concat"
-                                        || string_return_funcs.contains(func)
-                                        || string_return_funcs.contains(&callee_name)
-                                    {
-                                        string_vids.insert(*dest);
-                                    }
-                                    if ty == "Bool" || ret_ty == "Bool" {
-                                        bool_vids.insert(*dest);
-                                    }
-                                    if ty == "List"
-                                        || func.starts_with("datara_rt_list_create")
-                                        || func == "datara_rt_list_append"
-                                    {
-                                        list_vids.insert(*dest);
-                                    }
+                            }
+                            let call_inst = builder.ins().call(callee_ref, &arg_vals);
+                            let results = builder.inst_results(call_inst);
+                            if let Some(&r) = results.first() {
+                                val_map.insert(*dest, r);
+                                let ret_ty = dmir_module
+                                    .functions
+                                    .get(&callee_name)
+                                    .map(|f| f.return_type.as_str())
+                                    .unwrap_or("");
+                                let first_arg_is_str_class = args
+                                    .first()
+                                    .and_then(|a| val_to_class.get(a))
+                                    .map(|c| c.ends_with("String") || c.ends_with("Str"))
+                                    .unwrap_or(false);
+                                if ty == "String"
+                                    || ty.contains("Str")
+                                    || ret_ty == "String"
+                                    || ret_ty == "Str"
+                                    || (ret_ty == "T" && first_arg_is_str_class)
+                                    || func == "datara_rt_range_str"
+                                    || func == "datara_rt_int_to_str"
+                                    || func == "datara_rt_str_concat"
+                                    || string_return_funcs.contains(func)
+                                    || string_return_funcs.contains(&callee_name)
+                                {
+                                    string_vids.insert(*dest);
                                 }
+                                if ty == "Bool" || ret_ty == "Bool" {
+                                    bool_vids.insert(*dest);
+                                }
+                                if ty == "List"
+                                    || func.starts_with("datara_rt_list_create")
+                                    || func == "datara_rt_list_append"
+                                {
+                                    list_vids.insert(*dest);
+                                }
+                            }
                         }
                         Inst::MethodCall {
                             dest,
@@ -2369,36 +2504,38 @@ impl RealCraneliftBackend {
                                 if callee_name.is_empty() {
                                     return Err(format!(
                                         "Code generation failed: unresolved method call '{}' on object with class '{:?}' in function '{}'",
-                                        method, val_to_class.get(object), f.name
+                                        method,
+                                        val_to_class.get(object),
+                                        f.name
                                     ));
                                 }
                                 let callee_ref =
                                     module.declare_func_in_func(callee_id, builder.func);
-                                    let call_inst = builder.ins().call(callee_ref, &all_args);
-                                    let results = builder.inst_results(call_inst);
-                                    if let Some(&r) = results.first() {
-                                        val_map.insert(*dest, r);
-                                        let ret_ty = dmir_module
-                                            .functions
-                                            .get(&callee_name)
-                                            .map(|f| f.return_type.as_str())
-                                            .unwrap_or("");
-                                        let obj_is_str_class = val_to_class
-                                            .get(object)
-                                            .map(|c| c.ends_with("String") || c.ends_with("Str"))
-                                            .unwrap_or(false);
-                                        if ty == "String"
-                                            || ty.contains("Str")
-                                            || ret_ty == "String"
-                                            || ret_ty == "Str"
-                                            || (ret_ty == "T" && obj_is_str_class)
-                                        {
-                                            string_vids.insert(*dest);
-                                        }
-                                        if ty == "Bool" || ret_ty == "Bool" {
-                                            bool_vids.insert(*dest);
-                                        }
+                                let call_inst = builder.ins().call(callee_ref, &all_args);
+                                let results = builder.inst_results(call_inst);
+                                if let Some(&r) = results.first() {
+                                    val_map.insert(*dest, r);
+                                    let ret_ty = dmir_module
+                                        .functions
+                                        .get(&callee_name)
+                                        .map(|f| f.return_type.as_str())
+                                        .unwrap_or("");
+                                    let obj_is_str_class = val_to_class
+                                        .get(object)
+                                        .map(|c| c.ends_with("String") || c.ends_with("Str"))
+                                        .unwrap_or(false);
+                                    if ty == "String"
+                                        || ty.contains("Str")
+                                        || ret_ty == "String"
+                                        || ret_ty == "Str"
+                                        || (ret_ty == "T" && obj_is_str_class)
+                                    {
+                                        string_vids.insert(*dest);
                                     }
+                                    if ty == "Bool" || ret_ty == "Bool" {
+                                        bool_vids.insert(*dest);
+                                    }
+                                }
                             }
                         }
                         Inst::StructInit {
@@ -2408,18 +2545,22 @@ impl RealCraneliftBackend {
                         } => {
                             let escapes = f.return_type == *class_name
                                 || f.blocks.iter().any(|b| match &b.terminator {
-                                    Terminator::Return { value: Some(ret_val) } => ret_val == dest,
+                                    Terminator::Return {
+                                        value: Some(ret_val),
+                                    } => ret_val == dest,
                                     _ => false,
                                 });
                             let byte_size = ((fields.len() * 8).max(16)) as u32;
                             let slot_addr = if !escapes {
-                                let slot_data = StackSlotData::new(StackSlotKind::ExplicitSlot, byte_size, 3);
+                                let slot_data =
+                                    StackSlotData::new(StackSlotKind::ExplicitSlot, byte_size, 3);
                                 let slot = builder.create_sized_stack_slot(slot_data);
                                 builder.ins().stack_addr(clif_types::I64, slot, 0)
                             } else {
                                 let malloc_ref =
                                     module.declare_func_in_func(malloc_id, builder.func);
-                                let size_val = builder.ins().iconst(clif_types::I64, byte_size as i64);
+                                let size_val =
+                                    builder.ins().iconst(clif_types::I64, byte_size as i64);
                                 let call_inst = builder.ins().call(malloc_ref, &[size_val]);
                                 builder.inst_results(call_inst)[0]
                             };
@@ -2442,12 +2583,7 @@ impl RealCraneliftBackend {
                                         } else {
                                             v
                                         };
-                                    builder.ins().store(
-                                        flags,
-                                        val_to_store,
-                                        slot_addr,
-                                        off,
-                                    );
+                                    builder.ins().store(flags, val_to_store, slot_addr, off);
                                 }
                             }
                             val_map.insert(*dest, slot_addr);
@@ -2476,7 +2612,17 @@ impl RealCraneliftBackend {
                                 .or_else(|| field_default_offsets.get(field).copied())
                                 .unwrap_or(0);
                             if std::env::var("DATARA_CODEGEN_TRACE").is_ok() {
-                                eprintln!("[getfield] fn={} class={:?} field={} offset={} declared_ty={:?} inst_ty={}", f.name, current_class_name, field, offset, dmir_module.class_field_types.get(&format!("{}.{}", current_class_name, field)), ty);
+                                eprintln!(
+                                    "[getfield] fn={} class={:?} field={} offset={} declared_ty={:?} inst_ty={}",
+                                    f.name,
+                                    current_class_name,
+                                    field,
+                                    offset,
+                                    dmir_module
+                                        .class_field_types
+                                        .get(&format!("{}.{}", current_class_name, field)),
+                                    ty
+                                );
                             }
                             let field_key = format!("{}.{}", current_class_name, field);
                             let field_type_declared = dmir_module
@@ -2526,24 +2672,24 @@ impl RealCraneliftBackend {
                                 )
                             })?;
                             let current_class_name = val_to_class
-                                    .get(object)
-                                    .map(|s| s.as_str())
-                                    .or_else(|| f.params.first().map(|p| p.1.as_str()))
-                                    .unwrap_or("");
-                                let offset = class_field_offsets
-                                    .get(current_class_name)
-                                    .and_then(|m| m.get(field).copied())
-                                    .or_else(|| field_default_offsets.get(field).copied())
-                                    .unwrap_or(0);
-                                let flags = cranelift_codegen::ir::MachMemFlags::new();
-                                let val_ty = builder.func.dfg.value_type(val);
-                                let val_to_store =
-                                    if val_ty == clif_types::I8 || val_ty == clif_types::I32 {
-                                        builder.ins().sextend(clif_types::I64, val)
-                                    } else {
-                                        val
-                                    };
-                                builder.ins().store(flags, val_to_store, obj_val, offset);
+                                .get(object)
+                                .map(|s| s.as_str())
+                                .or_else(|| f.params.first().map(|p| p.1.as_str()))
+                                .unwrap_or("");
+                            let offset = class_field_offsets
+                                .get(current_class_name)
+                                .and_then(|m| m.get(field).copied())
+                                .or_else(|| field_default_offsets.get(field).copied())
+                                .unwrap_or(0);
+                            let flags = cranelift_codegen::ir::MachMemFlags::new();
+                            let val_ty = builder.func.dfg.value_type(val);
+                            let val_to_store =
+                                if val_ty == clif_types::I8 || val_ty == clif_types::I32 {
+                                    builder.ins().sextend(clif_types::I64, val)
+                                } else {
+                                    val
+                                };
+                            builder.ins().store(flags, val_to_store, obj_val, offset);
                         }
                         Inst::Out { value } => {
                             let v = val_map.get(value).copied().ok_or_else(|| {
@@ -2554,20 +2700,20 @@ impl RealCraneliftBackend {
                             })?;
                             let v_ty = builder.func.dfg.value_type(v);
                             if string_vids.contains(value) {
-                                let fn_ref = module
-                                    .declare_func_in_func(rt_out_str_id, builder.func);
+                                let fn_ref =
+                                    module.declare_func_in_func(rt_out_str_id, builder.func);
                                 builder.ins().call(fn_ref, &[v]);
                             } else if v_ty == clif_types::F64 {
-                                let fn_ref = module
-                                    .declare_func_in_func(rt_out_flt_id, builder.func);
+                                let fn_ref =
+                                    module.declare_func_in_func(rt_out_flt_id, builder.func);
                                 builder.ins().call(fn_ref, &[v]);
                             } else if bool_vids.contains(value) {
-                                let fn_ref = module
-                                    .declare_func_in_func(rt_out_bool_id, builder.func);
+                                let fn_ref =
+                                    module.declare_func_in_func(rt_out_bool_id, builder.func);
                                 builder.ins().call(fn_ref, &[v]);
                             } else {
-                                let fn_ref = module
-                                    .declare_func_in_func(rt_out_int_id, builder.func);
+                                let fn_ref =
+                                    module.declare_func_in_func(rt_out_int_id, builder.func);
                                 builder.ins().call(fn_ref, &[v]);
                             }
                         }
@@ -2578,8 +2724,7 @@ impl RealCraneliftBackend {
                                     value, f.name
                                 )
                             })?;
-                            let fn_ref =
-                                module.declare_func_in_func(rt_err_id, builder.func);
+                            let fn_ref = module.declare_func_in_func(rt_err_id, builder.func);
                             builder.ins().call(fn_ref, &[v]);
                         }
                         Inst::FormatStr {
@@ -2628,16 +2773,13 @@ impl RealCraneliftBackend {
                                     let s_val = if val_is_str {
                                         raw_val
                                     } else if bool_vids.contains(val_id) {
-                                        let call =
-                                            builder.ins().call(bool_to_str_ref, &[raw_val]);
+                                        let call = builder.ins().call(bool_to_str_ref, &[raw_val]);
                                         builder.inst_results(call)[0]
                                     } else if v_ty == clif_types::F64 {
-                                        let call =
-                                            builder.ins().call(flt_to_str_ref, &[raw_val]);
+                                        let call = builder.ins().call(flt_to_str_ref, &[raw_val]);
                                         builder.inst_results(call)[0]
                                     } else {
-                                        let call =
-                                            builder.ins().call(int_to_str_ref, &[raw_val]);
+                                        let call = builder.ins().call(int_to_str_ref, &[raw_val]);
                                         builder.inst_results(call)[0]
                                     };
                                     pieces.push(s_val);
@@ -2646,8 +2788,7 @@ impl RealCraneliftBackend {
 
                             let res_str = match pieces.len() {
                                 0 => {
-                                    let pgv =
-                                        module.declare_data_in_func(empty_id, builder.func);
+                                    let pgv = module.declare_data_in_func(empty_id, builder.func);
                                     builder.ins().symbol_value(clif_types::I64, pgv)
                                 }
                                 1 => pieces[0],
@@ -2768,7 +2909,10 @@ impl RealCraneliftBackend {
                             if string_vids.contains(then_val) || string_vids.contains(else_val) {
                                 string_vids.insert(*dest);
                             }
-                            if bool_vids.contains(then_val) || bool_vids.contains(else_val) || ty == "Bool" {
+                            if bool_vids.contains(then_val)
+                                || bool_vids.contains(else_val)
+                                || ty == "Bool"
+                            {
                                 bool_vids.insert(*dest);
                             }
                         }
@@ -2910,38 +3054,39 @@ impl RealCraneliftBackend {
 
         // 4. Define main entry function that calls @main() and exits with 0
         if let Some((main_entry_id, main_entry_sig)) = main_entry_info
-            && let Some(&(main_fn_id, _)) = func_ids.get("main") {
-                let mut main_clif_fn = ClifFunction::with_name_signature(
-                    cranelift_codegen::ir::UserFuncName::user(0, main_entry_id.as_u32()),
-                    main_entry_sig,
-                );
-                let mut builder = FunctionBuilder::new(&mut main_clif_fn, &mut fn_builder_ctx);
-                let entry_block = builder.create_block();
-                builder.append_block_params_for_function_params(entry_block);
-                builder.switch_to_block(entry_block);
+            && let Some(&(main_fn_id, _)) = func_ids.get("main")
+        {
+            let mut main_clif_fn = ClifFunction::with_name_signature(
+                cranelift_codegen::ir::UserFuncName::user(0, main_entry_id.as_u32()),
+                main_entry_sig,
+            );
+            let mut builder = FunctionBuilder::new(&mut main_clif_fn, &mut fn_builder_ctx);
+            let entry_block = builder.create_block();
+            builder.append_block_params_for_function_params(entry_block);
+            builder.switch_to_block(entry_block);
 
-                let argc_val = builder.block_params(entry_block)[0];
-                let argv_val = builder.block_params(entry_block)[1];
+            let argc_val = builder.block_params(entry_block)[0];
+            let argv_val = builder.block_params(entry_block)[1];
 
-                if let Some(&(set_args_id, _)) = func_ids.get("datara_rt_set_args") {
-                    let set_args_ref = module.declare_func_in_func(set_args_id, builder.func);
-                    builder.ins().call(set_args_ref, &[argc_val, argv_val]);
-                }
-
-                let main_fn_ref = module.declare_func_in_func(main_fn_id, builder.func);
-                builder.ins().call(main_fn_ref, &[]);
-
-                let zero = builder.ins().iconst(clif_types::I32, 0);
-                builder.ins().return_(&[zero]);
-
-                builder.seal_all_blocks();
-                builder.finalize(frontend_config);
-
-                let mut ctx = cranelift_codegen::Context::for_function(main_clif_fn);
-                module
-                    .define_function(main_entry_id, &mut ctx)
-                    .map_err(|e| e.to_string())?;
+            if let Some(&(set_args_id, _)) = func_ids.get("datara_rt_set_args") {
+                let set_args_ref = module.declare_func_in_func(set_args_id, builder.func);
+                builder.ins().call(set_args_ref, &[argc_val, argv_val]);
             }
+
+            let main_fn_ref = module.declare_func_in_func(main_fn_id, builder.func);
+            builder.ins().call(main_fn_ref, &[]);
+
+            let zero = builder.ins().iconst(clif_types::I32, 0);
+            builder.ins().return_(&[zero]);
+
+            builder.seal_all_blocks();
+            builder.finalize(frontend_config);
+
+            let mut ctx = cranelift_codegen::Context::for_function(main_clif_fn);
+            module
+                .define_function(main_entry_id, &mut ctx)
+                .map_err(|e| e.to_string())?;
+        }
 
         let product = module.finish();
         let obj_bytes = product.emit().map_err(|e| e.to_string())?;

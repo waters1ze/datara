@@ -4,7 +4,9 @@
 
 pub mod rules;
 
-pub use rules::{format_operators_in_code, format_loops_in_code, format_source, FormatDiff, FormatOptions};
+pub use rules::{
+    FormatDiff, FormatOptions, format_loops_in_code, format_operators_in_code, format_source,
+};
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -47,22 +49,23 @@ pub fn collect_datara_files(target: &Path) -> Vec<PathBuf> {
             files.push(target.to_path_buf());
         }
     } else if target.is_dir()
-        && let Ok(entries) = fs::read_dir(target) {
-            for entry in entries.flatten() {
-                let p = entry.path();
-                if p.is_dir() {
-                    let dir_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
-                    if dir_name != "target" && dir_name != ".git" && dir_name != "node_modules" {
-                        files.extend(collect_datara_files(&p));
-                    }
-                } else {
-                    let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
-                    if ext == "dtr" || ext == "forge" {
-                        files.push(p);
-                    }
+        && let Ok(entries) = fs::read_dir(target)
+    {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                let dir_name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                if dir_name != "target" && dir_name != ".git" && dir_name != "node_modules" {
+                    files.extend(collect_datara_files(&p));
+                }
+            } else {
+                let ext = p.extension().and_then(|s| s.to_str()).unwrap_or("");
+                if ext == "dtr" || ext == "forge" {
+                    files.push(p);
                 }
             }
         }
+    }
     files.sort();
     files
 }

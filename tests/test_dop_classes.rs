@@ -68,14 +68,15 @@ fn main() {
     let compiler = ForgenCompiler::new("release");
     let res = compiler.compile_source(source, "test_ufcs.dtr", None);
     if let Some(m) = &res.dmir_module
-        && let Some(main_fn) = m.functions.get("main") {
-            for b in &main_fn.blocks {
-                eprintln!("MAIN BLOCK {}:", b.id.0);
-                for i in &b.instructions {
-                    eprintln!("  {:?}", i);
-                }
+        && let Some(main_fn) = m.functions.get("main")
+    {
+        for b in &main_fn.blocks {
+            eprintln!("MAIN BLOCK {}:", b.id.0);
+            for i in &b.instructions {
+                eprintln!("  {:?}", i);
             }
         }
+    }
     let out = run_datara(source, "test_ufcs");
     assert_eq!(out, "10\n20");
 }

@@ -158,5 +158,9 @@ fn main() {
         .expect("execution failed");
     assert_eq!(code, 0, "non-zero exit: {}", err);
     // sum of (0..9)*1.5 = 45 * 1.5 = 67.5
-    assert!(out.trim().starts_with("67.5"), "Float induction 0..10 * 1.5 must equal 67.5, got: {}", out);
+    assert!(
+        out.trim().starts_with("67.5"),
+        "Float induction 0..10 * 1.5 must equal 67.5, got: {}",
+        out
+    );
 }

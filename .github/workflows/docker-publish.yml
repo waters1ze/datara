@@ -35,7 +35,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/waters1ze/datara
           tags: |
             type=raw,value=latest
             type=raw,value=v0.1.0

@@ -30,21 +30,23 @@ pub fn runtime_lib_path() -> PathBuf {
 
     // 2. Check relative to current executable (e.g. dist installation or portable zip)
     if let Ok(exe_path) = std::env::current_exe()
-        && let Some(exe_dir) = exe_path.parent() {
-            let next_to_exe = exe_dir.join(lib_name);
-            if next_to_exe.exists() {
-                return next_to_exe;
-            }
-            let in_runtime_dir = exe_dir.join("runtime").join(lib_name);
-            if in_runtime_dir.exists() {
-                return in_runtime_dir;
-            }
-            let in_parent_runtime = exe_dir.parent().map(|p| p.join("runtime").join(lib_name));
-            if let Some(p) = in_parent_runtime
-                && p.exists() {
-                    return p;
-                }
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        let next_to_exe = exe_dir.join(lib_name);
+        if next_to_exe.exists() {
+            return next_to_exe;
         }
+        let in_runtime_dir = exe_dir.join("runtime").join(lib_name);
+        if in_runtime_dir.exists() {
+            return in_runtime_dir;
+        }
+        let in_parent_runtime = exe_dir.parent().map(|p| p.join("runtime").join(lib_name));
+        if let Some(p) = in_parent_runtime
+            && p.exists()
+        {
+            return p;
+        }
+    }
 
     // 3. Check DATARA_HOME environment variable
     if let Ok(home) = std::env::var("DATARA_HOME") {

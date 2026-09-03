@@ -52,9 +52,10 @@ impl LspServer {
                     break; // Header section finished
                 }
                 if let Some(rest) = trimmed.strip_prefix("Content-Length:")
-                    && let Ok(len) = rest.trim().parse::<usize>() {
-                        content_length = Some(len);
-                    }
+                    && let Ok(len) = rest.trim().parse::<usize>()
+                {
+                    content_length = Some(len);
+                }
             }
 
             let len = match content_length {
@@ -261,14 +262,12 @@ impl LspServer {
             id,
             result,
         };
-        let val =
-            serde_json::to_value(resp).map_err(io::Error::other)?;
+        let val = serde_json::to_value(resp).map_err(io::Error::other)?;
         self.send_payload(&val, writer)
     }
 
     fn send_payload<W: Write>(&self, val: &Value, writer: &mut W) -> io::Result<()> {
-        let body =
-            serde_json::to_string(val).map_err(io::Error::other)?;
+        let body = serde_json::to_string(val).map_err(io::Error::other)?;
         let header = format!("Content-Length: {}\r\n\r\n", body.len());
         writer.write_all(header.as_bytes())?;
         writer.write_all(body.as_bytes())?;

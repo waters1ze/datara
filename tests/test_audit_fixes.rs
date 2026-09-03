@@ -191,4 +191,3 @@ fn main() {
     assert_eq!(code_ret, 0);
     assert!(out.contains("X=42 Y=25"), "output was: {:?}", out);
 }
-

@@ -27,9 +27,10 @@ impl ProjectLayout {
     pub fn binary_name(&self) -> String {
         if let Some(ref m) = self.manifest {
             if let Some(ref t) = m.target
-                && let Some(ref bin) = t.bin_name {
-                    return bin.clone();
-                }
+                && let Some(ref bin) = t.bin_name
+            {
+                return bin.clone();
+            }
             if !m.package.name.is_empty() {
                 return m.package.name.clone();
             }
@@ -185,9 +186,9 @@ impl ProjectDiscovery {
                             || name == "tests"
                             || name == "examples"
                             || name == "benches")
-                        {
-                            continue;
-                        }
+                    {
+                        continue;
+                    }
                     Self::collect_dtr_files(&path, files)?;
                 } else if path.extension().and_then(|s| s.to_str()) == Some("dtr") {
                     files.push(path);

@@ -1,10 +1,10 @@
 pub mod diagnostics;
 pub mod rules;
 
-pub use diagnostics::{LintDiagnostic, LintFix, LintSeverity};
 use crate::diagnostics::DiagnosticEngine;
 use crate::lexer::Lexer;
 use crate::parser::Parser;
+pub use diagnostics::{LintDiagnostic, LintFix, LintSeverity};
 use std::fs;
 use std::path::Path;
 
@@ -38,7 +38,8 @@ pub fn lint_source(source: &str, file_name: &str) -> Result<Vec<LintDiagnostic>,
 }
 
 pub fn lint_file(path: &Path) -> Result<Vec<LintDiagnostic>, String> {
-    let source = fs::read_to_string(path).map_err(|e| format!("Cannot read file {}: {}", path.display(), e))?;
+    let source = fs::read_to_string(path)
+        .map_err(|e| format!("Cannot read file {}: {}", path.display(), e))?;
     let file_str = path.to_string_lossy().to_string();
     lint_source(&source, &file_str)
 }
@@ -63,11 +64,12 @@ pub fn apply_fixes(source: &str, diags: &[LintDiagnostic]) -> String {
                 let line = &lines[line_idx];
                 // If it's mut -> let replacement
                 if diag.code == "perf::unnecessary_mut"
-                    && let Some(mut_pos) = line.find("mut ") {
-                        let mut new_line = line.clone();
-                        new_line.replace_range(mut_pos..mut_pos + 4, "let ");
-                        lines[line_idx] = new_line;
-                    }
+                    && let Some(mut_pos) = line.find("mut ")
+                {
+                    let mut new_line = line.clone();
+                    new_line.replace_range(mut_pos..mut_pos + 4, "let ");
+                    lines[line_idx] = new_line;
+                }
             }
         }
     }

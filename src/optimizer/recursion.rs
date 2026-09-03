@@ -71,10 +71,11 @@ pub fn eliminate_sibling_recursion(f: &mut Function) -> bool {
             continue;
         }
         if let Terminator::Return { value: Some(v) } = &b.terminator
-            && resolves_to_param(*v, arg_n, &alias_map) {
-                base_bid = Some(b.id);
-                break;
-            }
+            && resolves_to_param(*v, arg_n, &alias_map)
+        {
+            base_bid = Some(b.id);
+            break;
+        }
     }
 
     // --- Pass 2: the rec block: exactly two self-calls, the sum returned,
@@ -97,9 +98,7 @@ pub fn eliminate_sibling_recursion(f: &mut Function) -> bool {
                         other_effect = true;
                     }
                 }
-                Inst::Out { .. } | Inst::Err { .. } | Inst::SetField { .. } => {
-                    other_effect = true
-                }
+                Inst::Out { .. } | Inst::Err { .. } | Inst::SetField { .. } => other_effect = true,
                 _ => {}
             }
         }
@@ -117,17 +116,19 @@ pub fn eliminate_sibling_recursion(f: &mut Function) -> bool {
                 right,
                 ty,
             } = inst
-                && op == "+" && ty == "Int"
-                    && ((*left == c1 && *right == c2) || (*left == c2 && *right == c1)) {
-                        let is_returned = match &b.terminator {
-                            Terminator::Return { value: Some(ret_v) } => *ret_v == *dest,
-                            _ => false,
-                        };
-                        if is_returned {
-                            rec_info = Some((b.id, a1, a2, *dest));
-                            break;
-                        }
-                    }
+                && op == "+"
+                && ty == "Int"
+                && ((*left == c1 && *right == c2) || (*left == c2 && *right == c1))
+            {
+                let is_returned = match &b.terminator {
+                    Terminator::Return { value: Some(ret_v) } => *ret_v == *dest,
+                    _ => false,
+                };
+                if is_returned {
+                    rec_info = Some((b.id, a1, a2, *dest));
+                    break;
+                }
+            }
         }
         if rec_info.is_some() {
             break;
@@ -168,24 +169,26 @@ pub fn eliminate_sibling_recursion(f: &mut Function) -> bool {
                 right,
                 ty,
             } = inst
-                && (op == "<=" || op == "<") && (ty == "Bool" || ty == "Int") {
-                    let base_l = alias_map.get(left).copied().unwrap_or(*left);
-                    if base_l == arg_n
-                        && let Some(&k) = int_consts.get(right)
-                            && let Terminator::CondBranch {
-                                cond: c,
-                                then_block,
-                                else_block,
-                                ..
-                            } = &b.terminator
-                                && c == dest
-                                    && ((*then_block == base_bid && *else_block == _rec_bid)
-                                        || (*then_block == _rec_bid && *else_block == base_bid))
-                                {
-                                    guard_bound = Some(if op == "<=" { k } else { k - 1 });
-                                    break 'outer;
-                                }
+                && (op == "<=" || op == "<")
+                && (ty == "Bool" || ty == "Int")
+            {
+                let base_l = alias_map.get(left).copied().unwrap_or(*left);
+                if base_l == arg_n
+                    && let Some(&k) = int_consts.get(right)
+                    && let Terminator::CondBranch {
+                        cond: c,
+                        then_block,
+                        else_block,
+                        ..
+                    } = &b.terminator
+                    && c == dest
+                    && ((*then_block == base_bid && *else_block == _rec_bid)
+                        || (*then_block == _rec_bid && *else_block == base_bid))
+                {
+                    guard_bound = Some(if op == "<=" { k } else { k - 1 });
+                    break 'outer;
                 }
+            }
         }
     }
     let Some(base_k) = guard_bound else {
@@ -202,13 +205,16 @@ pub fn eliminate_sibling_recursion(f: &mut Function) -> bool {
                 right,
                 ty,
             } = inst
-                && op == "-" && ty == "Int" {
-                    let base_l = alias_map.get(left).copied().unwrap_or(*left);
-                    if base_l == arg_n
-                        && let Some(&k) = int_consts.get(right) {
-                            sub_consts.insert(*dest, k);
-                        }
+                && op == "-"
+                && ty == "Int"
+            {
+                let base_l = alias_map.get(left).copied().unwrap_or(*left);
+                if base_l == arg_n
+                    && let Some(&k) = int_consts.get(right)
+                {
+                    sub_consts.insert(*dest, k);
                 }
+            }
         }
     }
 

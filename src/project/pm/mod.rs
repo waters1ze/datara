@@ -448,18 +448,18 @@ entry = "src/main.dtr"
 
         if let Ok(content) = fs::read_to_string(&manifest_path)
             && !content.contains(&format!("{} =", pkg_name))
-                && !content.contains(&format!("\"{}\" =", pkg_name))
-            {
-                let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-                if let Some(pos) = lines.iter().position(|l| l.trim() == "[dependencies]") {
-                    lines.insert(pos + 1, format!("{} = \"{}\"", pkg_name, version));
-                } else {
-                    lines.push("".into());
-                    lines.push("[dependencies]".into());
-                    lines.push(format!("{} = \"{}\"", pkg_name, version));
-                }
-                let _ = fs::write(&manifest_path, lines.join("\n"));
+            && !content.contains(&format!("\"{}\" =", pkg_name))
+        {
+            let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
+            if let Some(pos) = lines.iter().position(|l| l.trim() == "[dependencies]") {
+                lines.insert(pos + 1, format!("{} = \"{}\"", pkg_name, version));
+            } else {
+                lines.push("".into());
+                lines.push("[dependencies]".into());
+                lines.push(format!("{} = \"{}\"", pkg_name, version));
             }
+            let _ = fs::write(&manifest_path, lines.join("\n"));
+        }
     }
 
     /// Publishes a local package to the registry.
@@ -538,9 +538,10 @@ entry = "src/main.dtr"
                 let path = entry.path();
                 if path.is_dir() {
                     if let Some(n) = path.file_name().and_then(|s| s.to_str())
-                        && (n.starts_with('.') || n == "target" || n == "packages") {
-                            continue;
-                        }
+                        && (n.starts_with('.') || n == "target" || n == "packages")
+                    {
+                        continue;
+                    }
                     Self::collect_files_recursive(base, &path, files)?;
                 } else if path.extension().and_then(|s| s.to_str()) == Some("dtr") {
                     let rel = path

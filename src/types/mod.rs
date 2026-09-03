@@ -42,9 +42,10 @@ impl DataraType {
             return true;
         }
         if let (DataraType::Tuple(t1), DataraType::Tuple(t2)) = (self, other)
-            && t1.len() == t2.len() {
-                return t1.iter().zip(t2.iter()).all(|(a, b)| a.is_compatible(b));
-            }
+            && t1.len() == t2.len()
+        {
+            return t1.iter().zip(t2.iter()).all(|(a, b)| a.is_compatible(b));
+        }
         if let (DataraType::Option(o1), DataraType::Option(o2)) = (self, other) {
             if **o1 == DataraType::Unit || **o2 == DataraType::Unit {
                 return true;
@@ -52,9 +53,10 @@ impl DataraType {
             return o1.is_compatible(o2);
         }
         if let DataraType::Option(target) = other
-            && self.is_compatible(target) {
-                return true;
-            }
+            && self.is_compatible(target)
+        {
+            return true;
+        }
         if let (DataraType::Result(ok1, err1), DataraType::Result(ok2, err2)) = (self, other) {
             return ok1.is_compatible(ok2) && err1.is_compatible(err2);
         }
@@ -267,10 +269,17 @@ impl<'a> TypeChecker<'a> {
                 (vec![DataraType::Int], DataraType::Int, Vec::new()),
             );
         }
-        for name in &["math_shr", "shr", "math_shl", "shl", "math_xor", "xor", "math_and", "and", "math_or", "or"] {
+        for name in &[
+            "math_shr", "shr", "math_shl", "shl", "math_xor", "xor", "math_and", "and", "math_or",
+            "or",
+        ] {
             function_signatures.insert(
                 name.to_string(),
-                (vec![DataraType::Int, DataraType::Int], DataraType::Int, Vec::new()),
+                (
+                    vec![DataraType::Int, DataraType::Int],
+                    DataraType::Int,
+                    Vec::new(),
+                ),
             );
         }
         function_signatures.insert(
@@ -609,9 +618,9 @@ impl<'a> TypeChecker<'a> {
         }
 
         let base = match tn.name.as_str() {
-            "Int" | "Int64" | "Int32" | "Int16" | "Int8" | "UInt" | "UInt64" | "UInt32" | "UInt16" | "UInt8"
-            | "i64" | "i32" | "i16" | "i8" | "isize" | "u64" | "u32" | "u16" | "u8" | "u128" | "i128"
-            | "usize" | "USize" | "Byte" => DataraType::Int,
+            "Int" | "Int64" | "Int32" | "Int16" | "Int8" | "UInt" | "UInt64" | "UInt32"
+            | "UInt16" | "UInt8" | "i64" | "i32" | "i16" | "i8" | "isize" | "u64" | "u32"
+            | "u16" | "u8" | "u128" | "i128" | "usize" | "USize" | "Byte" => DataraType::Int,
             "Float" | "Float64" | "Float32" | "f64" | "f32" | "f16" => DataraType::Float,
             "dec64" => DataraType::Dec64,
             "dec128" => DataraType::Dec128,
@@ -733,100 +742,102 @@ impl<'a> TypeChecker<'a> {
                 if f.is_expression_body
                     && !body_type.is_compatible(&expected)
                     && expected != DataraType::Unit
-                    && !matches!(expected, DataraType::TypeParam(_)) {
-                        let help_msg = Self::suggest_type_fix(&expected, &body_type);
-                        diag.error_with_help(
-                            ErrorCode::TypeMismatch,
-                            format!(
-                                "Type mismatch: expected '{}', got '{}'",
-                                expected, body_type
-                            ),
-                            Some(f.span.clone()),
-                            help_msg,
-                        );
-                    }
+                    && !matches!(expected, DataraType::TypeParam(_))
+                {
+                    let help_msg = Self::suggest_type_fix(&expected, &body_type);
+                    diag.error_with_help(
+                        ErrorCode::TypeMismatch,
+                        format!(
+                            "Type mismatch: expected '{}', got '{}'",
+                            expected, body_type
+                        ),
+                        Some(f.span.clone()),
+                        help_msg,
+                    );
+                }
             }
             Decl::Class(c) => {
                 for item in &c.body_items {
                     if let ClassItem::Method(m) = item
-                        && let Some(body) = &m.body {
-                            let m_fn_name = format!("{}_{}", c.name, m.name);
-                            self.current_fn_name = Some(m_fn_name.clone());
-                            self.symbol_types
-                                .insert("this".to_string(), DataraType::Class(c.name.clone()));
-                            self.fn_symbol_types.insert(
-                                (m_fn_name.clone(), "this".to_string()),
-                                DataraType::Class(c.name.clone()),
-                            );
-                            for p in &m.params {
-                                let p_type = p
-                                    .type_node
-                                    .as_ref()
-                                    .map(Self::resolve_tn)
-                                    .unwrap_or(DataraType::Int);
-                                self.symbol_types.insert(p.name.clone(), p_type.clone());
-                                self.fn_symbol_types
-                                    .insert((m_fn_name.clone(), p.name.clone()), p_type);
-                            }
-                            if let Some(rt) = &m.return_type {
-                                Self::validate_error_channels(rt, diag);
-                            }
-                            self.current_return_type = Some(
-                                m.return_type
-                                    .as_ref()
-                                    .map(Self::resolve_tn)
-                                    .unwrap_or(DataraType::Unit),
-                            );
-                            self.check_stmt(body, diag);
-                            self.current_return_type = None;
-                            self.current_fn_name = None;
+                        && let Some(body) = &m.body
+                    {
+                        let m_fn_name = format!("{}_{}", c.name, m.name);
+                        self.current_fn_name = Some(m_fn_name.clone());
+                        self.symbol_types
+                            .insert("this".to_string(), DataraType::Class(c.name.clone()));
+                        self.fn_symbol_types.insert(
+                            (m_fn_name.clone(), "this".to_string()),
+                            DataraType::Class(c.name.clone()),
+                        );
+                        for p in &m.params {
+                            let p_type = p
+                                .type_node
+                                .as_ref()
+                                .map(Self::resolve_tn)
+                                .unwrap_or(DataraType::Int);
+                            self.symbol_types.insert(p.name.clone(), p_type.clone());
+                            self.fn_symbol_types
+                                .insert((m_fn_name.clone(), p.name.clone()), p_type);
                         }
+                        if let Some(rt) = &m.return_type {
+                            Self::validate_error_channels(rt, diag);
+                        }
+                        self.current_return_type = Some(
+                            m.return_type
+                                .as_ref()
+                                .map(Self::resolve_tn)
+                                .unwrap_or(DataraType::Unit),
+                        );
+                        self.check_stmt(body, diag);
+                        self.current_return_type = None;
+                        self.current_fn_name = None;
+                    }
                 }
             }
             Decl::Enum(e) => {
                 let enum_type = DataraType::Class(e.name.clone());
                 for v in &e.variants {
                     self.symbol_types.insert(v.name.clone(), enum_type.clone());
-                    self.symbol_types.insert(format!("{}.{}", e.name, v.name), enum_type.clone());
+                    self.symbol_types
+                        .insert(format!("{}.{}", e.name, v.name), enum_type.clone());
                 }
             }
             Decl::Behavior(b) => {
                 for item in &b.body_items {
                     if let ClassItem::Method(m) = item
-                        && let Some(body) = &m.body {
-                            let m_fn_name = format!("{}_{}", b.target_type, m.name);
-                            self.current_fn_name = Some(m_fn_name.clone());
-                            self.symbol_types.insert(
-                                "this".to_string(),
-                                DataraType::Class(b.target_type.clone()),
-                            );
-                            self.fn_symbol_types.insert(
-                                (m_fn_name.clone(), "this".to_string()),
-                                DataraType::Class(b.target_type.clone()),
-                            );
-                            for p in &m.params {
-                                let p_type = p
-                                    .type_node
-                                    .as_ref()
-                                    .map(Self::resolve_tn)
-                                    .unwrap_or(DataraType::Int);
-                                self.symbol_types.insert(p.name.clone(), p_type.clone());
-                                self.fn_symbol_types
-                                    .insert((m_fn_name.clone(), p.name.clone()), p_type);
-                            }
-                            if let Some(rt) = &m.return_type {
-                                Self::validate_error_channels(rt, diag);
-                            }
-                            self.current_return_type = Some(
-                                m.return_type
-                                    .as_ref()
-                                    .map(Self::resolve_tn)
-                                    .unwrap_or(DataraType::Unit),
-                            );
-                            self.check_stmt(body, diag);
-                            self.current_return_type = None;
-                            self.current_fn_name = None;
+                        && let Some(body) = &m.body
+                    {
+                        let m_fn_name = format!("{}_{}", b.target_type, m.name);
+                        self.current_fn_name = Some(m_fn_name.clone());
+                        self.symbol_types
+                            .insert("this".to_string(), DataraType::Class(b.target_type.clone()));
+                        self.fn_symbol_types.insert(
+                            (m_fn_name.clone(), "this".to_string()),
+                            DataraType::Class(b.target_type.clone()),
+                        );
+                        for p in &m.params {
+                            let p_type = p
+                                .type_node
+                                .as_ref()
+                                .map(Self::resolve_tn)
+                                .unwrap_or(DataraType::Int);
+                            self.symbol_types.insert(p.name.clone(), p_type.clone());
+                            self.fn_symbol_types
+                                .insert((m_fn_name.clone(), p.name.clone()), p_type);
                         }
+                        if let Some(rt) = &m.return_type {
+                            Self::validate_error_channels(rt, diag);
+                        }
+                        self.current_return_type = Some(
+                            m.return_type
+                                .as_ref()
+                                .map(Self::resolve_tn)
+                                .unwrap_or(DataraType::Unit),
+                        );
+                        self.check_stmt(body, diag);
+                        self.current_return_type = None;
+                        self.current_fn_name = None;
+                    }
                 }
             }
             _ => {}
@@ -915,9 +926,10 @@ impl<'a> TypeChecker<'a> {
                 };
                 self.record_var_type(name, final_ty.clone());
                 if matches!(*init, Expr::ListLiteral(_, _))
-                    && let Some(e) = self.last_list_element.take() {
-                        self.var_element_types.insert(name.clone(), e);
-                    }
+                    && let Some(e) = self.last_list_element.take()
+                {
+                    self.var_element_types.insert(name.clone(), e);
+                }
                 self.symbol_mutability
                     .insert(name.clone(), MutabilityKind::Immutable);
                 final_ty
@@ -949,9 +961,10 @@ impl<'a> TypeChecker<'a> {
                 };
                 self.record_var_type(name, final_ty.clone());
                 if matches!(*init, Expr::ListLiteral(_, _))
-                    && let Some(e) = self.last_list_element.take() {
-                        self.var_element_types.insert(name.clone(), e);
-                    }
+                    && let Some(e) = self.last_list_element.take()
+                {
+                    self.var_element_types.insert(name.clone(), e);
+                }
                 self.symbol_mutability
                     .insert(name.clone(), MutabilityKind::Immutable);
                 final_ty
@@ -983,9 +996,10 @@ impl<'a> TypeChecker<'a> {
                 };
                 self.record_var_type(name, final_ty.clone());
                 if matches!(*init, Expr::ListLiteral(_, _))
-                    && let Some(e) = self.last_list_element.take() {
-                        self.var_element_types.insert(name.clone(), e);
-                    }
+                    && let Some(e) = self.last_list_element.take()
+                {
+                    self.var_element_types.insert(name.clone(), e);
+                }
                 self.symbol_mutability
                     .insert(name.clone(), MutabilityKind::MutableFixed);
                 final_ty
@@ -1021,9 +1035,10 @@ impl<'a> TypeChecker<'a> {
                 };
                 self.record_var_type(name, final_ty.clone());
                 if matches!(*init, Expr::ListLiteral(_, _))
-                    && let Some(e) = self.last_list_element.take() {
-                        self.var_element_types.insert(name.clone(), e);
-                    }
+                    && let Some(e) = self.last_list_element.take()
+                {
+                    self.var_element_types.insert(name.clone(), e);
+                }
                 self.symbol_mutability
                     .insert(name.clone(), MutabilityKind::Dynamic { is_mut: *is_mut });
                 final_ty
@@ -1049,7 +1064,10 @@ impl<'a> TypeChecker<'a> {
                                     ErrorCode::BorrowCannotMutateImmutable,
                                     format!("Cannot assign twice to immutable variable '{}'", name),
                                     Some(span.clone()),
-                                    Some(format!("consider declaring '{}' as mutable: 'mut {} = ...'", name, name)),
+                                    Some(format!(
+                                        "consider declaring '{}' as mutable: 'mut {} = ...'",
+                                        name, name
+                                    )),
                                 );
                             }
                             MutabilityKind::Dynamic { is_mut: false } => {
@@ -1065,9 +1083,10 @@ impl<'a> TypeChecker<'a> {
                             }
                             MutabilityKind::MutableFixed => {
                                 if let Some(existing) = self.symbol_types.get(name)
-                                    && !val_type.is_compatible(existing) {
-                                        let help_msg = Self::suggest_type_fix(existing, &val_type);
-                                        diag.error_with_help(
+                                    && !val_type.is_compatible(existing)
+                                {
+                                    let help_msg = Self::suggest_type_fix(existing, &val_type);
+                                    diag.error_with_help(
                                             ErrorCode::TypeMismatch,
                                             format!(
                                                 "Type mismatch in assignment to mutable variable '{}': expected '{}', got '{}'",
@@ -1076,25 +1095,31 @@ impl<'a> TypeChecker<'a> {
                                             Some(span.clone()),
                                             help_msg,
                                         );
-                                    }
+                                }
                             }
                             MutabilityKind::Dynamic { is_mut: true } => {
                                 self.symbol_types.insert(name.clone(), val_type.clone());
                             }
                         }
                     } else {
-                        let candidates: Vec<&str> = self.symbol_types.keys().map(|s| s.as_str()).collect();
-                        let help_msg = if let Some(similar) = crate::diagnostics::suggestions::find_best_match(name, candidates) {
-                            format!("a variable with a similar name exists: '{}'. Or declare with 'let {} = ...' / 'mut {} = ...'", similar, name, name)
+                        let candidates: Vec<&str> =
+                            self.symbol_types.keys().map(|s| s.as_str()).collect();
+                        let help_msg = if let Some(similar) =
+                            crate::diagnostics::suggestions::find_best_match(name, candidates)
+                        {
+                            format!(
+                                "a variable with a similar name exists: '{}'. Or declare with 'let {} = ...' / 'mut {} = ...'",
+                                similar, name, name
+                            )
                         } else {
-                            format!("declare '{}' with 'let' (immutable) or 'mut' (mutable) before assigning to it", name)
+                            format!(
+                                "declare '{}' with 'let' (immutable) or 'mut' (mutable) before assigning to it",
+                                name
+                            )
                         };
                         diag.error_with_help(
                             ErrorCode::ResolveUndefinedSymbol,
-                            format!(
-                                "Assignment to undeclared variable '{}'",
-                                name
-                            ),
+                            format!("Assignment to undeclared variable '{}'", name),
                             Some(span.clone()),
                             Some(help_msg),
                         );
@@ -1395,10 +1420,8 @@ impl<'a> TypeChecker<'a> {
             } => {
                 let init_type = self.check_expr(init, diag);
                 if let Some(ref fn_name) = self.current_fn_name {
-                    self.fn_symbol_types.insert(
-                        (fn_name.clone(), resource_name.clone()),
-                        init_type.clone(),
-                    );
+                    self.fn_symbol_types
+                        .insert((fn_name.clone(), resource_name.clone()), init_type.clone());
                 }
                 self.symbol_types.insert(resource_name.clone(), init_type);
                 self.check_stmt(body, diag);
@@ -1527,9 +1550,10 @@ impl<'a> TypeChecker<'a> {
                         }
 
                         if let DataraType::TypeParam(p) = &ret_type
-                            && let Some(bound) = type_bindings.get(p) {
-                                return bound.clone();
-                            }
+                            && let Some(bound) = type_bindings.get(p)
+                        {
+                            return bound.clone();
+                        }
                         return ret_type;
                     }
                 }
@@ -1583,7 +1607,11 @@ impl<'a> TypeChecker<'a> {
                 }
                 DataraType::Unit
             }
-            Expr::MemberAccess { object, member, span } => {
+            Expr::MemberAccess {
+                object,
+                member,
+                span,
+            } => {
                 let obj_type = self.check_expr(object, diag);
                 match &obj_type {
                     DataraType::Class(cls_name) => {
@@ -1595,21 +1623,25 @@ impl<'a> TypeChecker<'a> {
                             return DataraType::Class(cls_name.clone());
                         }
                         if let Some(pkt) = self.resolver.packets.get(cls_name)
-                            && pkt.fields.iter().any(|f| &f.name == member) {
-                                return DataraType::Int;
-                            }
+                            && pkt.fields.iter().any(|f| &f.name == member)
+                        {
+                            return DataraType::Int;
+                        }
                         if let Some(fields) = self.class_fields.get(cls_name)
-                            && let Some(f_type) = fields.get(member) {
-                                return f_type.clone();
-                            }
+                            && let Some(f_type) = fields.get(member)
+                        {
+                            return f_type.clone();
+                        }
                         if let Some((_, t_fields)) = self.generic_templates.get(cls_name)
-                            && let Some(f_type) = t_fields.get(member) {
-                                return f_type.clone();
-                            }
+                            && let Some(f_type) = t_fields.get(member)
+                        {
+                            return f_type.clone();
+                        }
                         if let Some(methods) = self.class_methods.get(cls_name)
-                            && methods.contains_key(member) {
-                                return DataraType::Unit;
-                            }
+                            && methods.contains_key(member)
+                        {
+                            return DataraType::Unit;
+                        }
                         let mut known_fields: Vec<&str> = Vec::new();
                         if let Some(fields) = self.class_fields.get(cls_name) {
                             known_fields.extend(fields.keys().map(|s| s.as_str()));
@@ -1620,14 +1652,25 @@ impl<'a> TypeChecker<'a> {
                         if let Some(methods) = self.class_methods.get(cls_name) {
                             known_fields.extend(methods.keys().map(|s| s.as_str()));
                         }
-                        let help_msg = if let Some(similar) = crate::diagnostics::suggestions::find_best_match(member, known_fields) {
-                            format!("class '{}' has a field or method with a similar name: '{}'", cls_name, similar)
+                        let help_msg = if let Some(similar) =
+                            crate::diagnostics::suggestions::find_best_match(member, known_fields)
+                        {
+                            format!(
+                                "class '{}' has a field or method with a similar name: '{}'",
+                                cls_name, similar
+                            )
                         } else {
-                            format!("class '{}' does not define field or method '{}'", cls_name, member)
+                            format!(
+                                "class '{}' does not define field or method '{}'",
+                                cls_name, member
+                            )
                         };
                         diag.error_with_help(
                             ErrorCode::TypeInvalidMemberAccess,
-                            format!("Class '{}' has no field or method named '{}'", cls_name, member),
+                            format!(
+                                "Class '{}' has no field or method named '{}'",
+                                cls_name, member
+                            ),
                             Some(span.clone()),
                             Some(help_msg),
                         );
@@ -1640,14 +1683,16 @@ impl<'a> TypeChecker<'a> {
                             };
                         }
                         if let Some((params, t_fields)) = self.generic_templates.get(name)
-                            && let Some(field_type) = t_fields.get(member) {
-                                if let DataraType::TypeParam(p) = field_type
-                                    && let Some(idx) = params.iter().position(|param| param == p)
-                                    && idx < args.len() {
-                                        return args[idx].clone();
-                                    }
-                                return field_type.clone();
+                            && let Some(field_type) = t_fields.get(member)
+                        {
+                            if let DataraType::TypeParam(p) = field_type
+                                && let Some(idx) = params.iter().position(|param| param == p)
+                                && idx < args.len()
+                            {
+                                return args[idx].clone();
                             }
+                            return field_type.clone();
+                        }
                     }
                     _ => {}
                 }
@@ -1671,10 +1716,12 @@ impl<'a> TypeChecker<'a> {
                 }
 
                 if let Some((params, _)) = self.generic_templates.get(class_name) {
-                    if inferred_args.is_empty() && !params.is_empty()
-                        && let Some((_, first_val_type)) = field_types.iter().next() {
-                            inferred_args.push(first_val_type.clone());
-                        }
+                    if inferred_args.is_empty()
+                        && !params.is_empty()
+                        && let Some((_, first_val_type)) = field_types.iter().next()
+                    {
+                        inferred_args.push(first_val_type.clone());
+                    }
 
                     if !inferred_args.is_empty() {
                         self.generic_specializations

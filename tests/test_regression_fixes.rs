@@ -164,7 +164,10 @@ fn main() {
     let res = compiler.compile_source(source, "select_float.dtr", None);
     assert!(res.success, "Compilation must succeed: {:?}", res.error);
     let llvm = res.llvm_source.expect("LLVM IR must be generated");
-    assert!(llvm.contains("select i1"), "if-conversion select must be present");
+    assert!(
+        llvm.contains("select i1"),
+        "if-conversion select must be present"
+    );
     let bad_select = llvm
         .lines()
         .any(|l| l.contains("select i1") && l.contains("i64 %v"));
@@ -223,13 +226,21 @@ fn main() {
 
     let compiler = ForgenCompiler::new("release").with_llvm(true);
     let res = compiler.compile_file(&src, Some(&exe));
-    assert!(res.success, "LLVM SIMD compilation must succeed: {:?}", res.error);
+    assert!(
+        res.success,
+        "LLVM SIMD compilation must succeed: {:?}",
+        res.error
+    );
     let (stdout, _stderr, code, _) = compiler
         .codegen
         .run_executable(&exe, &[])
         .expect("run failed");
     assert_eq!(code, 0, "executable must exit 0, stderr: {}", _stderr);
-    assert!(stdout.contains("20"), "dot(a,b) == 20, got stdout: {}", stdout);
+    assert!(
+        stdout.contains("20"),
+        "dot(a,b) == 20, got stdout: {}",
+        stdout
+    );
 
     let _ = std::fs::remove_file(&src);
     let _ = std::fs::remove_file(&exe);

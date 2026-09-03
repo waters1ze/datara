@@ -138,27 +138,29 @@ impl EffectAnalyzer {
                 Decl::Class(c) => {
                     for item in &c.body_items {
                         if let ClassItem::Method(m) = item
-                            && let Some(body) = &m.body {
-                                let mut effects = EffectSet::pure();
-                                let mut local_vars: HashSet<String> =
-                                    m.params.iter().map(|p| p.name.clone()).collect();
-                                self.analyze_stmt(body, &mut effects, &mut local_vars);
-                                self.function_effects
-                                    .insert(format!("{}.{}", c.name, m.name), effects);
-                            }
+                            && let Some(body) = &m.body
+                        {
+                            let mut effects = EffectSet::pure();
+                            let mut local_vars: HashSet<String> =
+                                m.params.iter().map(|p| p.name.clone()).collect();
+                            self.analyze_stmt(body, &mut effects, &mut local_vars);
+                            self.function_effects
+                                .insert(format!("{}.{}", c.name, m.name), effects);
+                        }
                     }
                 }
                 Decl::Behavior(b) => {
                     for item in &b.body_items {
                         if let ClassItem::Method(m) = item
-                            && let Some(body) = &m.body {
-                                let mut effects = EffectSet::pure();
-                                let mut local_vars: HashSet<String> =
-                                    m.params.iter().map(|p| p.name.clone()).collect();
-                                self.analyze_stmt(body, &mut effects, &mut local_vars);
-                                self.function_effects
-                                    .insert(format!("{}.{}", b.target_type, m.name), effects);
-                            }
+                            && let Some(body) = &m.body
+                        {
+                            let mut effects = EffectSet::pure();
+                            let mut local_vars: HashSet<String> =
+                                m.params.iter().map(|p| p.name.clone()).collect();
+                            self.analyze_stmt(body, &mut effects, &mut local_vars);
+                            self.function_effects
+                                .insert(format!("{}.{}", b.target_type, m.name), effects);
+                        }
                     }
                 }
                 _ => {}
@@ -272,12 +274,13 @@ impl EffectAnalyzer {
                         effects.add(Effect::Nondeterministic);
                     }
                 } else if let Expr::MemberAccess { object, member, .. } = &**callee
-                    && let Expr::Identifier(obj_name, _) = &**object {
-                        let method_key = format!("{}.{}", obj_name, member);
-                        if let Some(eff) = self.function_effects.get(&method_key) {
-                            effects.union(eff);
-                        }
+                    && let Expr::Identifier(obj_name, _) = &**object
+                {
+                    let method_key = format!("{}.{}", obj_name, member);
+                    if let Some(eff) = self.function_effects.get(&method_key) {
+                        effects.union(eff);
                     }
+                }
             }
             Expr::Binary { left, right, .. } => {
                 self.analyze_expr(left, effects);

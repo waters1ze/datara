@@ -195,7 +195,10 @@ pub fn format_operators_in_code(code: &str) -> String {
             let prev_trimmed = res.trim_end();
             let prev_non_space = prev_trimmed.chars().last();
             let is_unary = prev_non_space.is_none_or(|p| {
-                matches!(p, '(' | '[' | '{' | ',' | '=' | ':' | '+' | '-' | '*' | '/' | '!' | '<' | '>')
+                matches!(
+                    p,
+                    '(' | '[' | '{' | ',' | '=' | ':' | '+' | '-' | '*' | '/' | '!' | '<' | '>'
+                )
             }) || prev_trimmed.ends_with("return")
                 || prev_trimmed.ends_with("out")
                 || prev_trimmed.ends_with("in");
@@ -219,12 +222,22 @@ pub fn format_operators_in_code(code: &str) -> String {
         if ch == '<' || ch == '>' {
             let prev_non_space = res.trim_end().chars().last();
             let is_ident_prev = prev_non_space.is_some_and(|p| p.is_alphanumeric() || p == '_');
-            let next_char = if i + 1 < len { Some(chars[i + 1]) } else { None };
+            let next_char = if i + 1 < len {
+                Some(chars[i + 1])
+            } else {
+                None
+            };
 
-            let is_generic_open = ch == '<' && is_ident_prev && next_char.is_some_and(|c| c.is_alphanumeric() || c == '_');
-            let is_generic_close = ch == '>' && is_ident_prev && (
-                next_char.is_none() || next_char.is_some_and(|c| matches!(c, ' ' | '{' | '(' | ')' | ',' | '.' | ';' | '\n' | '\r'))
-            ) && res.contains('<');
+            let is_generic_open = ch == '<'
+                && is_ident_prev
+                && next_char.is_some_and(|c| c.is_alphanumeric() || c == '_');
+            let is_generic_close = ch == '>'
+                && is_ident_prev
+                && (next_char.is_none()
+                    || next_char.is_some_and(|c| {
+                        matches!(c, ' ' | '{' | '(' | ')' | ',' | '.' | ';' | '\n' | '\r')
+                    }))
+                && res.contains('<');
 
             if is_generic_open || is_generic_close {
                 while res.ends_with(' ') {
@@ -250,7 +263,14 @@ pub fn format_operators_in_code(code: &str) -> String {
         // Comma `,` must be followed by space
         if ch == ',' {
             res.push(',');
-            if i + 1 < len && chars[i + 1] != ' ' && chars[i + 1] != '\n' && chars[i + 1] != '\r' && chars[i + 1] != ')' && chars[i + 1] != ']' && chars[i + 1] != '}' {
+            if i + 1 < len
+                && chars[i + 1] != ' '
+                && chars[i + 1] != '\n'
+                && chars[i + 1] != '\r'
+                && chars[i + 1] != ')'
+                && chars[i + 1] != ']'
+                && chars[i + 1] != '}'
+            {
                 res.push(' ');
             }
             i += 1;
@@ -301,9 +321,11 @@ pub fn format_loops_in_code(line: &str) -> String {
             result = format!("if {} {}", cond, after);
         }
     } else if let Some(rest) = result.strip_prefix("if ")
-        && rest.ends_with('{') && !rest.ends_with(" {") {
-            result = format!("{} {{", result[..result.len() - 1].trim_end());
-        }
+        && rest.ends_with('{')
+        && !rest.ends_with(" {")
+    {
+        result = format!("{} {{", result[..result.len() - 1].trim_end());
+    }
 
     // Fix `while (...)`
     if let Some(rest) = result.strip_prefix("while (") {
@@ -317,9 +339,11 @@ pub fn format_loops_in_code(line: &str) -> String {
             result = format!("while {} {}", cond, after);
         }
     } else if let Some(rest) = result.strip_prefix("while ")
-        && rest.ends_with('{') && !rest.ends_with(" {") {
-            result = format!("{} {{", result[..result.len() - 1].trim_end());
-        }
+        && rest.ends_with('{')
+        && !rest.ends_with(" {")
+    {
+        result = format!("{} {{", result[..result.len() - 1].trim_end());
+    }
 
     // Fix `for (...)`
     if let Some(rest) = result.strip_prefix("for (") {
@@ -333,9 +357,11 @@ pub fn format_loops_in_code(line: &str) -> String {
             result = format!("for {} {}", body, after);
         }
     } else if let Some(rest) = result.strip_prefix("for ")
-        && rest.ends_with('{') && !rest.ends_with(" {") {
-            result = format!("{} {{", result[..result.len() - 1].trim_end());
-        }
+        && rest.ends_with('{')
+        && !rest.ends_with(" {")
+    {
+        result = format!("{} {{", result[..result.len() - 1].trim_end());
+    }
 
     format!("{}{}", indent, result)
 }
@@ -377,7 +403,10 @@ pub fn format_source(source: &str, opts: &FormatOptions) -> (String, Vec<FormatD
         for seg in &segments {
             if let Segment::Code(c) = seg {
                 let trimmed_c = c.trim_start();
-                let count = trimmed_c.chars().take_while(|&ch| ch == '}' || ch == ']').count();
+                let count = trimmed_c
+                    .chars()
+                    .take_while(|&ch| ch == '}' || ch == ']')
+                    .count();
                 leading_closing_braces += count;
                 if !trimmed_c.is_empty() {
                     break;

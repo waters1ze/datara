@@ -193,7 +193,12 @@ fn instruction_uses(instruction: &Inst) -> Vec<ValueId> {
             uses.push(*value);
         }
         Inst::FormatStr { values, .. } => uses.extend(values.iter().copied()),
-        Inst::Select { cond, then_val, else_val, .. } => {
+        Inst::Select {
+            cond,
+            then_val,
+            else_val,
+            ..
+        } => {
             uses.push(*cond);
             uses.push(*then_val);
             uses.push(*else_val);

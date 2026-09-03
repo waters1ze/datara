@@ -820,7 +820,8 @@ fn main() {
         let clif_median = clif_durations[clif_durations.len() / 2];
 
         // 2. Datara LLVM Native
-        let res_llvm = compiler_llvm.compile_source(source, &format!("bench_{}_llvm.dtr", key), None);
+        let res_llvm =
+            compiler_llvm.compile_source(source, &format!("bench_{}_llvm.dtr", key), None);
         assert!(
             res_llvm.success,
             "LLVM compilation failed for {}: {:?}",
@@ -830,7 +831,8 @@ fn main() {
         let mut llvm_durations = Vec::new();
         for _ in 0..runs {
             let start = Instant::now();
-            let (stdout, stderr, code, _) = compiler_llvm.codegen.run_executable(exe_llvm, &[]).unwrap();
+            let (stdout, stderr, code, _) =
+                compiler_llvm.codegen.run_executable(exe_llvm, &[]).unwrap();
             let duration = start.elapsed().as_secs_f64() * 1000.0;
             assert_eq!(code, 0, "Execution failed: {}", stderr);
             assert!(!stdout.is_empty(), "Empty stdout for {}", key);
@@ -930,7 +932,14 @@ fn main() {
 
         println!(
             "{:<28} | {:>9.2} ms | {:>9.2} ms | {:>8.2} ms | {:>8.2} ms | {:>8.2} ms | {:>8.2} ms | {:>14}",
-            display_name, clif_median, llvm_median, rust_time, node_time, ts_time, py_time, speedup_vs_rust
+            display_name,
+            clif_median,
+            llvm_median,
+            rust_time,
+            node_time,
+            ts_time,
+            py_time,
+            speedup_vs_rust
         );
     }
     println!(

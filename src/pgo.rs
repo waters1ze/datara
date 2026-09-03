@@ -88,14 +88,15 @@ impl ProfileData {
 
     pub fn is_branch_heavily_biased(&self, branch_id: &str) -> Option<(bool, f64)> {
         if let Some(&(taken, total)) = self.branch_frequencies.get(branch_id)
-            && total >= 10 {
-                let ratio = taken as f64 / total as f64;
-                if ratio >= 0.8 {
-                    return Some((true, ratio));
-                } else if ratio <= 0.2 {
-                    return Some((false, 1.0 - ratio));
-                }
+            && total >= 10
+        {
+            let ratio = taken as f64 / total as f64;
+            if ratio >= 0.8 {
+                return Some((true, ratio));
+            } else if ratio <= 0.2 {
+                return Some((false, 1.0 - ratio));
             }
+        }
         None
     }
 }
@@ -158,26 +159,25 @@ impl ProfileGuidedOptimizer {
 
             // If branch is heavily biased towards hot path, optimize block layout
             for block in &mut f.blocks {
-                if let crate::dmir::Terminator::CondBranch {
-                    ..
-                } = &mut block.terminator
-                {
+                if let crate::dmir::Terminator::CondBranch { .. } = &mut block.terminator {
                     let branch_id = format!("{}_{}", name, block.id.0);
                     if let Some((always_taken, confidence)) =
                         profile.is_branch_heavily_biased(&branch_id)
-                        && confidence > 0.95 && always_taken {
-                            optimizer.trace.record(
-                                "PGO_BranchPredict",
-                                &branch_id,
-                                "Rejected",
-                                "Branch bias observed; block layout was not changed",
-                                "Backend block-reordering proof required",
-                                &format!(
-                                    "Biased branch with confidence {:.2}; preserving CFG",
-                                    confidence
-                                ),
-                            );
-                        }
+                        && confidence > 0.95
+                        && always_taken
+                    {
+                        optimizer.trace.record(
+                            "PGO_BranchPredict",
+                            &branch_id,
+                            "Rejected",
+                            "Branch bias observed; block layout was not changed",
+                            "Backend block-reordering proof required",
+                            &format!(
+                                "Biased branch with confidence {:.2}; preserving CFG",
+                                confidence
+                            ),
+                        );
+                    }
                 }
             }
         }

@@ -439,7 +439,11 @@ impl ForgenCompiler {
         optimizer.optimize_module(&mut dmir_module);
         if let Some(ref pgo_path) = self.pgo_profile {
             if let Ok(profile) = crate::pgo::ProfileData::load_from_file(pgo_path) {
-                crate::pgo::ProfileGuidedOptimizer::optimize_module(&mut optimizer, &mut dmir_module, &profile);
+                crate::pgo::ProfileGuidedOptimizer::optimize_module(
+                    &mut optimizer,
+                    &mut dmir_module,
+                    &profile,
+                );
             }
         }
         timings.optimizer_ms = opt_start.elapsed().as_millis();
@@ -469,7 +473,9 @@ impl ForgenCompiler {
         }
 
         let compile_res = if self.use_llvm {
-            if crate::codegen::linker::find_clang().is_some() || crate::codegen::linker::find_llc().is_some() {
+            if crate::codegen::linker::find_clang().is_some()
+                || crate::codegen::linker::find_llc().is_some()
+            {
                 let rt_path = PathBuf::from("src/runtime/datara_runtime.c");
                 let rt_opt = if rt_path.exists() {
                     Some(rt_path.as_path())
@@ -483,18 +489,31 @@ impl ForgenCompiler {
                         .map(|c| c.join(&target_exe))
                         .unwrap_or_else(|_| target_exe.clone())
                 };
-                match crate::codegen::linker::compile_with_clang(&ll_path, rt_opt, &abs_target, "3") {
+                match crate::codegen::linker::compile_with_clang(&ll_path, rt_opt, &abs_target, "3")
+                {
                     Ok(()) => Ok(abs_target),
                     Err(e) => {
-                        eprintln!("[Forgen LLVM Warning] LLVM compilation failed: {}. Falling back to native Cranelift backend.", e);
+                        eprintln!(
+                            "[Forgen LLVM Warning] LLVM compilation failed: {}. Falling back to native Cranelift backend.",
+                            e
+                        );
                         self.cranelift.compile_native(&dmir_module, &target_exe)
                     }
                 }
             } else {
-                eprintln!("[Forgen LLVM Notice] Neither Clang nor LLC was found on PATH or in system toolchain.");
-                eprintln!("  -> LLVM IR successfully generated and saved to: {}", ll_path.display());
-                eprintln!("  -> To compile with LLVM, install Clang or run 'rustup component add llvm-tools'.");
-                eprintln!("  -> Compiling executable via high-speed native Cranelift backend instead.");
+                eprintln!(
+                    "[Forgen LLVM Notice] Neither Clang nor LLC was found on PATH or in system toolchain."
+                );
+                eprintln!(
+                    "  -> LLVM IR successfully generated and saved to: {}",
+                    ll_path.display()
+                );
+                eprintln!(
+                    "  -> To compile with LLVM, install Clang or run 'rustup component add llvm-tools'."
+                );
+                eprintln!(
+                    "  -> Compiling executable via high-speed native Cranelift backend instead."
+                );
                 self.cranelift.compile_native(&dmir_module, &target_exe)
             }
         } else {
@@ -653,7 +672,7 @@ impl ForgenCompiler {
                         optimization_report: None,
                         diagnostics: format!("Failed to read '{}': {}", p.display(), e),
                         clif_source: None,
-                llvm_source: None,
+                        llvm_source: None,
                         timings,
                     };
                 }
@@ -735,13 +754,15 @@ impl ForgenCompiler {
     fn module_base_dirs(&self, source_file: &Path) -> Vec<PathBuf> {
         let mut base_dirs = Vec::new();
         if let Some(parent) = source_file.parent()
-            && !parent.as_os_str().is_empty() {
-                base_dirs.push(parent.to_path_buf());
-                if let Some(grandparent) = parent.parent()
-                    && !grandparent.as_os_str().is_empty() {
-                        base_dirs.push(grandparent.to_path_buf());
-                    }
+            && !parent.as_os_str().is_empty()
+        {
+            base_dirs.push(parent.to_path_buf());
+            if let Some(grandparent) = parent.parent()
+                && !grandparent.as_os_str().is_empty()
+            {
+                base_dirs.push(grandparent.to_path_buf());
             }
+        }
         if let Ok(cwd) = std::env::current_dir() {
             base_dirs.push(cwd);
         }
@@ -772,18 +793,19 @@ impl ForgenCompiler {
 
         // 3. Relative to compiler executable (installed or development target)
         if let Ok(exe) = std::env::current_exe()
-            && let Some(exe_dir) = exe.parent() {
-                candidates.push(exe_dir.join("stdlib"));
-                if let Some(p1) = exe_dir.parent() {
-                    candidates.push(p1.join("stdlib"));
-                    if let Some(p2) = p1.parent() {
-                        candidates.push(p2.join("stdlib"));
-                        if let Some(p3) = p2.parent() {
-                            candidates.push(p3.join("stdlib"));
-                        }
+            && let Some(exe_dir) = exe.parent()
+        {
+            candidates.push(exe_dir.join("stdlib"));
+            if let Some(p1) = exe_dir.parent() {
+                candidates.push(p1.join("stdlib"));
+                if let Some(p2) = p1.parent() {
+                    candidates.push(p2.join("stdlib"));
+                    if let Some(p3) = p2.parent() {
+                        candidates.push(p3.join("stdlib"));
                     }
                 }
             }
+        }
 
         // 4. User profile or Unix standard share
         if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
@@ -980,15 +1002,16 @@ impl ForgenCompiler {
 
         // 2. Global npm root resolution on Windows
         if cfg!(windows)
-            && let Ok(appdata) = std::env::var("APPDATA") {
-                let global_npm = PathBuf::from(appdata)
-                    .join("npm")
-                    .join("node_modules")
-                    .join(pkg_name);
-                if global_npm.exists() {
-                    return Some(global_npm.display().to_string());
-                }
+            && let Ok(appdata) = std::env::var("APPDATA")
+        {
+            let global_npm = PathBuf::from(appdata)
+                .join("npm")
+                .join("node_modules")
+                .join(pkg_name);
+            if global_npm.exists() {
+                return Some(global_npm.display().to_string());
             }
+        }
 
         // 3. Query node -e "console.log(require.resolve('...'))"
         let node_cmd = std::process::Command::new("node")
@@ -999,12 +1022,13 @@ impl ForgenCompiler {
             ))
             .output();
         if let Ok(out) = node_cmd
-            && out.status.success() {
-                let res = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !res.is_empty() {
-                    return Some(res);
-                }
+            && out.status.success()
+        {
+            let res = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !res.is_empty() {
+                return Some(res);
             }
+        }
 
         None
     }
@@ -1260,11 +1284,13 @@ impl ForgenCompiler {
                         continue;
                     };
                     let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
-                    let is_explicit = explicit_set.contains(&canon) || explicit.iter().any(|exp| {
-                        exp.file_name() == canon.file_name() && (
-                            canon.ends_with(exp) || exp.ends_with(&path) || path.ends_with(exp)
-                        )
-                    });
+                    let is_explicit = explicit_set.contains(&canon)
+                        || explicit.iter().any(|exp| {
+                            exp.file_name() == canon.file_name()
+                                && (canon.ends_with(exp)
+                                    || exp.ends_with(&path)
+                                    || path.ends_with(exp))
+                        });
                     if !visited.contains(&canon) && !is_explicit {
                         to_load.push((canon, u.span.clone()));
                     }
@@ -1318,13 +1344,25 @@ impl ForgenCompiler {
                 for d in sub.declarations {
                     let is_dup = match &d {
                         Decl::Class(c) => program.declarations.iter().any(|existing| {
-                            if let Decl::Class(ec) = existing { ec.name == c.name } else { false }
+                            if let Decl::Class(ec) = existing {
+                                ec.name == c.name
+                            } else {
+                                false
+                            }
                         }),
                         Decl::Enum(e) => program.declarations.iter().any(|existing| {
-                            if let Decl::Enum(ee) = existing { ee.name == e.name } else { false }
+                            if let Decl::Enum(ee) = existing {
+                                ee.name == e.name
+                            } else {
+                                false
+                            }
                         }),
                         Decl::Behavior(b) => program.declarations.iter().any(|existing| {
-                            if let Decl::Behavior(eb) = existing { eb.target_type == b.target_type } else { false }
+                            if let Decl::Behavior(eb) = existing {
+                                eb.target_type == b.target_type
+                            } else {
+                                false
+                            }
                         }),
                         _ => false,
                     };
@@ -1405,7 +1443,7 @@ impl ForgenCompiler {
                     optimization_report: None,
                     diagnostics: format!("Failed to read file '{}': {}", path.display(), e),
                     clif_source: None,
-                llvm_source: None,
+                    llvm_source: None,
                     timings: CompilationTimings::default(),
                 };
             }

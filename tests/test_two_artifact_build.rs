@@ -76,6 +76,12 @@ fn main() {
     }
 
     // Verify graph contains typed nodes and edges
-    assert!(!graph1.nodes.is_empty(), "Semantic graph must contain nodes");
-    assert!(!graph1.edges.is_empty(), "Semantic graph must contain edges");
+    assert!(
+        !graph1.nodes.is_empty(),
+        "Semantic graph must contain nodes"
+    );
+    assert!(
+        !graph1.edges.is_empty(),
+        "Semantic graph must contain edges"
+    );
 }

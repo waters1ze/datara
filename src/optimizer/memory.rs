@@ -205,7 +205,11 @@ impl MemoryOptimizer {
                     }
                     new_instructions.push(inst.clone());
                 }
-                Inst::SetField { object, field, value } => {
+                Inst::SetField {
+                    object,
+                    field,
+                    value,
+                } => {
                     let mut object_root = *object;
                     for _ in 0..16 {
                         match val_alias.get(&object_root) {
@@ -252,17 +256,18 @@ impl MemoryOptimizer {
 
                     if !escaping_structs.contains(&object_root)
                         && let Some((_, field_map)) = struct_defs.get(object)
-                            && let Some(&field_val) = field_map.get(field) {
-                                // Direct scalar register copy, bypassing object allocation
-                                new_instructions.push(Inst::UnOp {
-                                    dest: *dest,
-                                    op: "copy".to_string(),
-                                    operand: field_val,
-                                    ty: ty.clone(),
-                                });
-                                eliminated += 1;
-                                continue;
-                            }
+                        && let Some(&field_val) = field_map.get(field)
+                    {
+                        // Direct scalar register copy, bypassing object allocation
+                        new_instructions.push(Inst::UnOp {
+                            dest: *dest,
+                            op: "copy".to_string(),
+                            operand: field_val,
+                            ty: ty.clone(),
+                        });
+                        eliminated += 1;
+                        continue;
+                    }
                     new_instructions.push(inst.clone());
                 }
                 _ => {

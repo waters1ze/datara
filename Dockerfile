@@ -1,7 +1,7 @@
 # Multi-stage Dockerfile for Datara & Forgen Compiler
 # Publishes to GitHub Packages (GHCR: ghcr.io/<owner>/datara)
 
-FROM rust:1.80-bookworm AS builder
+FROM rust:latest AS builder
 
 WORKDIR /build
 COPY . .

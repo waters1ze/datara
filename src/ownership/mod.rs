@@ -92,39 +92,41 @@ impl<'a> OwnershipTracker<'a> {
             Decl::Class(c) => {
                 for item in &c.body_items {
                     if let ClassItem::Method(m) = item
-                        && let Some(body) = &m.body {
-                            self.states.clear();
-                            self.active_borrows.clear();
-                            self.local_bindings.clear();
-                            self.mut_bindings.clear();
-                            self.immutable_bindings.clear();
-                            self.current_scope = 0;
-                            self.bindings_by_scope.clear();
-                            self.states.insert("this".to_string(), ValueState::Active);
-                            for p in &m.params {
-                                self.states.insert(p.name.clone(), ValueState::Active);
-                            }
-                            self.check_stmt(body, diag, true);
+                        && let Some(body) = &m.body
+                    {
+                        self.states.clear();
+                        self.active_borrows.clear();
+                        self.local_bindings.clear();
+                        self.mut_bindings.clear();
+                        self.immutable_bindings.clear();
+                        self.current_scope = 0;
+                        self.bindings_by_scope.clear();
+                        self.states.insert("this".to_string(), ValueState::Active);
+                        for p in &m.params {
+                            self.states.insert(p.name.clone(), ValueState::Active);
                         }
+                        self.check_stmt(body, diag, true);
+                    }
                 }
             }
             Decl::Behavior(b) => {
                 for item in &b.body_items {
                     if let ClassItem::Method(m) = item
-                        && let Some(body) = &m.body {
-                            self.states.clear();
-                            self.active_borrows.clear();
-                            self.local_bindings.clear();
-                            self.mut_bindings.clear();
-                            self.immutable_bindings.clear();
-                            self.current_scope = 0;
-                            self.bindings_by_scope.clear();
-                            self.states.insert("this".to_string(), ValueState::Active);
-                            for p in &m.params {
-                                self.states.insert(p.name.clone(), ValueState::Active);
-                            }
-                            self.check_stmt(body, diag, true);
+                        && let Some(body) = &m.body
+                    {
+                        self.states.clear();
+                        self.active_borrows.clear();
+                        self.local_bindings.clear();
+                        self.mut_bindings.clear();
+                        self.immutable_bindings.clear();
+                        self.current_scope = 0;
+                        self.bindings_by_scope.clear();
+                        self.states.insert("this".to_string(), ValueState::Active);
+                        for p in &m.params {
+                            self.states.insert(p.name.clone(), ValueState::Active);
                         }
+                        self.check_stmt(body, diag, true);
+                    }
                 }
             }
             _ => {}
@@ -196,15 +198,16 @@ impl<'a> OwnershipTracker<'a> {
 
                         // 2. Check if variable has active immutable views
                         if let Some(borrows) = self.active_borrows.get(name)
-                            && !borrows.is_empty() {
-                                let b = &borrows[0];
-                                diag.error_with_help(
+                            && !borrows.is_empty()
+                        {
+                            let b = &borrows[0];
+                            diag.error_with_help(
                                     ErrorCode::BorrowConflictActiveView,
                                     format!("Cannot mutate or reassign '{}' while active borrow exists (borrowed by '{}' at {})", name, b.borrower, b.span),
                                     Some(span.clone()),
                                     Some(format!("ensure the view '{}' has finished its lifecycle before modifying '{}'", b.borrower, name)),
                                 );
-                            }
+                        }
 
                         // 3. Check mutability flag
                         if self.immutable_bindings.contains(name) {
@@ -212,7 +215,10 @@ impl<'a> OwnershipTracker<'a> {
                                 ErrorCode::BorrowCannotMutateImmutable,
                                 format!("Cannot mutate immutable binding '{}'", name),
                                 Some(span.clone()),
-                                Some(format!("consider declaring '{}' as mutable: 'mut {} = ...'", name, name)),
+                                Some(format!(
+                                    "consider declaring '{}' as mutable: 'mut {} = ...'",
+                                    name, name
+                                )),
                             );
                         }
                     }
@@ -231,13 +237,14 @@ impl<'a> OwnershipTracker<'a> {
                     if let Expr::Identifier(var_name, _) = e {
                         for (source, borrows) in &self.active_borrows {
                             if self.local_bindings.contains(source)
-                                && borrows.iter().any(|b| b.borrower == *var_name) {
-                                    diag.error(
+                                && borrows.iter().any(|b| b.borrower == *var_name)
+                            {
+                                diag.error(
                                         ErrorCode::BorrowEscapingView,
                                         format!("Cannot return view '{}' of local variable '{}' out of function scope", var_name, source),
                                         Some(span.clone()),
                                     );
-                                }
+                            }
                         }
                     }
                 }
@@ -305,15 +312,16 @@ impl<'a> OwnershipTracker<'a> {
     ) {
         // Check if variable has active immutable views before re-binding or mutating
         if let Some(borrows) = self.active_borrows.get(name)
-            && !borrows.is_empty() {
-                let b = &borrows[0];
-                diag.error_with_help(
+            && !borrows.is_empty()
+        {
+            let b = &borrows[0];
+            diag.error_with_help(
                     ErrorCode::BorrowConflictActiveView,
                     format!("Cannot mutate or reassign '{}' while active borrow exists (borrowed by '{}' at {})", name, b.borrower, b.span),
                     Some(span.clone()),
                     Some(format!("ensure view '{}' is no longer in scope before modifying '{}'", b.borrower, name)),
                 );
-            }
+        }
 
         self.local_bindings.push(name.to_string());
         self.states.insert(name.to_string(), ValueState::Active);
@@ -333,25 +341,29 @@ impl<'a> OwnershipTracker<'a> {
             Expr::Call { callee, args, .. } => {
                 if let Expr::MemberAccess { object, member, .. } = &**callee {
                     if member == "view"
-                        && let Expr::Identifier(source_var, src_span) = &**object {
-                            self.register_borrow(source_var, name, false, span, src_span, diag);
-                        }
+                        && let Expr::Identifier(source_var, src_span) = &**object
+                    {
+                        self.register_borrow(source_var, name, false, span, src_span, diag);
+                    }
                 } else if let Expr::Identifier(fn_name, _) = &**callee {
                     if fn_name == "view" && !args.is_empty() {
                         if let Expr::Identifier(source_var, src_span) = &args[0] {
                             self.register_borrow(source_var, name, false, span, src_span, diag);
                         }
-                    } else if (fn_name == "mut_view" || fn_name == "mutView") && !args.is_empty()
-                        && let Expr::Identifier(source_var, src_span) = &args[0] {
-                            self.register_borrow(source_var, name, true, span, src_span, diag);
-                        }
+                    } else if (fn_name == "mut_view" || fn_name == "mutView")
+                        && !args.is_empty()
+                        && let Expr::Identifier(source_var, src_span) = &args[0]
+                    {
+                        self.register_borrow(source_var, name, true, span, src_span, diag);
+                    }
                 }
             }
             Expr::MemberAccess { object, member, .. } => {
                 if member == "view"
-                    && let Expr::Identifier(source_var, src_span) = &**object {
-                        self.register_borrow(source_var, name, false, span, src_span, diag);
-                    }
+                    && let Expr::Identifier(source_var, src_span) = &**object
+                {
+                    self.register_borrow(source_var, name, false, span, src_span, diag);
+                }
             }
             Expr::Identifier(_source_var, _) => {}
             _ => {}
@@ -376,7 +388,10 @@ impl<'a> OwnershipTracker<'a> {
                     source_var, at_span, reason
                 ),
                 Some(src_span.clone()),
-                Some(format!("create the view before moving '{}', or clone the data", source_var)),
+                Some(format!(
+                    "create the view before moving '{}', or clone the data",
+                    source_var
+                )),
             );
             return;
         }
@@ -384,27 +399,29 @@ impl<'a> OwnershipTracker<'a> {
         // 2. Check if mutable borrow conflicts with existing active borrows
         if is_mut {
             if let Some(borrows) = self.active_borrows.get(source_var)
-                && !borrows.is_empty() {
-                    let first = &borrows[0];
-                    diag.error_with_help(
+                && !borrows.is_empty()
+            {
+                let first = &borrows[0];
+                diag.error_with_help(
                         ErrorCode::BorrowMultipleMutableViews,
                         format!("Cannot borrow '{}' as mutable because it is already borrowed by '{}' at {}", source_var, first.borrower, first.span),
                         Some(span.clone()),
                         Some(format!("Datara enforces XOR view semantics: only one mutable view of '{}' can exist at a time", source_var)),
                     );
-                    return;
-                }
+                return;
+            }
         } else {
             // Immutable borrow: check if already mutably borrowed
             if let Some(borrows) = self.active_borrows.get(source_var)
-                && let Some(m_borrow) = borrows.iter().find(|b| b.is_mut) {
-                    diag.error(
+                && let Some(m_borrow) = borrows.iter().find(|b| b.is_mut)
+            {
+                diag.error(
                         ErrorCode::BorrowConflictActiveView,
                         format!("Cannot borrow '{}' as immutable because it is already mutably borrowed by '{}' at {}", source_var, m_borrow.borrower, m_borrow.span),
                         Some(span.clone()),
                     );
-                    return;
-                }
+                return;
+            }
         }
 
         // Record borrow with current scope depth
@@ -438,46 +455,46 @@ impl<'a> OwnershipTracker<'a> {
 
                 // Check for move-by-value triggers (e.g. `destroy(x)`)
                 if let Expr::Identifier(fn_name, _) = &**callee
-                    && fn_name == "destroy" && !args.is_empty()
-                        && let Expr::Identifier(arg_name, arg_span) = &args[0] {
-                            if let Some(ValueState::Moved { at_span, reason }) =
-                                self.states.get(arg_name)
-                            {
-                                diag.error(
-                                    ErrorCode::BorrowUseAfterMove,
-                                    format!(
-                                        "Cannot move '{}' because it was already moved at {} ({})",
-                                        arg_name, at_span, reason
-                                    ),
-                                    Some(arg_span.clone()),
-                                );
-                            } else if let Some(borrows) = self.active_borrows.get(arg_name) {
-                                if !borrows.is_empty() {
-                                    let b = &borrows[0];
-                                    diag.error(
+                    && fn_name == "destroy"
+                    && !args.is_empty()
+                    && let Expr::Identifier(arg_name, arg_span) = &args[0]
+                {
+                    if let Some(ValueState::Moved { at_span, reason }) = self.states.get(arg_name) {
+                        diag.error(
+                            ErrorCode::BorrowUseAfterMove,
+                            format!(
+                                "Cannot move '{}' because it was already moved at {} ({})",
+                                arg_name, at_span, reason
+                            ),
+                            Some(arg_span.clone()),
+                        );
+                    } else if let Some(borrows) = self.active_borrows.get(arg_name) {
+                        if !borrows.is_empty() {
+                            let b = &borrows[0];
+                            diag.error(
                                         ErrorCode::BorrowConflictActiveView,
                                         format!("Cannot move '{}' because it is actively borrowed by '{}' at {}", arg_name, b.borrower, b.span),
                                         Some(arg_span.clone()),
                                     );
-                                } else {
-                                    self.states.insert(
-                                        arg_name.clone(),
-                                        ValueState::Moved {
-                                            at_span: span.clone(),
-                                            reason: "consumed by 'destroy'".to_string(),
-                                        },
-                                    );
-                                }
-                            } else {
-                                self.states.insert(
-                                    arg_name.clone(),
-                                    ValueState::Moved {
-                                        at_span: span.clone(),
-                                        reason: "consumed by 'destroy'".to_string(),
-                                    },
-                                );
-                            }
+                        } else {
+                            self.states.insert(
+                                arg_name.clone(),
+                                ValueState::Moved {
+                                    at_span: span.clone(),
+                                    reason: "consumed by 'destroy'".to_string(),
+                                },
+                            );
                         }
+                    } else {
+                        self.states.insert(
+                            arg_name.clone(),
+                            ValueState::Moved {
+                                at_span: span.clone(),
+                                reason: "consumed by 'destroy'".to_string(),
+                            },
+                        );
+                    }
+                }
 
                 // Check for simultaneous alias conflicts across arguments
                 let mut call_borrowed_mut: HashSet<String> = HashSet::new();
@@ -489,29 +506,30 @@ impl<'a> OwnershipTracker<'a> {
                         span: a_span,
                     } = a
                         && let Expr::Identifier(a_fn, _) = &**a_callee
-                            && let Some(Expr::Identifier(src_name, _)) = a_args.first() {
-                                if a_fn == "mut_view" || a_fn == "mutView" {
-                                    if call_borrowed_mut.contains(src_name)
-                                        || call_borrowed_immut.contains(src_name)
-                                    {
-                                        diag.error(
+                        && let Some(Expr::Identifier(src_name, _)) = a_args.first()
+                    {
+                        if a_fn == "mut_view" || a_fn == "mutView" {
+                            if call_borrowed_mut.contains(src_name)
+                                || call_borrowed_immut.contains(src_name)
+                            {
+                                diag.error(
                                             ErrorCode::BorrowMultipleMutableViews,
                                             format!("Illegal simultaneous mutable alias of '{}' in function arguments", src_name),
                                             Some(a_span.clone()),
                                         );
-                                    }
-                                    call_borrowed_mut.insert(src_name.clone());
-                                } else if a_fn == "view" {
-                                    if call_borrowed_mut.contains(src_name) {
-                                        diag.error(
+                            }
+                            call_borrowed_mut.insert(src_name.clone());
+                        } else if a_fn == "view" {
+                            if call_borrowed_mut.contains(src_name) {
+                                diag.error(
                                             ErrorCode::BorrowConflictActiveView,
                                             format!("Illegal simultaneous mutable and immutable alias of '{}' in function arguments", src_name),
                                             Some(a_span.clone()),
                                         );
-                                    }
-                                    call_borrowed_immut.insert(src_name.clone());
-                                }
                             }
+                            call_borrowed_immut.insert(src_name.clone());
+                        }
+                    }
                 }
 
                 for a in args {

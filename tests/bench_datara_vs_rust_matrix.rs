@@ -22,7 +22,10 @@ fn run_datara(code: &str, file_name: &str) -> (String, i64) {
     let _ = fs::remove_file(&exe_path);
     let _ = fs::remove_file(exe_path.with_extension("obj"));
 
-    (String::from_utf8_lossy(&output.stdout).to_string(), elapsed_ms)
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        elapsed_ms,
+    )
 }
 
 fn run_datara_llvm(code: &str, file_name: &str) -> (String, i64) {
@@ -44,7 +47,10 @@ fn run_datara_llvm(code: &str, file_name: &str) -> (String, i64) {
     let _ = fs::remove_file(&exe_path);
     let _ = fs::remove_file(exe_path.with_extension("obj"));
 
-    (String::from_utf8_lossy(&output.stdout).to_string(), elapsed_ms)
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        elapsed_ms,
+    )
 }
 
 // =========================================================================
@@ -100,8 +106,8 @@ fn rust_sroa_geometry(n: i64) -> i64 {
 // =========================================================================
 #[inline(never)]
 fn rust_parallel_reduction(chunks: i64, iters_per_chunk: i64) -> i64 {
-    use std::sync::atomic::{AtomicI64, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicI64, Ordering};
     use std::thread;
 
     let total = Arc::new(AtomicI64::new(0));
@@ -157,7 +163,7 @@ fn rust_simd_dot(n: i64) -> f64 {
     for _ in 0..n {
         let a = [1.0f32, 2.0f32, 3.0f32, 4.0f32];
         let b = [0.5f32, 0.5f32, 0.5f32, 0.5f32];
-        let dot = (a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3]) as f64;
+        let dot = (a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]) as f64;
         sum += dot;
     }
     std::hint::black_box(sum)
@@ -181,14 +187,22 @@ fn rust_fnv1a(n: i64) -> i64 {
 // =========================================================================
 #[test]
 fn test_comprehensive_datara_vs_rust_benchmark_matrix() {
-    println!("\n===============================================================================================");
-    println!("             DATARA FORGEN NATIVE vs RUST 1.85 (LLVM -O3 / RELEASE) REAL MATRIX                ");
-    println!("===============================================================================================");
+    println!(
+        "\n==============================================================================================="
+    );
+    println!(
+        "             DATARA FORGEN NATIVE vs RUST 1.85 (LLVM -O3 / RELEASE) REAL MATRIX                "
+    );
+    println!(
+        "==============================================================================================="
+    );
     println!(
         " {:<36} | {:<14} | {:<14} | {:<14} | {:<10}",
         "Workload Category", "Datara Native", "Rust LLVM -O3", "Speedup vs Rust", "Verdict"
     );
-    println!("-----------------------------------------------------------------------------------------------");
+    println!(
+        "-----------------------------------------------------------------------------------------------"
+    );
 
     // 1. SROA 3D GEOMETRY 10M
     {
@@ -235,7 +249,11 @@ fn main() {
         } else {
             format!("{:.2}x faster", rust_ms as f64)
         };
-        let verdict = if dtr_ms <= rust_ms { "FASTER" } else { "ON-PAR" };
+        let verdict = if dtr_ms <= rust_ms {
+            "FASTER"
+        } else {
+            "ON-PAR"
+        };
         println!(
             " {:<36} | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
             "1. SROA 3D Geometry (10M)", dtr_ms, rust_ms, ratio, verdict
@@ -254,7 +272,15 @@ fn main() {
         };
         println!(
             " {:<36} | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
-            "   -> Datara --llvm (LLVM -O3)", dtr_llvm_ms, rust_ms, ratio_llvm, if dtr_llvm_ms <= rust_ms { "FASTER" } else { "ON-PAR" }
+            "   -> Datara --llvm (LLVM -O3)",
+            dtr_llvm_ms,
+            rust_ms,
+            ratio_llvm,
+            if dtr_llvm_ms <= rust_ms {
+                "FASTER"
+            } else {
+                "ON-PAR"
+            }
         );
     }
 
@@ -296,7 +322,11 @@ fn main() {
         } else {
             format!("{:.2}x faster", rust_ms as f64)
         };
-        let verdict = if dtr_ms <= rust_ms { "FASTER" } else { "ON-PAR" };
+        let verdict = if dtr_ms <= rust_ms {
+            "FASTER"
+        } else {
+            "ON-PAR"
+        };
         println!(
             " {:<36} | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
             "2. String Interpolation (250K)", dtr_ms, rust_ms, ratio, verdict
@@ -344,7 +374,11 @@ fn main() {
         } else {
             format!("{:.2}x faster", rust_ms as f64)
         };
-        let verdict = if dtr_ms <= rust_ms { "FASTER" } else { "ON-PAR" };
+        let verdict = if dtr_ms <= rust_ms {
+            "FASTER"
+        } else {
+            "ON-PAR"
+        };
         println!(
             " {:<36} | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
             "3. Parallel Multi-Core (16x15M)", dtr_ms, rust_ms, ratio, verdict
@@ -401,15 +435,25 @@ fn main() {
         } else {
             format!("{:.2}x faster", rust_ms as f64)
         };
-        let verdict = if best_dtr <= rust_ms { "FASTER" } else { "ON-PAR" };
+        let verdict = if best_dtr <= rust_ms {
+            "FASTER"
+        } else {
+            "ON-PAR"
+        };
         println!(
             " {:<36} | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
             "4. Pipeline Dataflow (10M)", dtr_ms, rust_ms, ratio, verdict
         );
         println!(
             "    -> Datara --llvm (LLVM -O3)       | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
-            dtr_llvm_ms, rust_ms, format!("{:.2}x faster", rust_ms as f64 / dtr_llvm_ms.max(1) as f64),
-            if dtr_llvm_ms <= rust_ms { "FASTER" } else { "ON-PAR" }
+            dtr_llvm_ms,
+            rust_ms,
+            format!("{:.2}x faster", rust_ms as f64 / dtr_llvm_ms.max(1) as f64),
+            if dtr_llvm_ms <= rust_ms {
+                "FASTER"
+            } else {
+                "ON-PAR"
+            }
         );
     }
 
@@ -449,7 +493,11 @@ fn main() {
         } else {
             format!("{:.2}x faster", rust_ms as f64)
         };
-        let verdict = if dtr_ms <= rust_ms { "FASTER" } else { "ON-PAR" };
+        let verdict = if dtr_ms <= rust_ms {
+            "FASTER"
+        } else {
+            "ON-PAR"
+        };
         println!(
             " {:<36} | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
             "5. Closed-Form Sum (10M)", dtr_ms, rust_ms, ratio, verdict
@@ -553,7 +601,11 @@ fn main() {
         } else {
             format!("{:.2}x faster", rust_ms as f64)
         };
-        let verdict = if dtr_ms <= rust_ms { "FASTER" } else { "ON-PAR" };
+        let verdict = if dtr_ms <= rust_ms {
+            "FASTER"
+        } else {
+            "ON-PAR"
+        };
         println!(
             " {:<36} | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
             "6. Collatz Sequence (500K)", dtr_ms, rust_ms, ratio, verdict
@@ -566,7 +618,15 @@ fn main() {
         };
         println!(
             " {:<36} | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
-            "   -> Datara --llvm (Clang LTO)", dtr_llvm_ms, rust_ms, ratio_llvm, if dtr_llvm_ms <= rust_ms { "FASTER" } else { "ON-PAR" }
+            "   -> Datara --llvm (Clang LTO)",
+            dtr_llvm_ms,
+            rust_ms,
+            ratio_llvm,
+            if dtr_llvm_ms <= rust_ms {
+                "FASTER"
+            } else {
+                "ON-PAR"
+            }
         );
 
         let ratio_fast = if dtr_fast_ms > 0 {
@@ -576,7 +636,15 @@ fn main() {
         };
         println!(
             " {:<36} | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
-            "   -> Datara Superpower (tzcnt)", dtr_fast_ms, rust_ms, ratio_fast, if dtr_fast_ms < rust_ms { "FASTER" } else { "ON-PAR" }
+            "   -> Datara Superpower (tzcnt)",
+            dtr_fast_ms,
+            rust_ms,
+            ratio_fast,
+            if dtr_fast_ms < rust_ms {
+                "FASTER"
+            } else {
+                "ON-PAR"
+            }
         );
     }
 
@@ -615,7 +683,11 @@ fn main() {
         } else {
             format!("{:.2}x faster", rust_ms as f64)
         };
-        let verdict = if dtr_llvm_ms <= rust_ms { "FASTER" } else { "ON-PAR" };
+        let verdict = if dtr_llvm_ms <= rust_ms {
+            "FASTER"
+        } else {
+            "ON-PAR"
+        };
         println!(
             " {:<36} | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
             "7. SIMD 4D Dot Product (10M)", dtr_llvm_ms, rust_ms, ratio, verdict
@@ -655,12 +727,18 @@ fn main() {
         } else {
             format!("{:.2}x faster", rust_ms as f64)
         };
-        let verdict = if dtr_llvm_ms <= rust_ms { "FASTER" } else { "ON-PAR" };
+        let verdict = if dtr_llvm_ms <= rust_ms {
+            "FASTER"
+        } else {
+            "ON-PAR"
+        };
         println!(
             " {:<36} | {:>11} ms | {:>11} ms | {:>14} | {:<10}",
             "8. Streaming Byte Hash (10M)", dtr_llvm_ms, rust_ms, ratio, verdict
         );
     }
 
-    println!("===============================================================================================\n");
+    println!(
+        "===============================================================================================\n"
+    );
 }

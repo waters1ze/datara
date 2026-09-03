@@ -115,6 +115,9 @@ fn main() {
     assert!(
         diags.is_empty(),
         "Idiomatic Datara code must produce 0 warnings, but got: {:?}",
-        diags.iter().map(|d| (d.code, &d.message)).collect::<Vec<_>>()
+        diags
+            .iter()
+            .map(|d| (d.code, &d.message))
+            .collect::<Vec<_>>()
     );
 }

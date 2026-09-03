@@ -570,20 +570,21 @@ impl Resolver {
                 // Inherit from base_class
                 if let Some(base_name) = &base_class
                     && let Some(base_sym) = self.classes.get(base_name).cloned()
-                        && let Some(cls_sym) = self.classes.get_mut(cls_name) {
-                            for (f_name, f_sym) in &base_sym.fields {
-                                if !cls_sym.fields.contains_key(f_name) {
-                                    cls_sym.fields.insert(f_name.clone(), f_sym.clone());
-                                    changed = true;
-                                }
-                            }
-                            for (m_name, m_sym) in &base_sym.methods {
-                                if !cls_sym.methods.contains_key(m_name) {
-                                    cls_sym.methods.insert(m_name.clone(), m_sym.clone());
-                                    changed = true;
-                                }
-                            }
+                    && let Some(cls_sym) = self.classes.get_mut(cls_name)
+                {
+                    for (f_name, f_sym) in &base_sym.fields {
+                        if !cls_sym.fields.contains_key(f_name) {
+                            cls_sym.fields.insert(f_name.clone(), f_sym.clone());
+                            changed = true;
                         }
+                    }
+                    for (m_name, m_sym) in &base_sym.methods {
+                        if !cls_sym.methods.contains_key(m_name) {
+                            cls_sym.methods.insert(m_name.clone(), m_sym.clone());
+                            changed = true;
+                        }
+                    }
+                }
 
                 // Inline components or used classes
                 for comp_name in &compositions {
@@ -593,20 +594,21 @@ impl Resolver {
                         .cloned()
                         .or_else(|| self.classes.get(comp_name).cloned());
                     if let Some(comp_sym) = comp_sym
-                        && let Some(cls_sym) = self.classes.get_mut(cls_name) {
-                            for (f_name, f_sym) in &comp_sym.fields {
-                                if !cls_sym.fields.contains_key(f_name) {
-                                    cls_sym.fields.insert(f_name.clone(), f_sym.clone());
-                                    changed = true;
-                                }
-                            }
-                            for (m_name, m_sym) in &comp_sym.methods {
-                                if !cls_sym.methods.contains_key(m_name) {
-                                    cls_sym.methods.insert(m_name.clone(), m_sym.clone());
-                                    changed = true;
-                                }
+                        && let Some(cls_sym) = self.classes.get_mut(cls_name)
+                    {
+                        for (f_name, f_sym) in &comp_sym.fields {
+                            if !cls_sym.fields.contains_key(f_name) {
+                                cls_sym.fields.insert(f_name.clone(), f_sym.clone());
+                                changed = true;
                             }
                         }
+                        for (m_name, m_sym) in &comp_sym.methods {
+                            if !cls_sym.methods.contains_key(m_name) {
+                                cls_sym.methods.insert(m_name.clone(), m_sym.clone());
+                                changed = true;
+                            }
+                        }
+                    }
                 }
             }
             if !changed {
@@ -764,7 +766,12 @@ impl Resolver {
                 self.resolve_expr(init, diag);
                 self.define_local(name, SymbolKind::Variable, false, span);
             }
-            Stmt::Assign { target, value, span, .. } => {
+            Stmt::Assign {
+                target,
+                value,
+                span,
+                ..
+            } => {
                 if let Expr::Identifier(name, id_span) = target {
                     if self.resolve_symbol(name).is_none() {
                         let mut candidates: Vec<&str> = Vec::new();
@@ -773,17 +780,22 @@ impl Resolver {
                                 candidates.push(k.as_str());
                             }
                         }
-                        let help_msg = if let Some(similar) = crate::diagnostics::suggestions::find_best_match(name, candidates) {
-                            format!("a variable with a similar name exists: '{}'. Or declare with 'let {} = ...' / 'mut {} = ...'", similar, name, name)
+                        let help_msg = if let Some(similar) =
+                            crate::diagnostics::suggestions::find_best_match(name, candidates)
+                        {
+                            format!(
+                                "a variable with a similar name exists: '{}'. Or declare with 'let {} = ...' / 'mut {} = ...'",
+                                similar, name, name
+                            )
                         } else {
-                            format!("declare '{}' with 'let' (immutable) or 'mut' (mutable) before assigning to it", name)
+                            format!(
+                                "declare '{}' with 'let' (immutable) or 'mut' (mutable) before assigning to it",
+                                name
+                            )
                         };
                         diag.error_with_help(
                             ErrorCode::ResolveUndefinedSymbol,
-                            format!(
-                                "Assignment to undeclared variable '{}'",
-                                name
-                            ),
+                            format!("Assignment to undeclared variable '{}'", name),
                             Some(id_span.clone()),
                             Some(help_msg),
                         );
@@ -906,10 +918,15 @@ impl Resolver {
                             candidates.push(c.as_str());
                         }
 
-                        let help_msg = if let Some(similar) = crate::diagnostics::suggestions::find_best_match(name, candidates) {
+                        let help_msg = if let Some(similar) =
+                            crate::diagnostics::suggestions::find_best_match(name, candidates)
+                        {
                             format!("a symbol with a similar name exists: '{}'", similar)
                         } else {
-                            format!("ensure '{}' is declared with 'let'/'mut' or imported via 'use'", name)
+                            format!(
+                                "ensure '{}' is declared with 'let'/'mut' or imported via 'use'",
+                                name
+                            )
                         };
 
                         diag.error_with_help(
@@ -945,7 +962,9 @@ impl Resolver {
             } => {
                 if !self.classes.contains_key(class_name) {
                     let candidates: Vec<&str> = self.classes.keys().map(|s| s.as_str()).collect();
-                    let help_msg = if let Some(similar) = crate::diagnostics::suggestions::find_best_match(class_name, candidates) {
+                    let help_msg = if let Some(similar) =
+                        crate::diagnostics::suggestions::find_best_match(class_name, candidates)
+                    {
                         format!("a class with a similar name exists: '{}'", similar)
                     } else {
                         format!("define class '{}' or import it via 'use'", class_name)

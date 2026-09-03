@@ -325,9 +325,10 @@ impl LoopOptimizer {
                         for inst in &blk.instructions {
                             if Self::is_hoistable(inst, &facts)
                                 && let Some(d) = Self::dest(inst)
-                                    && invariant.contains(&d) {
-                                        hoisted.push(inst.clone());
-                                    }
+                                && invariant.contains(&d)
+                            {
+                                hoisted.push(inst.clone());
+                            }
                         }
                     }
                 }
@@ -349,8 +350,7 @@ impl LoopOptimizer {
             let preheader = Self::ensure_preheader(f, lp.header, &lp.blocks);
 
             // Remove the hoisted instructions from the loop blocks.
-            let hoisted_dests: HashSet<ValueId> =
-                hoisted.iter().filter_map(Self::dest).collect();
+            let hoisted_dests: HashSet<ValueId> = hoisted.iter().filter_map(Self::dest).collect();
             for bid in &lp.blocks {
                 if let Some(blk) = f.get_block_mut(*bid) {
                     blk.instructions.retain(
@@ -414,9 +414,10 @@ impl LoopOptimizer {
 
         if entering.len() == 1
             && let Some(b) = f.get_block(entering[0])
-                && matches!(&b.terminator, Terminator::Branch { .. }) {
-                    return entering[0];
-                }
+            && matches!(&b.terminator, Terminator::Branch { .. })
+        {
+            return entering[0];
+        }
 
         let next_id = f
             .blocks
@@ -799,25 +800,30 @@ impl LoopOptimizer {
                 right,
                 ..
             } = inst
-                && op == "*" {
-                    if !is_float && *left == p_i && *right == p_i {
-                        quadratic_terms.insert(*dest);
-                    } else if !is_float && *left == p_i {
-                        if let Some(k) = Self::const_int_value(f, *right) {
-                            scaled_terms.insert(*dest, k);
-                        }
-                    } else if !is_float && *right == p_i
-                        && let Some(k) = Self::const_int_value(f, *left) {
-                            scaled_terms.insert(*dest, k);
-                    } else if is_float && *left == p_i {
-                        if let Some(k) = Self::const_float_value(f, *right) {
-                            float_scaled_terms.insert(*dest, k);
-                        }
-                    } else if is_float && *right == p_i
-                        && let Some(k) = Self::const_float_value(f, *left) {
-                            float_scaled_terms.insert(*dest, k);
+                && op == "*"
+            {
+                if !is_float && *left == p_i && *right == p_i {
+                    quadratic_terms.insert(*dest);
+                } else if !is_float && *left == p_i {
+                    if let Some(k) = Self::const_int_value(f, *right) {
+                        scaled_terms.insert(*dest, k);
                     }
+                } else if !is_float
+                    && *right == p_i
+                    && let Some(k) = Self::const_int_value(f, *left)
+                {
+                    scaled_terms.insert(*dest, k);
+                } else if is_float && *left == p_i {
+                    if let Some(k) = Self::const_float_value(f, *right) {
+                        float_scaled_terms.insert(*dest, k);
+                    }
+                } else if is_float
+                    && *right == p_i
+                    && let Some(k) = Self::const_float_value(f, *left)
+                {
+                    float_scaled_terms.insert(*dest, k);
                 }
+            }
         }
 
         let mut acc: Option<(ValueId, ValueId)> = None; // (sum_next, operand)
@@ -1002,10 +1008,7 @@ impl LoopOptimizer {
                 is_le,
             }
         } else if quadratic_terms.contains(&x) {
-            SumTerm::Quadratic {
-                scale: 1,
-                is_le,
-            }
+            SumTerm::Quadratic { scale: 1, is_le }
         } else if let Some(&k) = scaled_terms.get(&x) {
             SumTerm::Induction {
                 scale: k,
@@ -1044,9 +1047,10 @@ impl LoopOptimizer {
         for b in &f.blocks {
             for inst in &b.instructions {
                 if let Inst::ConstFloat { dest, value } = inst
-                    && *dest == vid {
-                        return Some(*value);
-                    }
+                    && *dest == vid
+                {
+                    return Some(*value);
+                }
             }
         }
         None
@@ -1057,9 +1061,10 @@ impl LoopOptimizer {
         for b in &f.blocks {
             for inst in &b.instructions {
                 if let Inst::ConstInt { dest, value } = inst
-                    && *dest == vid {
-                        return Some(*value);
-                    }
+                    && *dest == vid
+                {
+                    return Some(*value);
+                }
             }
         }
         None
@@ -1182,11 +1187,7 @@ impl LoopOptimizer {
             dest
         }
 
-        fn push_const_float(
-            insts: &mut Vec<Inst>,
-            next: &mut usize,
-            value: f64,
-        ) -> ValueId {
+        fn push_const_float(insts: &mut Vec<Inst>, next: &mut usize, value: f64) -> ValueId {
             let dest = ValueId(*next);
             *next += 1;
             insts.push(Inst::ConstFloat { dest, value });
@@ -1202,7 +1203,11 @@ impl LoopOptimizer {
             let c2 = push_const_float(&mut insts, &mut next, 2.0);
 
             let closed = match plan.term {
-                SumTerm::FloatInduction { scale, start, is_le } => {
+                SumTerm::FloatInduction {
+                    scale,
+                    start,
+                    is_le,
+                } => {
                     let use_plus_one = (start == 1.0 && is_le) || (start == 0.0 && is_le);
                     let adj_op = if use_plus_one { "+" } else { "-" };
                     let n_adj = push_bin(&mut insts, &mut next, adj_op, plan.n, c1, "Float");
@@ -1268,10 +1273,7 @@ impl LoopOptimizer {
                         unscaled
                     }
                 }
-                SumTerm::Quadratic {
-                    scale,
-                    is_le,
-                } => {
+                SumTerm::Quadratic { scale, is_le } => {
                     let c6 = push_const(&mut insts, &mut next, 6);
                     let adj_op = if is_le { "+" } else { "-" };
                     let n_adj = push_bin(&mut insts, &mut next, adj_op, plan.n, c1, "Int");
@@ -1287,7 +1289,9 @@ impl LoopOptimizer {
                         unscaled
                     }
                 }
-                SumTerm::InvariantValue(x) => push_bin(&mut insts, &mut next, "*", plan.n, x, "Int"),
+                SumTerm::InvariantValue(x) => {
+                    push_bin(&mut insts, &mut next, "*", plan.n, x, "Int")
+                }
                 SumTerm::InvariantConst(v) => {
                     let cv = push_const(&mut insts, &mut next, v);
                     push_bin(&mut insts, &mut next, "*", plan.n, cv, "Int")
@@ -1483,9 +1487,10 @@ impl LoopOptimizer {
                     }
                 }
                 if let Some(v) = else_val
-                    && *v == from {
-                        *v = to;
-                    }
+                    && *v == from
+                {
+                    *v = to;
+                }
             }
             Inst::Select {
                 cond,
@@ -1513,10 +1518,9 @@ impl LoopOptimizer {
                     *value = to;
                 }
             }
-            Inst::Return { value: Some(v) }
-                if *v == from => {
-                    *v = to;
-                }
+            Inst::Return { value: Some(v) } if *v == from => {
+                *v = to;
+            }
             _ => {}
         }
     }
@@ -1599,9 +1603,9 @@ impl LoopOptimizer {
                     Inst::ConstInt { dest, value } => {
                         consts.insert(*dest, *value);
                     }
-                    Inst::Call { func, args, dest, .. }
-                        if func == "datara_rt_list_create_repeat" && args.len() == 2 =>
-                    {
+                    Inst::Call {
+                        func, args, dest, ..
+                    } if func == "datara_rt_list_create_repeat" && args.len() == 2 => {
                         list_len.insert(*dest, LenVal::Vid(args[1]));
                     }
                     Inst::AssignVar { name, value } => {
@@ -1623,7 +1627,9 @@ impl LoopOptimizer {
                             copy_of.insert(*dest, v);
                         }
                     }
-                    Inst::UnOp { dest, op, operand, .. } if op == "copy" => {
+                    Inst::UnOp {
+                        dest, op, operand, ..
+                    } if op == "copy" => {
                         copy_of.insert(*dest, *operand);
                     }
                     _ => {}
@@ -1685,10 +1691,18 @@ impl LoopOptimizer {
                 Terminator::CondBranch { cond, .. } => {
                     let mut found = None;
                     for inst in &header_block.instructions {
-                        if let Inst::BinOp { dest, op, left, right, .. } = inst
-                            && dest == cond && op == "<" {
-                                found = Some((*left, *right));
-                            }
+                        if let Inst::BinOp {
+                            dest,
+                            op,
+                            left,
+                            right,
+                            ..
+                        } = inst
+                            && dest == cond
+                            && op == "<"
+                        {
+                            found = Some((*left, *right));
+                        }
                     }
                     match found {
                         Some(v) => v,
@@ -1721,8 +1735,7 @@ impl LoopOptimizer {
                                 // rebinding of the counter.
                                 match Self::binop_add_one_source(f, *value) {
                                     Some(lhs) => {
-                                        resolve_name(lhs, &copy_of, &val_to_name)
-                                            .as_deref()
+                                        resolve_name(lhs, &copy_of, &val_to_name).as_deref()
                                             == Some(counter_name.as_str())
                                     }
                                     None => false,
@@ -1757,28 +1770,27 @@ impl LoopOptimizer {
                     for inst in &mut block.instructions {
                         if let Inst::Call { func, args, .. } = inst
                             && (func == "datara_rt_list_get" || func == "datara_rt_list_set")
-                                && args.len() >= 2
+                            && args.len() >= 2
+                        {
+                            // The index must be the counter variable.
+                            if resolve_name(args[1], &copy_of, &val_to_name).as_deref()
+                                != Some(counter_name.as_str())
                             {
-                                // The index must be the counter variable.
-                                if resolve_name(args[1], &copy_of, &val_to_name).as_deref()
-                                    != Some(counter_name.as_str())
-                                {
-                                    continue;
-                                }
-                                let list_len_val =
-                                    resolve(args[0], &copy_of, &list_len, &consts);
-                                let proven = match (bound_len, list_len_val) {
-                                    // Same allocation-length value.
-                                    (LenVal::Vid(a), LenVal::Vid(b)) => a == b,
-                                    // Static bound below a static length.
-                                    (LenVal::Const(a), LenVal::Const(b)) => a <= b,
-                                    _ => false,
-                                };
-                                if proven {
-                                    *func = format!("{}_unchecked", func);
-                                    eliminated += 1;
-                                }
+                                continue;
                             }
+                            let list_len_val = resolve(args[0], &copy_of, &list_len, &consts);
+                            let proven = match (bound_len, list_len_val) {
+                                // Same allocation-length value.
+                                (LenVal::Vid(a), LenVal::Vid(b)) => a == b,
+                                // Static bound below a static length.
+                                (LenVal::Const(a), LenVal::Const(b)) => a <= b,
+                                _ => false,
+                            };
+                            if proven {
+                                *func = format!("{}_unchecked", func);
+                                eliminated += 1;
+                            }
+                        }
                     }
                 }
             }
@@ -1805,10 +1817,19 @@ impl LoopOptimizer {
     fn binop_add_one_source(f: &Function, vid: ValueId) -> Option<ValueId> {
         for block in &f.blocks {
             for inst in &block.instructions {
-                if let Inst::BinOp { dest, op, left, right, .. } = inst
-                    && *dest == vid && op == "+" && Self::const_int_value(f, *right) == Some(1) {
-                        return Some(*left);
-                    }
+                if let Inst::BinOp {
+                    dest,
+                    op,
+                    left,
+                    right,
+                    ..
+                } = inst
+                    && *dest == vid
+                    && op == "+"
+                    && Self::const_int_value(f, *right) == Some(1)
+                {
+                    return Some(*left);
+                }
             }
         }
         None

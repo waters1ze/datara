@@ -291,31 +291,58 @@ impl<'a> Lowering<'a> {
         function_return_types.insert("process_output".into(), "String".into());
         function_return_types.insert("exec".into(), "String".into());
         for f in &[
-            "math_sqrt", "datara_rt_math_sqrt",
-            "math_pow", "datara_rt_math_pow",
-            "math_abs", "datara_rt_math_abs",
-            "math_sin", "datara_rt_math_sin",
-            "math_cos", "datara_rt_math_cos",
-            "math_tan", "datara_rt_math_tan",
-            "math_floor", "datara_rt_math_floor",
-            "math_ceil", "datara_rt_math_ceil",
-            "math_round", "datara_rt_math_round",
-            "math_min", "datara_rt_math_min",
-            "math_max", "datara_rt_math_max",
-            "math_hypot", "datara_rt_math_hypot",
+            "math_sqrt",
+            "datara_rt_math_sqrt",
+            "math_pow",
+            "datara_rt_math_pow",
+            "math_abs",
+            "datara_rt_math_abs",
+            "math_sin",
+            "datara_rt_math_sin",
+            "math_cos",
+            "datara_rt_math_cos",
+            "math_tan",
+            "datara_rt_math_tan",
+            "math_floor",
+            "datara_rt_math_floor",
+            "math_ceil",
+            "datara_rt_math_ceil",
+            "math_round",
+            "datara_rt_math_round",
+            "math_min",
+            "datara_rt_math_min",
+            "math_max",
+            "datara_rt_math_max",
+            "math_hypot",
+            "datara_rt_math_hypot",
         ] {
             function_return_types.insert((*f).into(), "Float".into());
         }
         for f in &[
-            "math_min_int", "datara_rt_math_min_int",
-            "math_max_int", "datara_rt_math_max_int",
-            "math_abs_int", "datara_rt_math_abs_int",
-            "math_ctz", "datara_rt_math_ctz", "ctz",
-            "math_shr", "datara_rt_math_shr", "shr",
-            "math_shl", "datara_rt_math_shl", "shl",
-            "math_xor", "datara_rt_math_xor", "xor",
-            "math_and", "datara_rt_math_and", "and",
-            "math_or", "datara_rt_math_or", "or",
+            "math_min_int",
+            "datara_rt_math_min_int",
+            "math_max_int",
+            "datara_rt_math_max_int",
+            "math_abs_int",
+            "datara_rt_math_abs_int",
+            "math_ctz",
+            "datara_rt_math_ctz",
+            "ctz",
+            "math_shr",
+            "datara_rt_math_shr",
+            "shr",
+            "math_shl",
+            "datara_rt_math_shl",
+            "shl",
+            "math_xor",
+            "datara_rt_math_xor",
+            "xor",
+            "math_and",
+            "datara_rt_math_and",
+            "and",
+            "math_or",
+            "datara_rt_math_or",
+            "or",
         ] {
             function_return_types.insert((*f).into(), "Int".into());
         }
@@ -355,9 +382,9 @@ impl<'a> Lowering<'a> {
                 .types
                 .fn_symbol_types
                 .get(&(self.current_fn_name.clone(), var_name.to_string()))
-            {
-                return Some(ty.clone());
-            }
+        {
+            return Some(ty.clone());
+        }
         if let Some(ty) = self.types.symbol_types.get(var_name) {
             return Some(ty.clone());
         }
@@ -471,12 +498,13 @@ impl<'a> Lowering<'a> {
             } else if let Decl::Component(c) = decl {
                 for item in &c.body_items {
                     if let ClassItem::Field(f) = item
-                        && let Some(t) = &f.type_node {
-                            self.class_field_types
-                                .insert(format!("{}.{}", c.name, f.name), t.full_type_name());
-                            self.class_field_types
-                                .insert(f.name.clone(), t.full_type_name());
-                        }
+                        && let Some(t) = &f.type_node
+                    {
+                        self.class_field_types
+                            .insert(format!("{}.{}", c.name, f.name), t.full_type_name());
+                        self.class_field_types
+                            .insert(f.name.clone(), t.full_type_name());
+                    }
                 }
             } else if let Decl::Behavior(b) = decl {
                 for item in &b.body_items {
@@ -510,25 +538,22 @@ impl<'a> Lowering<'a> {
                 }
                 for (v_idx, v) in e.variants.iter().enumerate() {
                     let full_vname = format!("{}_{}", e.name, v.name);
-                    self.enum_variant_tags.insert(format!("{}.{}", e.name, v.name), v_idx as i64);
+                    self.enum_variant_tags
+                        .insert(format!("{}.{}", e.name, v.name), v_idx as i64);
                     self.enum_variant_tags.insert(v.name.clone(), v_idx as i64);
-                    self.enum_variant_names.insert(v_idx as i64, full_vname.clone());
-                    self.enum_slots.insert(format!("{}.{}", e.name, v.name), slot_types.clone());
+                    self.enum_variant_names
+                        .insert(v_idx as i64, full_vname.clone());
+                    self.enum_slots
+                        .insert(format!("{}.{}", e.name, v.name), slot_types.clone());
                     self.enum_slots.insert(v.name.clone(), slot_types.clone());
-                    self.class_field_types.insert(
-                        format!("{}.__tag", full_vname),
-                        "Int".into(),
-                    );
+                    self.class_field_types
+                        .insert(format!("{}.__tag", full_vname), "Int".into());
                     self.class_field_types.insert("__tag".into(), "Int".into());
                     for (s_idx, s_ty) in slot_types.iter().enumerate() {
-                        self.class_field_types.insert(
-                            format!("{}.f{}", full_vname, s_idx),
-                            s_ty.clone(),
-                        );
-                        self.class_field_types.insert(
-                            format!("f{}", s_idx),
-                            s_ty.clone(),
-                        );
+                        self.class_field_types
+                            .insert(format!("{}.f{}", full_vname, s_idx), s_ty.clone());
+                        self.class_field_types
+                            .insert(format!("f{}", s_idx), s_ty.clone());
                     }
                 }
             } else if let Decl::Function(f) | Decl::Flow(f) | Decl::Task(f) = decl {
@@ -619,9 +644,7 @@ impl<'a> Lowering<'a> {
             cur.terminator,
             Terminator::Unreachable | Terminator::Return { value: None }
         ) {
-            cur.terminator = Terminator::Return {
-                value: ret_val,
-            };
+            cur.terminator = Terminator::Return { value: ret_val };
         }
         if !cur
             .instructions
@@ -658,17 +681,18 @@ impl<'a> Lowering<'a> {
             if let ClassItem::Using(other_name, _) = item {
                 for decl in &program.declarations {
                     if let Decl::Class(oc) = decl
-                        && oc.name == *other_name {
-                            for o_item in &oc.body_items {
-                                if let ClassItem::Method(m) = o_item
+                        && oc.name == *other_name
+                    {
+                        for o_item in &oc.body_items {
+                            if let ClassItem::Method(m) = o_item
                                     && !c.body_items.iter().any(|it| matches!(it, ClassItem::Method(my_m) if my_m.name == m.name)) {
                                         let lowered = self.lower_method(m, &c.name);
                                         module
                                             .functions
                                             .insert(format!("{}_{}", c.name, m.name), lowered);
                                     }
-                            }
                         }
+                    }
                 }
             }
         }
@@ -719,9 +743,7 @@ impl<'a> Lowering<'a> {
             cur.terminator,
             Terminator::Unreachable | Terminator::Return { value: None }
         ) {
-            cur.terminator = Terminator::Return {
-                value: ret_val,
-            };
+            cur.terminator = Terminator::Return { value: ret_val };
         }
         if !cur
             .instructions
@@ -817,15 +839,16 @@ impl<'a> Lowering<'a> {
                         }
                         Expr::IndexAccess { object, index, .. } => {
                             if let Some(obj_val) = self.lower_expr(object, &mut cur_block)
-                                && let Some(idx_val) = self.lower_expr(index, &mut cur_block) {
-                                    let ret_val = self.next_val();
-                                    self.get_block_mut(cur_block).instructions.push(Inst::Call {
-                                        dest: ret_val,
-                                        func: "datara_rt_list_set".into(),
-                                        args: vec![obj_val, idx_val, v],
-                                        ty: "List".into(),
-                                    });
-                                }
+                                && let Some(idx_val) = self.lower_expr(index, &mut cur_block)
+                            {
+                                let ret_val = self.next_val();
+                                self.get_block_mut(cur_block).instructions.push(Inst::Call {
+                                    dest: ret_val,
+                                    func: "datara_rt_list_set".into(),
+                                    args: vec![obj_val, idx_val, v],
+                                    ty: "List".into(),
+                                });
+                            }
                         }
                         _ => {}
                     }
@@ -836,37 +859,35 @@ impl<'a> Lowering<'a> {
                 let val = self.lower_expr(e, &mut cur_block);
                 if let Expr::Call { callee, .. } = e
                     && let Expr::MemberAccess { object, member, .. } = &**callee
-                        && matches!(
-                            member.as_str(),
-                            "push" | "append" | "add" | "set" | "insert"
-                        )
-                            && let Expr::Identifier(var_name, _) = &**object {
-                                let is_collection = if let Some(ty) =
-                                    self.lookup_var_type(var_name)
-                                {
-                                    match ty {
-                                        crate::types::DataraType::Class(name) => {
-                                            name == "List" || name == "Array" || name == "Map"
-                                        }
-                                        crate::types::DataraType::GenericInstance {
-                                            name, ..
-                                        } => name == "List" || name == "Array" || name == "Map",
-                                        _ => false,
-                                    }
-                                } else {
-                                    false
-                                };
-                                if is_collection
-                                    && let Some(v) = val {
-                                        self.get_block_mut(cur_block).instructions.push(
-                                            Inst::AssignVar {
-                                                name: var_name.clone(),
-                                                value: v,
-                                            },
-                                        );
-                                        self.symbol_values.insert(var_name.clone(), v);
-                                    }
+                    && matches!(
+                        member.as_str(),
+                        "push" | "append" | "add" | "set" | "insert"
+                    )
+                    && let Expr::Identifier(var_name, _) = &**object
+                {
+                    let is_collection = if let Some(ty) = self.lookup_var_type(var_name) {
+                        match ty {
+                            crate::types::DataraType::Class(name) => {
+                                name == "List" || name == "Array" || name == "Map"
                             }
+                            crate::types::DataraType::GenericInstance { name, .. } => {
+                                name == "List" || name == "Array" || name == "Map"
+                            }
+                            _ => false,
+                        }
+                    } else {
+                        false
+                    };
+                    if is_collection && let Some(v) = val {
+                        self.get_block_mut(cur_block)
+                            .instructions
+                            .push(Inst::AssignVar {
+                                name: var_name.clone(),
+                                value: v,
+                            });
+                        self.symbol_values.insert(var_name.clone(), v);
+                    }
+                }
                 (cur_block, val)
             }
             Stmt::Out(e, _) => {
@@ -1331,25 +1352,31 @@ impl<'a> Lowering<'a> {
                         && let (Some(s_val), Some(e_val)) = (
                             self.lower_expr(start, &mut cur_block),
                             self.lower_expr(end, &mut cur_block),
-                        ) {
-                            let fn_addr = self.next_val();
-                            self.get_block_mut(cur_block).instructions.push(Inst::GetFuncAddr {
+                        )
+                    {
+                        let fn_addr = self.next_val();
+                        self.get_block_mut(cur_block)
+                            .instructions
+                            .push(Inst::GetFuncAddr {
                                 dest: fn_addr,
                                 func_name: fn_name,
                             });
-                            let zero = self.next_val();
-                            self.get_block_mut(cur_block)
-                                .instructions
-                                .push(Inst::ConstInt { dest: zero, value: 0 });
-                            let dummy = self.next_val();
-                            self.get_block_mut(cur_block).instructions.push(Inst::Call {
-                                dest: dummy,
-                                func: "datara_rt_parallel_for".into(),
-                                args: vec![s_val, e_val, fn_addr, zero],
-                                ty: "Unit".into(),
+                        let zero = self.next_val();
+                        self.get_block_mut(cur_block)
+                            .instructions
+                            .push(Inst::ConstInt {
+                                dest: zero,
+                                value: 0,
                             });
-                            return (cur_block, None);
-                        }
+                        let dummy = self.next_val();
+                        self.get_block_mut(cur_block).instructions.push(Inst::Call {
+                            dest: dummy,
+                            func: "datara_rt_parallel_for".into(),
+                            args: vec![s_val, e_val, fn_addr, zero],
+                            ty: "Unit".into(),
+                        });
+                        return (cur_block, None);
+                    }
                 }
                 let for_stmt = Stmt::For {
                     var_name: var_name.clone(),
@@ -1377,18 +1404,22 @@ impl<'a> Lowering<'a> {
                 let (body_end, ret_val) = self.lower_stmt_cfg(body, cur_block);
                 if self.block_falls_through(body_end) {
                     let res_val = self.next_val();
-                    self.get_block_mut(body_end).instructions.push(Inst::LoadVar {
-                        dest: res_val,
-                        name: resource_name.clone(),
-                    });
+                    self.get_block_mut(body_end)
+                        .instructions
+                        .push(Inst::LoadVar {
+                            dest: res_val,
+                            name: resource_name.clone(),
+                        });
                     let close_dest = self.next_val();
-                    self.get_block_mut(body_end).instructions.push(Inst::MethodCall {
-                        dest: close_dest,
-                        object: res_val,
-                        method: "close".into(),
-                        args: Vec::new(),
-                        ty: "Unit".into(),
-                    });
+                    self.get_block_mut(body_end)
+                        .instructions
+                        .push(Inst::MethodCall {
+                            dest: close_dest,
+                            object: res_val,
+                            method: "close".into(),
+                            args: Vec::new(),
+                            ty: "Unit".into(),
+                        });
                 }
                 (body_end, ret_val)
             }
@@ -1401,30 +1432,22 @@ impl<'a> Lowering<'a> {
                 let dest = self.next_val();
                 let b = self.get_block_mut(*cur_block);
                 match lit {
-                    LiteralValue::Int(v) => b.instructions.push(Inst::ConstInt {
-                        dest,
-                        value: *v,
-                    }),
-                    LiteralValue::Float(v) => b.instructions.push(Inst::ConstFloat {
-                        dest,
-                        value: *v,
-                    }),
+                    LiteralValue::Int(v) => b.instructions.push(Inst::ConstInt { dest, value: *v }),
+                    LiteralValue::Float(v) => {
+                        b.instructions.push(Inst::ConstFloat { dest, value: *v })
+                    }
                     LiteralValue::String(v) => b.instructions.push(Inst::ConstStr {
                         dest,
                         value: v.clone(),
                     }),
-                    LiteralValue::Bool(v) => b.instructions.push(Inst::ConstBool {
-                        dest,
-                        value: *v,
-                    }),
+                    LiteralValue::Bool(v) => {
+                        b.instructions.push(Inst::ConstBool { dest, value: *v })
+                    }
                     LiteralValue::Char(v) => b.instructions.push(Inst::ConstInt {
                         dest,
                         value: *v as u32 as i64,
                     }),
-                    LiteralValue::None => b.instructions.push(Inst::ConstInt {
-                        dest,
-                        value: 0,
-                    }),
+                    LiteralValue::None => b.instructions.push(Inst::ConstInt { dest, value: 0 }),
                 }
                 Some(dest)
             }
@@ -1470,7 +1493,11 @@ impl<'a> Lowering<'a> {
                         fields.push((format!("f{}", idx), pad_dest));
                     }
                     let dest = self.next_val();
-                    let class_name = self.enum_variant_names.get(&tag).cloned().unwrap_or_else(|| name.clone());
+                    let class_name = self
+                        .enum_variant_names
+                        .get(&tag)
+                        .cloned()
+                        .unwrap_or_else(|| name.clone());
                     self.get_block_mut(*cur_block)
                         .instructions
                         .push(Inst::StructInit {
@@ -1512,12 +1539,16 @@ impl<'a> Lowering<'a> {
                         });
                     return Some(dest);
                 }
-                if !self.symbol_values.contains_key(name) && self.function_return_types.contains_key(name) {
+                if !self.symbol_values.contains_key(name)
+                    && self.function_return_types.contains_key(name)
+                {
                     let dest = self.next_val();
-                    self.get_block_mut(*cur_block).instructions.push(Inst::GetFuncAddr {
-                        dest,
-                        func_name: name.clone(),
-                    });
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::GetFuncAddr {
+                            dest,
+                            func_name: name.clone(),
+                        });
                     return Some(dest);
                 }
                 let dest = self.next_val();
@@ -1735,10 +1766,7 @@ impl<'a> Lowering<'a> {
                         let dest = self.next_val();
                         self.get_block_mut(*cur_block)
                             .instructions
-                            .push(Inst::ConstInt {
-                                dest,
-                                value: 0,
-                            });
+                            .push(Inst::ConstInt { dest, value: 0 });
                         return Some(dest);
                     }
                     if fn_name == "println" && args.len() == 1 {
@@ -1749,10 +1777,7 @@ impl<'a> Lowering<'a> {
                         let dest = self.next_val();
                         self.get_block_mut(*cur_block)
                             .instructions
-                            .push(Inst::ConstInt {
-                                dest,
-                                value: 0,
-                            });
+                            .push(Inst::ConstInt { dest, value: 0 });
                         return Some(dest);
                     }
                     if fn_name == "print" && args.len() == 1 {
@@ -1776,10 +1801,7 @@ impl<'a> Lowering<'a> {
                         let dest = self.next_val();
                         self.get_block_mut(*cur_block)
                             .instructions
-                            .push(Inst::ConstInt {
-                                dest,
-                                value: 0,
-                            });
+                            .push(Inst::ConstInt { dest, value: 0 });
                         return Some(dest);
                     }
                     if fn_name == "len" && args.len() == 1 {
@@ -1922,12 +1944,12 @@ impl<'a> Lowering<'a> {
                             let pad_dest = self.next_val();
                             let s_ty = &slots[idx];
                             if s_ty.contains("Float") {
-                                self.get_block_mut(*cur_block)
-                                    .instructions
-                                    .push(Inst::ConstFloat {
+                                self.get_block_mut(*cur_block).instructions.push(
+                                    Inst::ConstFloat {
                                         dest: pad_dest,
                                         value: 0.0,
-                                    });
+                                    },
+                                );
                             } else {
                                 self.get_block_mut(*cur_block)
                                     .instructions
@@ -1939,7 +1961,11 @@ impl<'a> Lowering<'a> {
                             fields.push((format!("f{}", idx), pad_dest));
                         }
                         let dest = self.next_val();
-                        let class_name = self.enum_variant_names.get(&tag).cloned().unwrap_or_else(|| fn_name.clone());
+                        let class_name = self
+                            .enum_variant_names
+                            .get(&tag)
+                            .cloned()
+                            .unwrap_or_else(|| fn_name.clone());
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::StructInit {
@@ -1973,19 +1999,19 @@ impl<'a> Lowering<'a> {
                                 let pad_dest = self.next_val();
                                 let s_ty = &slots[idx];
                                 if s_ty.contains("Float") {
-                                    self.get_block_mut(*cur_block)
-                                        .instructions
-                                        .push(Inst::ConstFloat {
+                                    self.get_block_mut(*cur_block).instructions.push(
+                                        Inst::ConstFloat {
                                             dest: pad_dest,
                                             value: 0.0,
-                                        });
+                                        },
+                                    );
                                 } else {
-                                    self.get_block_mut(*cur_block)
-                                        .instructions
-                                        .push(Inst::ConstInt {
+                                    self.get_block_mut(*cur_block).instructions.push(
+                                        Inst::ConstInt {
                                             dest: pad_dest,
                                             value: 0,
-                                        });
+                                        },
+                                    );
                                 }
                                 fields.push((format!("f{}", idx), pad_dest));
                             }
@@ -2200,12 +2226,12 @@ impl<'a> Lowering<'a> {
                             let pad_dest = self.next_val();
                             let s_ty = &slots[idx];
                             if s_ty.contains("Float") {
-                                self.get_block_mut(*cur_block)
-                                    .instructions
-                                    .push(Inst::ConstFloat {
+                                self.get_block_mut(*cur_block).instructions.push(
+                                    Inst::ConstFloat {
                                         dest: pad_dest,
                                         value: 0.0,
-                                    });
+                                    },
+                                );
                             } else {
                                 self.get_block_mut(*cur_block)
                                     .instructions
@@ -2319,68 +2345,69 @@ impl<'a> Lowering<'a> {
                     let mut acc_val: Option<ValueId> = None;
                     for (fname, fexpr) in fields {
                         if let Some(fval) = self.lower_expr(fexpr, cur_block)
-                            && let Some(&(offset, bits)) = bit_offsets.get(fname) {
-                                let mask = if bits >= 64 {
-                                    -1i64
-                                } else {
-                                    (1i64 << bits) - 1
-                                };
-                                let mask_val = self.next_val();
+                            && let Some(&(offset, bits)) = bit_offsets.get(fname)
+                        {
+                            let mask = if bits >= 64 {
+                                -1i64
+                            } else {
+                                (1i64 << bits) - 1
+                            };
+                            let mask_val = self.next_val();
+                            self.get_block_mut(*cur_block)
+                                .instructions
+                                .push(Inst::ConstInt {
+                                    dest: mask_val,
+                                    value: mask,
+                                });
+                            let masked = self.next_val();
+                            self.get_block_mut(*cur_block)
+                                .instructions
+                                .push(Inst::BinOp {
+                                    dest: masked,
+                                    op: "&".into(),
+                                    left: fval,
+                                    right: mask_val,
+                                    ty: "Int".into(),
+                                });
+                            let shifted = if offset > 0 {
+                                let off_val = self.next_val();
                                 self.get_block_mut(*cur_block)
                                     .instructions
                                     .push(Inst::ConstInt {
-                                        dest: mask_val,
-                                        value: mask,
+                                        dest: off_val,
+                                        value: offset as i64,
                                     });
-                                let masked = self.next_val();
+                                let s_dest = self.next_val();
                                 self.get_block_mut(*cur_block)
                                     .instructions
                                     .push(Inst::BinOp {
-                                        dest: masked,
-                                        op: "&".into(),
-                                        left: fval,
-                                        right: mask_val,
+                                        dest: s_dest,
+                                        op: "<<".into(),
+                                        left: masked,
+                                        right: off_val,
                                         ty: "Int".into(),
                                     });
-                                let shifted = if offset > 0 {
-                                    let off_val = self.next_val();
-                                    self.get_block_mut(*cur_block).instructions.push(
-                                        Inst::ConstInt {
-                                            dest: off_val,
-                                            value: offset as i64,
-                                        },
-                                    );
-                                    let s_dest = self.next_val();
+                                s_dest
+                            } else {
+                                masked
+                            };
+                            acc_val = match acc_val {
+                                None => Some(shifted),
+                                Some(prev) => {
+                                    let or_dest = self.next_val();
                                     self.get_block_mut(*cur_block)
                                         .instructions
                                         .push(Inst::BinOp {
-                                            dest: s_dest,
-                                            op: "<<".into(),
-                                            left: masked,
-                                            right: off_val,
+                                            dest: or_dest,
+                                            op: "|".into(),
+                                            left: prev,
+                                            right: shifted,
                                             ty: "Int".into(),
                                         });
-                                    s_dest
-                                } else {
-                                    masked
-                                };
-                                acc_val = match acc_val {
-                                    None => Some(shifted),
-                                    Some(prev) => {
-                                        let or_dest = self.next_val();
-                                        self.get_block_mut(*cur_block).instructions.push(
-                                            Inst::BinOp {
-                                                dest: or_dest,
-                                                op: "|".into(),
-                                                left: prev,
-                                                right: shifted,
-                                                ty: "Int".into(),
-                                            },
-                                        );
-                                        Some(or_dest)
-                                    }
-                                };
-                            }
+                                    Some(or_dest)
+                                }
+                            };
+                        }
                     }
                     return if let Some(res) = acc_val {
                         Some(res)
@@ -2613,7 +2640,9 @@ impl<'a> Lowering<'a> {
                             ..
                         } => {
                             let expected_tag = if let Some(en) = enum_name {
-                                self.enum_variant_tags.get(&format!("{}.{}", en, variant_name)).copied()
+                                self.enum_variant_tags
+                                    .get(&format!("{}.{}", en, variant_name))
+                                    .copied()
                             } else {
                                 self.enum_variant_tags.get(variant_name).copied()
                             };
@@ -2649,22 +2678,26 @@ impl<'a> Lowering<'a> {
                                 for (idx, b_name) in bindings.iter().enumerate() {
                                     let field_dest = self.next_val();
                                     let field_name = format!("f{}", idx);
-                                    let field_ty = self.class_field_types.get(&field_name).cloned().unwrap_or_else(|| "Int".into());
-                                    self.get_block_mut(*cur_block)
-                                        .instructions
-                                        .push(Inst::GetField {
+                                    let field_ty = self
+                                        .class_field_types
+                                        .get(&field_name)
+                                        .cloned()
+                                        .unwrap_or_else(|| "Int".into());
+                                    self.get_block_mut(*cur_block).instructions.push(
+                                        Inst::GetField {
                                             dest: field_dest,
                                             object: val,
                                             field: field_name,
                                             ty: field_ty,
-                                        });
+                                        },
+                                    );
                                     self.symbol_values.insert(b_name.clone(), field_dest);
-                                    self.get_block_mut(*cur_block)
-                                        .instructions
-                                        .push(Inst::AssignVar {
+                                    self.get_block_mut(*cur_block).instructions.push(
+                                        Inst::AssignVar {
                                             name: b_name.clone(),
                                             value: field_dest,
-                                        });
+                                        },
+                                    );
                                 }
                                 eq_dest
                             } else {
@@ -2784,10 +2817,11 @@ impl<'a> Lowering<'a> {
                 let mut vals = Vec::new();
                 for (k, v) in entries {
                     if let Some(kv) = self.lower_expr(k, cur_block)
-                        && let Some(vv) = self.lower_expr(v, cur_block) {
-                            vals.push(kv);
-                            vals.push(vv);
-                        }
+                        && let Some(vv) = self.lower_expr(v, cur_block)
+                    {
+                        vals.push(kv);
+                        vals.push(vv);
+                    }
                 }
                 let dest = self.next_val();
                 let func_name = format!("datara_rt_map_create_{}", entries.len());
@@ -3073,9 +3107,10 @@ impl<'a> Lowering<'a> {
                 let field_type = t_fields.get(member)?;
                 if let DataraType::TypeParam(p) = field_type
                     && let Some(idx) = params.iter().position(|param| param == p)
-                        && idx < args.len() {
-                            return Some(args[idx].to_string());
-                        }
+                    && idx < args.len()
+                {
+                    return Some(args[idx].to_string());
+                }
                 Some(field_type.to_string())
             }
             DataraType::Class(cls_name) => {
@@ -3102,9 +3137,10 @@ impl<'a> Lowering<'a> {
             }
             Expr::Identifier(name, ..) => {
                 if let Some(ty) = self.lookup_var_type(name)
-                    && ty == crate::types::DataraType::String {
-                        return true;
-                    }
+                    && ty == crate::types::DataraType::String
+                {
+                    return true;
+                }
                 self.class_field_types
                     .get(name)
                     .map(|t| t == "String" || t == "Str")
@@ -3157,17 +3193,17 @@ impl<'a> Lowering<'a> {
 
     fn find_packet_for_member(&self, object: &Expr, member: &str) -> Option<(usize, usize)> {
         if let Expr::Identifier(var_name, _) = object
-            && let Some(crate::types::DataraType::Class(cls_name)) =
-                self.lookup_var_type(var_name)
-                && let Some(pkt) = self.resolver.packets.get(&cls_name) {
-                    let mut off = 0;
-                    for f in &pkt.fields {
-                        if f.name == member {
-                            return Some((off, f.bits));
-                        }
-                        off += f.bits;
-                    }
+            && let Some(crate::types::DataraType::Class(cls_name)) = self.lookup_var_type(var_name)
+            && let Some(pkt) = self.resolver.packets.get(&cls_name)
+        {
+            let mut off = 0;
+            for f in &pkt.fields {
+                if f.name == member {
+                    return Some((off, f.bits));
                 }
+                off += f.bits;
+            }
+        }
         for pkt in self.resolver.packets.values() {
             let mut off = 0;
             for f in &pkt.fields {

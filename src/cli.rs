@@ -231,29 +231,32 @@ pub fn run_cli() {
             let mut newest_source_mod = None;
             for sf in &layout.source_files {
                 if let Ok(meta) = fs::metadata(sf)
-                    && let Ok(mod_time) = meta.modified() {
-                        newest_source_mod = Some(
-                            newest_source_mod
-                                .map_or(mod_time, |curr: std::time::SystemTime| curr.max(mod_time)),
-                        );
-                    }
-            }
-            if let Ok(meta) = fs::metadata(layout.root.join("datara.toml"))
-                && let Ok(mod_time) = meta.modified() {
+                    && let Ok(mod_time) = meta.modified()
+                {
                     newest_source_mod = Some(
                         newest_source_mod
                             .map_or(mod_time, |curr: std::time::SystemTime| curr.max(mod_time)),
                     );
                 }
+            }
+            if let Ok(meta) = fs::metadata(layout.root.join("datara.toml"))
+                && let Ok(mod_time) = meta.modified()
+            {
+                newest_source_mod = Some(
+                    newest_source_mod
+                        .map_or(mod_time, |curr: std::time::SystemTime| curr.max(mod_time)),
+                );
+            }
 
             let exe_mod = fs::metadata(&exe_target)
                 .map(|m| m.modified().ok())
                 .ok()
                 .flatten();
-            let need_recompile = is_llvm || match (newest_source_mod, exe_mod) {
-                (Some(s), Some(e)) => s > e,
-                _ => true,
-            };
+            let need_recompile = is_llvm
+                || match (newest_source_mod, exe_mod) {
+                    (Some(s), Some(e)) => s > e,
+                    _ => true,
+                };
 
             if !need_recompile && exe_target.exists() {
                 // Execute cached artifact immediately
@@ -435,36 +438,40 @@ pub fn run_cli() {
                 }
 
                 if args.iter().any(|a| a == "--ledger")
-                    && let Some(report) = &res.optimization_report {
-                        let ledger_path = exe_p.with_extension("ledger.json");
-                        let ledger_data = serde_json::json!({
-                            "version": "1.0",
-                            "compiler": "forgen",
-                            "mode": mode,
-                            "summary": {
-                                "variables_promoted": report.variables_promoted,
-                                "constants_folded": report.constants_folded,
-                                "dead_instructions_removed": report.dead_instructions_removed,
-                                "functions_inlined": report.functions_inlined,
-                                "allocations_eliminated": report.allocations_eliminated,
-                                "evidence_downgrades": report.evidence_downgrades,
-                            },
-                            "decision_trace": report.decision_trace,
-                        });
-                        if let Ok(json) = serde_json::to_string_pretty(&ledger_data)
-                            && fs::write(&ledger_path, json).is_ok() {
-                                println!("[Forgen] Ledger:  {}", ledger_path.display());
-                            }
+                    && let Some(report) = &res.optimization_report
+                {
+                    let ledger_path = exe_p.with_extension("ledger.json");
+                    let ledger_data = serde_json::json!({
+                        "version": "1.0",
+                        "compiler": "forgen",
+                        "mode": mode,
+                        "summary": {
+                            "variables_promoted": report.variables_promoted,
+                            "constants_folded": report.constants_folded,
+                            "dead_instructions_removed": report.dead_instructions_removed,
+                            "functions_inlined": report.functions_inlined,
+                            "allocations_eliminated": report.allocations_eliminated,
+                            "evidence_downgrades": report.evidence_downgrades,
+                        },
+                        "decision_trace": report.decision_trace,
+                    });
+                    if let Ok(json) = serde_json::to_string_pretty(&ledger_data)
+                        && fs::write(&ledger_path, json).is_ok()
+                    {
+                        println!("[Forgen] Ledger:  {}", ledger_path.display());
                     }
+                }
 
                 if args.iter().any(|a| a == "--graph")
-                    && let Some(graph) = &res.semantic_graph {
-                        let graph_path = exe_p.with_extension("graph.json");
-                        if let Ok(json) = serde_json::to_string_pretty(graph)
-                            && fs::write(&graph_path, json).is_ok() {
-                                println!("[Forgen] Graph:   {}", graph_path.display());
-                            }
+                    && let Some(graph) = &res.semantic_graph
+                {
+                    let graph_path = exe_p.with_extension("graph.json");
+                    if let Ok(json) = serde_json::to_string_pretty(graph)
+                        && fs::write(&graph_path, json).is_ok()
+                    {
+                        println!("[Forgen] Graph:   {}", graph_path.display());
                     }
+                }
             } else {
                 eprintln!(
                     "{}",
@@ -576,7 +583,9 @@ pub fn run_cli() {
 
             if res.success {
                 if is_llvm {
-                    println!("[Forgen LLVM] Whole-program Domain compilation with LLVM pipeline completed.");
+                    println!(
+                        "[Forgen LLVM] Whole-program Domain compilation with LLVM pipeline completed."
+                    );
                 }
                 let rep = res.optimization_report.unwrap_or_default();
                 let t = res.timings;
@@ -1186,17 +1195,18 @@ pub fn run_cli() {
 
             let manifest_path = Path::new("datara.toml");
             if manifest_path.exists()
-                && let Ok(content) = fs::read_to_string(manifest_path) {
-                    let filtered: Vec<&str> = content
-                        .lines()
-                        .filter(|l| {
-                            !l.trim().starts_with(&format!("{} =", pkg_name))
-                                && !l.trim().starts_with(&format!("\"{}\" =", pkg_name))
-                        })
-                        .collect();
-                    let _ = fs::write(manifest_path, filtered.join("\n") + "\n");
-                    println!("[OK] Removed dependency from datara.toml");
-                }
+                && let Ok(content) = fs::read_to_string(manifest_path)
+            {
+                let filtered: Vec<&str> = content
+                    .lines()
+                    .filter(|l| {
+                        !l.trim().starts_with(&format!("{} =", pkg_name))
+                            && !l.trim().starts_with(&format!("\"{}\" =", pkg_name))
+                    })
+                    .collect();
+                let _ = fs::write(manifest_path, filtered.join("\n") + "\n");
+                println!("[OK] Removed dependency from datara.toml");
+            }
         }
 
         "install" | "restore" => {
@@ -1341,7 +1351,10 @@ pub fn run_cli() {
             let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
             let manifest_path = layout.root.join("datara.toml");
             if manifest_path.exists() {
-                entries.push(("datara.toml".into(), fs::read(&manifest_path).unwrap_or_default()));
+                entries.push((
+                    "datara.toml".into(),
+                    fs::read(&manifest_path).unwrap_or_default(),
+                ));
             }
             for f in layout
                 .source_files
@@ -1350,14 +1363,15 @@ pub fn run_cli() {
                 .chain(&layout.example_files)
             {
                 if let Ok(rel) = f.strip_prefix(&layout.root)
-                    && let Ok(data) = fs::read(f) {
-                        entries.push((rel.to_string_lossy().replace('\\', "/"), data));
-                    }
+                    && let Ok(data) = fs::read(f)
+                {
+                    entries.push((rel.to_string_lossy().replace('\\', "/"), data));
+                }
             }
             if let Err(e) = write_zip(&archive_path, &entries) {
-                    eprintln!("[Forgen Package] Error: {}", e);
-                    std::process::exit(1);
-                }
+                eprintln!("[Forgen Package] Error: {}", e);
+                std::process::exit(1);
+            }
 
             println!(
                 "[Forgen Package] Package verified 100% PASS ({} tests).",
@@ -1390,7 +1404,8 @@ pub fn run_cli() {
                 .find(|a| !a.starts_with("-"))
                 .map(Path::new);
 
-            let has_granular_flag = is_indent || is_operators || is_loops || is_style || is_mut || is_all;
+            let has_granular_flag =
+                is_indent || is_operators || is_loops || is_style || is_mut || is_all;
 
             let opts = if is_all {
                 crate::fmt::FormatOptions::all()
@@ -1454,21 +1469,27 @@ pub fn run_cli() {
                 }
 
                 // If --style, --mut, or --all was requested, apply AST linter auto-fixes for style/mut
-                if (opts.style || opts.mut_fix) && !opts.check
-                    && let Ok(diags) = crate::lint::lint_file(file_path) {
-                        let filtered_diags: Vec<_> = diags.into_iter().filter(|d| {
+                if (opts.style || opts.mut_fix)
+                    && !opts.check
+                    && let Ok(diags) = crate::lint::lint_file(file_path)
+                {
+                    let filtered_diags: Vec<_> = diags
+                        .into_iter()
+                        .filter(|d| {
                             (opts.style && d.code.starts_with("style::"))
                                 || (opts.mut_fix && d.code == "perf::unnecessary_mut")
-                        }).collect();
+                        })
+                        .collect();
 
-                        if !filtered_diags.is_empty()
-                            && let Ok(source) = fs::read_to_string(file_path) {
-                                let fixed = crate::lint::apply_fixes(&source, &filtered_diags);
-                                if fixed != source {
-                                    let _ = fs::write(file_path, fixed);
-                                }
-                            }
+                    if !filtered_diags.is_empty()
+                        && let Ok(source) = fs::read_to_string(file_path)
+                    {
+                        let fixed = crate::lint::apply_fixes(&source, &filtered_diags);
+                        if fixed != source {
+                            let _ = fs::write(file_path, fixed);
+                        }
                     }
+                }
             }
 
             let elapsed = start.elapsed().as_millis();
@@ -1489,7 +1510,9 @@ pub fn run_cli() {
                     for f in &unformatted_files {
                         eprintln!("  --> {}", f.display());
                     }
-                    eprintln!("\nRun 'forgen format' or 'forgen format --all' to apply fixes automatically.");
+                    eprintln!(
+                        "\nRun 'forgen format' or 'forgen format --all' to apply fixes automatically."
+                    );
                     std::process::exit(1);
                 }
             } else {
@@ -1509,7 +1532,8 @@ pub fn run_cli() {
                     );
                 }
             }
-        }        "clean" => {
+        }
+        "clean" => {
             let start = Instant::now();
             let is_all = args.iter().any(|a| a == "--all");
             let is_pgo = args.iter().any(|a| a == "--pgo");
@@ -1641,9 +1665,7 @@ pub fn run_cli() {
                             }
                             total_warnings += diags.len();
 
-                            if is_fix
-                                && let Ok(source) = fs::read_to_string(file_path)
-                            {
+                            if is_fix && let Ok(source) = fs::read_to_string(file_path) {
                                 let fixed = crate::lint::apply_fixes(&source, &diags);
                                 if fixed != source {
                                     let _ = fs::write(file_path, fixed);
@@ -1660,7 +1682,9 @@ pub fn run_cli() {
 
             let elapsed = start.elapsed().as_millis();
             if is_audit {
-                println!("[Forgen audit] Security capability audit: 0 purity leaks detected. All external effects strictly isolated in Effect Lattice.");
+                println!(
+                    "[Forgen audit] Security capability audit: 0 purity leaks detected. All external effects strictly isolated in Effect Lattice."
+                );
             }
             if total_warnings == 0 {
                 println!(
@@ -1708,7 +1732,10 @@ pub fn run_cli() {
                 .find(|a| !a.starts_with("-"))
                 .map(Path::new);
 
-            println!("[Forgen watch] Monitoring filesystem changes for `forgen {}`...", subcmd);
+            println!(
+                "[Forgen watch] Monitoring filesystem changes for `forgen {}`...",
+                subcmd
+            );
             println!("[Forgen watch] Press Ctrl+C to stop.\n");
 
             let mut last_modified_map: HashMap<PathBuf, std::time::SystemTime> = HashMap::new();
@@ -1737,7 +1764,10 @@ pub fn run_cli() {
 
                 if changed {
                     println!("\n==================================================");
-                    println!("[Forgen watch] Changes detected. Re-running `forgen {}`...", subcmd);
+                    println!(
+                        "[Forgen watch] Changes detected. Re-running `forgen {}`...",
+                        subcmd
+                    );
                     println!("==================================================");
                     run_watch_iteration(subcmd, &args);
                 }
@@ -1753,23 +1783,40 @@ pub fn run_cli() {
                 .map(Path::new);
 
             let target_path = target_opt.unwrap_or(Path::new("."));
-            let (pkg_name, pkg_version, manifest_opt) = match ProjectDiscovery::discover(target_opt) {
+            let (pkg_name, pkg_version, manifest_opt) = match ProjectDiscovery::discover(target_opt)
+            {
                 Ok(l) => {
-                    let name = l.manifest.as_ref().map(|m| m.package.name.clone()).unwrap_or(l.name.clone());
-                    let version = l.manifest.as_ref().map(|m| m.package.version.clone()).unwrap_or("0.1.0".into());
+                    let name = l
+                        .manifest
+                        .as_ref()
+                        .map(|m| m.package.name.clone())
+                        .unwrap_or(l.name.clone());
+                    let version = l
+                        .manifest
+                        .as_ref()
+                        .map(|m| m.package.version.clone())
+                        .unwrap_or("0.1.0".into());
                     (name, version, l.manifest)
                 }
                 Err(_) => {
                     let manifest_file = target_path.join("datara.toml");
                     if manifest_file.exists() {
-                        if let Ok(m) = crate::project::manifest::DataraManifest::from_file(&manifest_file) {
+                        if let Ok(m) =
+                            crate::project::manifest::DataraManifest::from_file(&manifest_file)
+                        {
                             (m.package.name.clone(), m.package.version.clone(), Some(m))
                         } else {
-                            eprintln!("Tree error: Failed to parse 'datara.toml' in '{}'", target_path.display());
+                            eprintln!(
+                                "Tree error: Failed to parse 'datara.toml' in '{}'",
+                                target_path.display()
+                            );
                             std::process::exit(1);
                         }
                     } else {
-                        eprintln!("Tree error: No Datara project or .dtr files found in '{}'. Run 'forgen new <name>' to create one.", target_path.display());
+                        eprintln!(
+                            "Tree error: No Datara project or .dtr files found in '{}'. Run 'forgen new <name>' to create one.",
+                            target_path.display()
+                        );
                         std::process::exit(1);
                     }
                 }
@@ -1786,9 +1833,10 @@ pub fn run_cli() {
                         let branch = if is_last { "└── " } else { "├── " };
                         let version = match dep_spec {
                             crate::project::manifest::DependencyConfig::Simple(v) => v.as_str(),
-                            crate::project::manifest::DependencyConfig::Detailed { version, .. } => {
-                                version.as_deref().unwrap_or("latest")
-                            }
+                            crate::project::manifest::DependencyConfig::Detailed {
+                                version,
+                                ..
+                            } => version.as_deref().unwrap_or("latest"),
                         };
                         let effects_badge = if show_effects {
                             match dep_name.as_str() {
@@ -1800,7 +1848,18 @@ pub fn run_cli() {
                         } else {
                             ""
                         };
-                        println!("{}{}{} (v{}){}", branch, dep_name, effects_badge, version, if show_effects && effects_badge.contains("net") { " ⚠️ requires network" } else { "" });
+                        println!(
+                            "{}{}{} (v{}){}",
+                            branch,
+                            dep_name,
+                            effects_badge,
+                            version,
+                            if show_effects && effects_badge.contains("net") {
+                                " ⚠️ requires network"
+                            } else {
+                                ""
+                            }
+                        );
                     }
                 }
             } else {
@@ -1842,7 +1901,9 @@ pub fn run_cli() {
                         #[cfg(target_os = "macos")]
                         let _ = std::process::Command::new("open").arg(&out_file).spawn();
                         #[cfg(target_os = "linux")]
-                        let _ = std::process::Command::new("xdg-open").arg(&out_file).spawn();
+                        let _ = std::process::Command::new("xdg-open")
+                            .arg(&out_file)
+                            .spawn();
                     }
                 }
                 Err(e) => {
@@ -1877,7 +1938,9 @@ pub fn run_cli() {
                         .join(format!("{}.h", stem));
 
                     match crate::export::export_c_header(src_file, &out_h) {
-                        Ok(p) => println!("[Forgen export] Generated C99/C++ header: {}", p.display()),
+                        Ok(p) => {
+                            println!("[Forgen export] Generated C99/C++ header: {}", p.display())
+                        }
                         Err(e) => {
                             eprintln!("Export error: {}", e);
                             std::process::exit(1);
@@ -1933,10 +1996,15 @@ pub fn run_cli() {
 
             match crate::project::manifest::DataraManifest::from_file(manifest_path) {
                 Ok(manifest) => {
-                    println!("[Forgen update] Checking HyperGrid registry for dependency updates...");
+                    println!(
+                        "[Forgen update] Checking HyperGrid registry for dependency updates..."
+                    );
                     let count = manifest.dependencies.len();
                     for dep in manifest.dependencies.keys() {
-                        println!("  Checking '{}'... up to date (Merkle digest verified)", dep);
+                        println!(
+                            "  Checking '{}'... up to date (Merkle digest verified)",
+                            dep
+                        );
                     }
                     println!(
                         "[Forgen update] All {} dependencies verified and locked in datara.toml",
@@ -2126,7 +2194,9 @@ fn run_watch_iteration(subcmd: &str, args: &[String]) {
                 let compiler = ForgenCompiler::new("check");
                 let res = compiler.check_file(&layout.entry_point);
                 if res.success {
-                    println!("[Forgen check] Verified 100% OK (0 errors, valid ownership & effects)");
+                    println!(
+                        "[Forgen check] Verified 100% OK (0 errors, valid ownership & effects)"
+                    );
                 } else {
                     eprintln!("{}", res.diagnostics);
                 }
@@ -2138,11 +2208,19 @@ fn run_watch_iteration(subcmd: &str, args: &[String]) {
 fn explain_code(code: &str) {
     match code {
         "style::non_snake_case" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: style::non_snake_case");
-            println!("================================================================================");
-            println!("In Datara, all local variables, parameters, functions, and methods must follow");
-            println!("the `snake_case` naming convention (lowercase letters separated by underscores).");
+            println!(
+                "================================================================================"
+            );
+            println!(
+                "In Datara, all local variables, parameters, functions, and methods must follow"
+            );
+            println!(
+                "the `snake_case` naming convention (lowercase letters separated by underscores)."
+            );
             println!();
             println!("❌ Bad Code:");
             println!("   let itemCount = 42");
@@ -2152,15 +2230,25 @@ fn explain_code(code: &str) {
             println!("   let item_count = 42");
             println!("   fn compute_total() {{ ... }}");
             println!();
-            println!("Rationale: Enforces visual consistency with native systems languages (Rust/C)");
+            println!(
+                "Rationale: Enforces visual consistency with native systems languages (Rust/C)"
+            );
             println!("and avoids ambiguity with PascalCase type names.");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
         }
         "style::non_camel_case_types" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: style::non_camel_case_types");
-            println!("================================================================================");
-            println!("In Datara, all classes, components, roles, packets, and custom types must follow");
+            println!(
+                "================================================================================"
+            );
+            println!(
+                "In Datara, all classes, components, roles, packets, and custom types must follow"
+            );
             println!("the `PascalCase` (UpperCamelCase) naming convention.");
             println!();
             println!("❌ Bad Code:");
@@ -2171,14 +2259,24 @@ fn explain_code(code: &str) {
             println!("   class UserSession {{ ... }}");
             println!("   component HttpHandler {{ ... }}");
             println!();
-            println!("Rationale: Clearly distinguishes types and architectural entities from variables.");
-            println!("================================================================================");
+            println!(
+                "Rationale: Clearly distinguishes types and architectural entities from variables."
+            );
+            println!(
+                "================================================================================"
+            );
         }
         "perf::unnecessary_mut" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: perf::unnecessary_mut");
-            println!("================================================================================");
-            println!("A variable was declared using `mut`, but its value is never modified or reassigned");
+            println!(
+                "================================================================================"
+            );
+            println!(
+                "A variable was declared using `mut`, but its value is never modified or reassigned"
+            );
             println!("in its entire scope.");
             println!();
             println!("❌ Bad Code:");
@@ -2188,16 +2286,26 @@ fn explain_code(code: &str) {
             println!("✅ Good Code:");
             println!("   let max_limit = 1000");
             println!();
-            println!("Rationale: Declaring variables as immutable (`let`) allows the Evidence Gate");
-            println!("optimizer to promote them to CPU registers via Mem2Reg, perform constant folding,");
+            println!(
+                "Rationale: Declaring variables as immutable (`let`) allows the Evidence Gate"
+            );
+            println!(
+                "optimizer to promote them to CPU registers via Mem2Reg, perform constant folding,"
+            );
             println!("and guarantee thread-safety without locks.");
             println!("Run `forgen lint --fix` to automatically repair this across your project.");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
         }
         "style::unused_variable" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: style::unused_variable");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!("A variable or parameter was declared, but its value is never read.");
             println!();
             println!("❌ Bad Code:");
@@ -2208,13 +2316,21 @@ fn explain_code(code: &str) {
             println!();
             println!("Rationale: Prevents dead code, accidental resource leaks, and logic errors");
             println!("where a computed result was forgotten by the developer.");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
         }
         "style::prefer_for_loop" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: style::prefer_for_loop");
-            println!("================================================================================");
-            println!("A `while` loop was used with a manual index counter increment (`i = i + 1`).");
+            println!(
+                "================================================================================"
+            );
+            println!(
+                "A `while` loop was used with a manual index counter increment (`i = i + 1`)."
+            );
             println!();
             println!("❌ Bad Code:");
             println!("   mut i = 0");
@@ -2228,15 +2344,27 @@ fn explain_code(code: &str) {
             println!("       process(i)");
             println!("   }}");
             println!();
-            println!("Rationale: Range `for` loops in Datara are zero-cost abstractions that the compiler");
-            println!("can automatically unroll, fold in closed-form, and vectorize with AVX2/NEON.");
-            println!("================================================================================");
+            println!(
+                "Rationale: Range `for` loops in Datara are zero-cost abstractions that the compiler"
+            );
+            println!(
+                "can automatically unroll, fold in closed-form, and vectorize with AVX2/NEON."
+            );
+            println!(
+                "================================================================================"
+            );
         }
         "style::bool_comparison" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: style::bool_comparison");
-            println!("================================================================================");
-            println!("Comparing a boolean expression directly against `true` or `false` is redundant.");
+            println!(
+                "================================================================================"
+            );
+            println!(
+                "Comparing a boolean expression directly against `true` or `false` is redundant."
+            );
             println!();
             println!("❌ Bad Code:");
             println!("   if is_valid == true {{ ... }}");
@@ -2245,24 +2373,42 @@ fn explain_code(code: &str) {
             println!("✅ Good Code:");
             println!("   if is_valid {{ ... }}");
             println!("   if !is_valid {{ ... }}");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
         }
         "E-OWN-001" | "ownership" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: E-OWN-001 (Ownership & Move Semantics)");
-            println!("================================================================================");
-            println!("Datara uses affine ownership with zero-copy views. Once an owned object is moved");
+            println!(
+                "================================================================================"
+            );
+            println!(
+                "Datara uses affine ownership with zero-copy views. Once an owned object is moved"
+            );
             println!("into another function or variable, the original binding becomes invalid.");
             println!();
             println!("To borrow data without taking ownership, use a `view` or pass by reference.");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
         }
         "E-TYPE-001" | "type_mismatch" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: E-TYPE-001 (Type Mismatch)");
-            println!("================================================================================");
-            println!("An expression was evaluated with a type that does not match the expected type.");
-            println!("Datara is strictly typed and does not perform silent or lossy implicit conversions.");
+            println!(
+                "================================================================================"
+            );
+            println!(
+                "An expression was evaluated with a type that does not match the expected type."
+            );
+            println!(
+                "Datara is strictly typed and does not perform silent or lossy implicit conversions."
+            );
             println!();
             println!("❌ Bad Code (Float assigned to Int):");
             println!("   let x: Int = 3.14");
@@ -2277,27 +2423,47 @@ fn explain_code(code: &str) {
             println!();
             println!("✅ Good Code:");
             println!("   if counter != 0 {{ ... }}");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
         }
         "E-RESOLVE-001" | "undefined_symbol" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: E-RESOLVE-001 (Undefined Symbol)");
-            println!("================================================================================");
-            println!("A variable, function, class, or method was referenced that does not exist in");
+            println!(
+                "================================================================================"
+            );
+            println!(
+                "A variable, function, class, or method was referenced that does not exist in"
+            );
             println!("the current scope or imported modules.");
             println!();
             println!("Common causes:");
-            println!("1. Typo in identifier name (the compiler provides 'Did you mean?' suggestions).");
+            println!(
+                "1. Typo in identifier name (the compiler provides 'Did you mean?' suggestions)."
+            );
             println!("2. Missing module import ('use stdlib.math').");
-            println!("3. Variable declared inside an inner block or loop scope and accessed outside.");
-            println!("================================================================================");
+            println!(
+                "3. Variable declared inside an inner block or loop scope and accessed outside."
+            );
+            println!(
+                "================================================================================"
+            );
         }
         "E-BORROW-001" | "immutable_assignment" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: E-BORROW-001 (Cannot Reassign Immutable Variable)");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!("In Datara, variables declared with `let` or `val` are immutable by default.");
-            println!("Reassigning them without an explicit mutable binding triggers a compile-time error.");
+            println!(
+                "Reassigning them without an explicit mutable binding triggers a compile-time error."
+            );
             println!();
             println!("❌ Bad Code:");
             println!("   let total = 0");
@@ -2306,14 +2472,24 @@ fn explain_code(code: &str) {
             println!("✅ Good Code:");
             println!("   mut total = 0");
             println!("   total = total + 1");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
         }
         "E-BORROW-002" | "use_after_move" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: E-BORROW-002 (Use of Value After Move)");
-            println!("================================================================================");
-            println!("An owned value was moved into another variable or function, and subsequently");
-            println!("referenced again. Move transfers ownership and invalidates the previous binding.");
+            println!(
+                "================================================================================"
+            );
+            println!(
+                "An owned value was moved into another variable or function, and subsequently"
+            );
+            println!(
+                "referenced again. Move transfers ownership and invalidates the previous binding."
+            );
             println!();
             println!("❌ Bad Code:");
             println!("   let b = a");
@@ -2322,30 +2498,50 @@ fn explain_code(code: &str) {
             println!("✅ Good Code (Zero-Copy View):");
             println!("   let b = view a");
             println!("   out a  // Valid: 'a' is borrowed immutably, not consumed");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
         }
         "E-EFFECT-001" | "effect_leak" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: E-EFFECT-001 (Effect Lattice Purity Violation)");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!("A function declared or inferred as [pure] attempts to perform side effects");
             println!("such as filesystem I/O, network socket calls, or non-local state mutation.");
             println!();
             println!("Rationale: Datara's Evidence Gate optimizer relies on Effect Lattice purity");
             println!("to safely reorder, vectorize, eliminate dead code, and parallelize loops.");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
         }
         "E-SYNTAX-001" | "syntax_error" => {
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
             println!(" EXPLANATION: E-SYNTAX-001 (Syntax Error)");
-            println!("================================================================================");
-            println!("The source code violates Datara's grammar rules (missing braces, unclosed quotes,");
-            println!("or misplaced keywords). Run 'forgen format' to auto-align syntax structures.");
-            println!("================================================================================");
+            println!(
+                "================================================================================"
+            );
+            println!(
+                "The source code violates Datara's grammar rules (missing braces, unclosed quotes,"
+            );
+            println!(
+                "or misplaced keywords). Run 'forgen format' to auto-align syntax structures."
+            );
+            println!(
+                "================================================================================"
+            );
         }
         _ => {
             println!("Code `{}`: No extended documentation entry found.", code);
-            println!("Try: `forgen explain E-TYPE-001`, `forgen explain E-BORROW-001`, or `forgen explain style::non_snake_case`.");
+            println!(
+                "Try: `forgen explain E-TYPE-001`, `forgen explain E-BORROW-001`, or `forgen explain style::non_snake_case`."
+            );
         }
     }
 }

@@ -49,7 +49,10 @@ fn test_version_variant_dispatch() {
     assert_eq!(arm_linux.select_version_variant(), VersionVariant::FastNeon);
 
     let generic_win = TargetInfo::generic_x86_64(Os::Windows, forgen::codegen::target::Abi::Msvc);
-    assert_eq!(generic_win.select_version_variant(), VersionVariant::Generic);
+    assert_eq!(
+        generic_win.select_version_variant(),
+        VersionVariant::Generic
+    );
     assert!(generic_win.vector_support.contains(&VectorExtension::Sse2));
     assert!(!generic_win.vector_support.contains(&VectorExtension::Avx2));
 

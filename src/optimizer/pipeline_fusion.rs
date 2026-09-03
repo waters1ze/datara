@@ -112,9 +112,7 @@ impl PipelineFusionOptimizer {
                 f(*then_val);
                 f(*else_val);
             }
-            Inst::Decide {
-                arms, else_val, ..
-            } => {
+            Inst::Decide { arms, else_val, .. } => {
                 for (cond, val) in arms {
                     f(*cond);
                     f(*val);
@@ -175,26 +173,15 @@ impl PipelineFusionOptimizer {
                         (*dest, vec![*left, *right])
                     }
                     Inst::Call {
-                        dest,
-                        func,
-                        args,
-                        ..
-                    } if func == "datara_rt_str_concat" && args.len() == 2 => {
-                        (*dest, args.clone())
-                    }
+                        dest, func, args, ..
+                    } if func == "datara_rt_str_concat" && args.len() == 2 => (*dest, args.clone()),
                     Inst::Call {
-                        dest,
-                        func,
-                        args,
-                        ..
+                        dest, func, args, ..
                     } if func == "datara_rt_str_concat_3" && args.len() == 3 => {
                         (*dest, args.clone())
                     }
                     Inst::Call {
-                        dest,
-                        func,
-                        args,
-                        ..
+                        dest, func, args, ..
                     } if func == "datara_rt_str_concat_4" && args.len() == 4 => {
                         (*dest, args.clone())
                     }
@@ -211,10 +198,22 @@ impl PipelineFusionOptimizer {
                         if combined.len() <= 5 {
                             // Check for direct-slot string+int wire-blit pattern [str, int, str, int]
                             let is_sisi = combined.len() == 4
-                                && (val_types.get(&combined[0]).map(|s| s == "String").unwrap_or(true))
-                                && val_types.get(&combined[1]).map(|s| s == "Int").unwrap_or(false)
-                                && (val_types.get(&combined[2]).map(|s| s == "String").unwrap_or(true))
-                                && val_types.get(&combined[3]).map(|s| s == "Int").unwrap_or(false);
+                                && (val_types
+                                    .get(&combined[0])
+                                    .map(|s| s == "String")
+                                    .unwrap_or(true))
+                                && val_types
+                                    .get(&combined[1])
+                                    .map(|s| s == "Int")
+                                    .unwrap_or(false)
+                                && (val_types
+                                    .get(&combined[2])
+                                    .map(|s| s == "String")
+                                    .unwrap_or(true))
+                                && val_types
+                                    .get(&combined[3])
+                                    .map(|s| s == "Int")
+                                    .unwrap_or(false);
 
                             // Rewrite the current instruction into an N-ary concat or direct-slot format call
                             let new_func = if is_sisi {
@@ -339,7 +338,8 @@ impl PipelineFusionOptimizer {
                                                 ty: ty.clone(),
                                             });
 
-                                            affine_chains.insert(*dest, (op.clone(), *base_var, new_k));
+                                            affine_chains
+                                                .insert(*dest, (op.clone(), *base_var, new_k));
                                             fused_count += 1;
 
                                             trace.record(

@@ -898,14 +898,17 @@ impl Optimizer {
 
                         for c_inst in &callee.blocks[0].instructions {
                             if let Inst::LoadVar { dest, name } = c_inst
-                                && param_names.contains(name) && !inlined_args.is_empty() {
-                                    // Bind the load straight to the argument.
-                                    let idx = callee.params.iter().position(|(n, _, _)| n == name);
-                                    if let Some(i) = idx
-                                        && let Some(arg) = inlined_args.get(i) {
-                                            val_map.insert(*dest, *arg);
-                                        }
+                                && param_names.contains(name)
+                                && !inlined_args.is_empty()
+                            {
+                                // Bind the load straight to the argument.
+                                let idx = callee.params.iter().position(|(n, _, _)| n == name);
+                                if let Some(i) = idx
+                                    && let Some(arg) = inlined_args.get(i)
+                                {
+                                    val_map.insert(*dest, *arg);
                                 }
+                            }
                             if let Some(spliced) = self.splice_callee_inst(
                                 c_inst,
                                 &val_map,
@@ -1057,12 +1060,7 @@ impl Optimizer {
             {
                 changed = true;
             }
-            if ScalarOptimizer::apply_strength_reduction(
-                f,
-                &self.cost_model,
-                &mut self.trace,
-            ) > 0
-            {
+            if ScalarOptimizer::apply_strength_reduction(f, &self.cost_model, &mut self.trace) > 0 {
                 changed = true;
             }
             if LoopOptimizer::optimize_loops(f, &self.cost_model, &mut self.trace) > 0 {
@@ -1119,14 +1117,15 @@ impl Optimizer {
         for (i, b) in f.blocks.iter().enumerate() {
             if let Terminator::Branch { target, args } = &b.terminator
                 && args.is_empty()
-                    && *target != b.id
-                    && *target != f.entry_block
-                    && preds.get(target).copied().unwrap_or(0) == 1
-                    && let Some(target_b) = f.blocks.iter().find(|blk| blk.id == *target)
-                        && target_b.params.is_empty() {
-                            merge_candidate = Some((i, *target));
-                            break;
-                        }
+                && *target != b.id
+                && *target != f.entry_block
+                && preds.get(target).copied().unwrap_or(0) == 1
+                && let Some(target_b) = f.blocks.iter().find(|blk| blk.id == *target)
+                && target_b.params.is_empty()
+            {
+                merge_candidate = Some((i, *target));
+                break;
+            }
         }
 
         if let Some((a_idx, target_id)) = merge_candidate {
@@ -1169,7 +1168,8 @@ impl Optimizer {
             }
         }
 
-        let mut candidate: Option<(usize, BasicBlockId, BasicBlockId, BasicBlockId, ValueId)> = None;
+        let mut candidate: Option<(usize, BasicBlockId, BasicBlockId, BasicBlockId, ValueId)> =
+            None;
 
         for (b_idx, b) in f.blocks.iter().enumerate() {
             if let Terminator::CondBranch {
@@ -1216,18 +1216,22 @@ impl Optimizer {
                 }
 
                 // Check that all instructions in both blocks are pure
-                let is_pure = |inst: &Inst| matches!(
-                    inst,
-                    Inst::ConstInt { .. }
-                        | Inst::ConstFloat { .. }
-                        | Inst::ConstBool { .. }
-                        | Inst::ConstStr { .. }
-                        | Inst::BinOp { .. }
-                        | Inst::UnOp { .. }
-                        | Inst::Select { .. }
-                );
+                let is_pure = |inst: &Inst| {
+                    matches!(
+                        inst,
+                        Inst::ConstInt { .. }
+                            | Inst::ConstFloat { .. }
+                            | Inst::ConstBool { .. }
+                            | Inst::ConstStr { .. }
+                            | Inst::BinOp { .. }
+                            | Inst::UnOp { .. }
+                            | Inst::Select { .. }
+                    )
+                };
 
-                if !then_b.instructions.iter().all(is_pure) || !else_b.instructions.iter().all(is_pure) {
+                if !then_b.instructions.iter().all(is_pure)
+                    || !else_b.instructions.iter().all(is_pure)
+                {
                     continue;
                 }
 
@@ -1453,9 +1457,10 @@ impl Optimizer {
             // them and this pass deleted returned objects outright — the
             // caller then read freed/undefined memory as the "result".
             if let Terminator::Return { value: Some(v) } = &block.terminator
-                && let Some(s_id) = val_to_struct.get(v) {
-                    escaping_structs.insert(*s_id);
-                }
+                && let Some(s_id) = val_to_struct.get(v)
+            {
+                escaping_structs.insert(*s_id);
+            }
         }
 
         // Retain only non-escaping struct initializations
@@ -1492,16 +1497,21 @@ impl Optimizer {
                         changed = true;
                         continue;
                     }
-                    Inst::SetField { object, field, value } => {
+                    Inst::SetField {
+                        object,
+                        field,
+                        value,
+                    } => {
                         let actual_struct_id = val_to_struct
                             .get(object)
                             .or_else(|| struct_inits.get(object).map(|_| object));
                         if let Some(s_id) = actual_struct_id
-                            && let Some(field_map) = struct_inits.get_mut(s_id) {
-                                field_map.insert(field.clone(), *value);
-                                changed = true;
-                                continue;
-                            }
+                            && let Some(field_map) = struct_inits.get_mut(s_id)
+                        {
+                            field_map.insert(field.clone(), *value);
+                            changed = true;
+                            continue;
+                        }
                         new_instructions.push(inst.clone());
                     }
                     Inst::GetField {
@@ -1515,22 +1525,23 @@ impl Optimizer {
                             .or_else(|| struct_inits.get(object).map(|_| object));
                         if let Some(s_id) = actual_struct_id
                             && let Some(field_map) = struct_inits.get(s_id)
-                                && let Some(actual_val) = field_map.get(field) {
-                                    // Register copy with an explicit dest: the
-                                    // forwarded value must stay bound to the
-                                    // GetField's ValueId. The old synthetic
-                                    // `AssignVar { name: "v_N" }` never bound
-                                    // `dest` in the backend's value map, so
-                                    // every forwarded read compiled to 0.
-                                    new_instructions.push(Inst::UnOp {
-                                        dest: *dest,
-                                        op: "copy".to_string(),
-                                        operand: *actual_val,
-                                        ty: ty.clone(),
-                                    });
-                                    changed = true;
-                                    continue;
-                                }
+                            && let Some(actual_val) = field_map.get(field)
+                        {
+                            // Register copy with an explicit dest: the
+                            // forwarded value must stay bound to the
+                            // GetField's ValueId. The old synthetic
+                            // `AssignVar { name: "v_N" }` never bound
+                            // `dest` in the backend's value map, so
+                            // every forwarded read compiled to 0.
+                            new_instructions.push(Inst::UnOp {
+                                dest: *dest,
+                                op: "copy".to_string(),
+                                operand: *actual_val,
+                                ty: ty.clone(),
+                            });
+                            changed = true;
+                            continue;
+                        }
                         new_instructions.push(inst.clone());
                     }
                     _ => {
@@ -1920,13 +1931,29 @@ impl Optimizer {
                 Inst::LoadVar { name, .. } => {
                     loaded.insert(name.clone());
                 }
-                Inst::WhileLoop { condition_insts, body_insts, .. } => {
-                    for ci in condition_insts { scan_loads(ci, loaded); }
-                    for bi in body_insts { scan_loads(bi, loaded); }
+                Inst::WhileLoop {
+                    condition_insts,
+                    body_insts,
+                    ..
+                } => {
+                    for ci in condition_insts {
+                        scan_loads(ci, loaded);
+                    }
+                    for bi in body_insts {
+                        scan_loads(bi, loaded);
+                    }
                 }
-                Inst::TryCatch { try_insts, catch_insts, .. } => {
-                    for ti in try_insts { scan_loads(ti, loaded); }
-                    for ci in catch_insts { scan_loads(ci, loaded); }
+                Inst::TryCatch {
+                    try_insts,
+                    catch_insts,
+                    ..
+                } => {
+                    for ti in try_insts {
+                        scan_loads(ti, loaded);
+                    }
+                    for ci in catch_insts {
+                        scan_loads(ci, loaded);
+                    }
                 }
                 _ => {}
             }

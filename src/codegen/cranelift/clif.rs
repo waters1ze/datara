@@ -229,7 +229,13 @@ impl<'a> ClifEmitter<'a> {
                     func_name, dest.0
                 )
             }
-            Inst::Select { dest, cond, then_val, else_val, .. } => {
+            Inst::Select {
+                dest,
+                cond,
+                then_val,
+                else_val,
+                ..
+            } => {
                 format!(
                     "    v{} = select v{}, v{}, v{}\n",
                     dest.0, cond.0, then_val.0, else_val.0

@@ -37,7 +37,10 @@ impl<'a> Parser<'a> {
     fn parse_declaration(&mut self) -> Option<Decl> {
         let is_export = self.match_token(&TokenType::Export);
 
-        if self.match_token(&TokenType::Use) || self.match_token(&TokenType::Import) || self.match_token(&TokenType::Using) {
+        if self.match_token(&TokenType::Use)
+            || self.match_token(&TokenType::Import)
+            || self.match_token(&TokenType::Using)
+        {
             return self.parse_use_decl().map(Decl::Use);
         }
         if self.match_token(&TokenType::Class) || self.match_token(&TokenType::Entity) {
@@ -484,9 +487,9 @@ impl<'a> Parser<'a> {
                     if self.match_token(&TokenType::Colon)
                         && let Some(constraint) =
                             self.consume_ident("Expected role constraint name")
-                        {
-                            generic_constraints.push((param.clone(), constraint));
-                        }
+                    {
+                        generic_constraints.push((param.clone(), constraint));
+                    }
                     generic_params.push(param);
                 }
                 if !self.match_token(&TokenType::Comma) {
@@ -1980,7 +1983,8 @@ impl<'a> Parser<'a> {
                 let parsed_expr = sub_parser.parse_expression();
                 let has_errors = sub_parser.diag.has_errors();
                 let is_end = sub_parser.is_at_end();
-                if !has_errors && is_end
+                if !has_errors
+                    && is_end
                     && let Some(expr) = parsed_expr
                 {
                     parts.push(current_lit.clone());
