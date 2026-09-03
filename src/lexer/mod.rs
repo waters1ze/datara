@@ -504,7 +504,10 @@ impl Lexer {
                     }
                 }
 
-                '"' => {
+                '"' | 'f' | 'F' if ch == '"' || self.peek() == '"' => {
+                    if ch != '"' {
+                        self.advance(); // consume the opening quote after f/F prefix
+                    }
                     let mut s = String::new();
                     let mut is_interpolated = false;
                     let mut closed = false;

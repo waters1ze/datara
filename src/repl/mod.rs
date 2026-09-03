@@ -1,13 +1,17 @@
-//! Datara Interactive REPL Engine (Zero-Latency JIT Console)
+//! Datara Interactive REPL Engine (Zero-Latency In-Process JIT Console)
 
+use crate::driver::ForgenCompiler;
 use std::io::{self, BufRead, Write};
-use std::process::Command;
+use std::path::PathBuf;
 
 /// Configuration and session state for the interactive REPL
 pub struct ReplSession {
     pub history: Vec<String>,
-    pub accumulated_declarations: Vec<String>,
+    pub top_level_declarations: Vec<String>,
+    pub main_statements: Vec<String>,
     pub variable_names: Vec<String>,
+    compiler: ForgenCompiler,
+    session_exe: PathBuf,
 }
 
 impl Default for ReplSession {
@@ -18,10 +22,19 @@ impl Default for ReplSession {
 
 impl ReplSession {
     pub fn new() -> Self {
+        let exe_name = if cfg!(windows) {
+            format!("datara_repl_{}.exe", std::process::id())
+        } else {
+            format!("datara_repl_{}", std::process::id())
+        };
+        let session_exe = std::env::temp_dir().join(exe_name);
         Self {
             history: Vec::new(),
-            accumulated_declarations: Vec::new(),
+            top_level_declarations: Vec::new(),
+            main_statements: Vec::new(),
             variable_names: Vec::new(),
+            compiler: ForgenCompiler::new("repl"),
+            session_exe,
         }
     }
 
@@ -47,7 +60,8 @@ impl ReplSession {
                     }
                 }
                 ":clear" => {
-                    self.accumulated_declarations.clear();
+                    self.top_level_declarations.clear();
+                    self.main_statements.clear();
                     self.variable_names.clear();
                     Some("Session state cleared.".to_string())
                 }
@@ -60,6 +74,8 @@ impl ReplSession {
                         .join("\n"),
                 ),
                 ":exit" | ":quit" | ":q" => {
+                    let _ = std::fs::remove_file(&self.session_exe);
+                    let _ = std::fs::remove_file(self.session_exe.with_extension("obj"));
                     std::process::exit(0);
                 }
                 _ => Some(format!("Unknown command '{}'. Type ':help' for help.", trimmed)),
@@ -68,94 +84,112 @@ impl ReplSession {
 
         self.history.push(trimmed.to_string());
 
-        // Check if line is a declaration (let, mut, val, fn, class, use)
-        if trimmed.starts_with("let ") || trimmed.starts_with("mut ") || trimmed.starts_with("val ")
-        {
-            // Extract variable name
-            let parts: Vec<&str> = trimmed.split_whitespace().collect();
-            if parts.len() >= 2 {
-                let var_name = parts[1]
-                    .trim_end_matches(':')
-                    .split('=')
-                    .next()
-                    .unwrap_or("")
-                    .trim();
-                if !var_name.is_empty() && !self.variable_names.contains(&var_name.to_string()) {
-                    self.variable_names.push(var_name.to_string());
-                }
-            }
-            self.accumulated_declarations.push(trimmed.to_string());
-            Some(format!("defined {}", parts.get(1).unwrap_or(&"variable")))
-        } else if trimmed.starts_with("fn ")
+        // Top-level declaration: fn, class, use, behavior, enum
+        if trimmed.starts_with("fn ")
             || trimmed.starts_with("class ")
             || trimmed.starts_with("use ")
             || trimmed.starts_with("behavior ")
+            || trimmed.starts_with("enum ")
         {
-            self.accumulated_declarations.push(trimmed.to_string());
-            Some("registered declaration".to_string())
-        } else {
-            // Free expression or statement to evaluate
-            self.execute_expression(trimmed)
+            self.top_level_declarations.push(trimmed.to_string());
+            return Some("registered declaration".to_string());
         }
+
+        // Main statement: let, mut, val, assignment
+        if trimmed.starts_with("let ") || trimmed.starts_with("mut ") || trimmed.starts_with("val ")
+        {
+            let res = self.execute_expression(trimmed);
+            if res.is_none() || !res.as_ref().unwrap().contains("error[") {
+                // Extract variable name
+                let parts: Vec<&str> = trimmed.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let var_name = parts[1]
+                        .trim_end_matches(':')
+                        .split('=')
+                        .next()
+                        .unwrap_or("")
+                        .trim();
+                    if !var_name.is_empty() && !self.variable_names.contains(&var_name.to_string())
+                    {
+                        self.variable_names.push(var_name.to_string());
+                    }
+                }
+                self.main_statements.push(trimmed.to_string());
+                return Some(format!(
+                    "defined {}",
+                    self.variable_names
+                        .last()
+                        .map(|s| s.as_str())
+                        .unwrap_or("variable")
+                ));
+            }
+            return res;
+        }
+
+        // Free expression or statement to evaluate
+        self.execute_expression(trimmed)
     }
 
-    /// Wraps expression in a synthesized program and executes it via forgen
+    /// Wraps expression in a synthesized program and executes it via in-process compiler
     fn execute_expression(&self, expr: &str) -> Option<String> {
         let mut source = String::new();
-        for decl in &self.accumulated_declarations {
+        for decl in &self.top_level_declarations {
             source.push_str(decl);
             source.push('\n');
         }
 
         source.push_str("fn main() {\n");
-        // If expression looks like a statement (contains '=' or starts with 'out ', 'print'), execute as is
+        for stmt in &self.main_statements {
+            source.push_str("    ");
+            source.push_str(stmt);
+            source.push('\n');
+        }
+
+        // If expression looks like a statement, execute directly
         if expr.starts_with("out ")
             || expr.starts_with("println")
             || expr.starts_with("print")
+            || expr.starts_with("printf")
+            || expr.starts_with("eprintln")
+            || expr.starts_with("let ")
+            || expr.starts_with("mut ")
+            || expr.starts_with("val ")
             || expr.contains(" = ")
         {
             source.push_str("    ");
             source.push_str(expr);
             source.push('\n');
         } else {
-            // Print expression value directly
-            source.push_str("    let __repl_res = ");
+            // Expression to evaluate and print
+            source.push_str("    println(");
             source.push_str(expr);
-            source.push('\n');
-            source.push_str("    out __repl_res\n");
+            source.push_str(")\n");
         }
         source.push_str("}\n");
 
-        let temp_dir = std::env::temp_dir();
-        let file_name = format!("repl_{}.dtr", std::process::id());
-        let temp_file = temp_dir.join(&file_name);
-
-        if std::fs::write(&temp_file, &source).is_err() {
-            return Some("Error: Failed to write temporary REPL source file.".to_string());
+        let res = self
+            .compiler
+            .compile_source(&source, "repl", Some(&self.session_exe));
+        if !res.success {
+            return res.error;
         }
 
-        // Run through current executable
-        let current_exe = std::env::current_exe().unwrap_or_else(|_| "forgen".into());
-        let output = Command::new(&current_exe)
-            .arg("run")
-            .arg(&temp_file)
-            .output();
-
-        let _ = std::fs::remove_file(&temp_file);
-
-        match output {
-            Ok(out) => {
-                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                if out.status.success() {
-                    if stdout.is_empty() {
+        match self.compiler.codegen.run_executable(&self.session_exe, &[]) {
+            Ok((stdout, stderr, code, _)) => {
+                let out = stdout.trim();
+                let err = stderr.trim();
+                if code == 0 {
+                    if out.is_empty() {
                         None
                     } else {
-                        Some(format!("=> {}", stdout))
+                        Some(format!("=> {}", out))
                     }
                 } else {
-                    let err = if !stderr.is_empty() { stderr } else { stdout };
-                    Some(err)
+                    Some(if !err.is_empty() {
+                        err.to_string()
+                    } else {
+                        out.to_string()
+                    })
                 }
             }
             Err(e) => Some(format!("Execution failed: {}", e)),
@@ -191,5 +225,12 @@ impl ReplSession {
                 println!("{}", res);
             }
         }
+    }
+}
+
+impl Drop for ReplSession {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.session_exe);
+        let _ = std::fs::remove_file(self.session_exe.with_extension("obj"));
     }
 }

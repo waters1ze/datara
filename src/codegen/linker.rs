@@ -242,13 +242,18 @@ fn which(program: &str) -> Option<PathBuf> {
         })
 }
 
-/// Discover the linker for the current host.
+/// Discover the linker for the current host (cached across compiler invocations).
 pub fn discover() -> LinkerSpec {
-    if cfg!(target_env = "msvc") {
-        discover_msvc()
-    } else {
-        discover_unix()
-    }
+    static CACHED_SPEC: OnceLock<LinkerSpec> = OnceLock::new();
+    CACHED_SPEC
+        .get_or_init(|| {
+            if cfg!(target_env = "msvc") {
+                discover_msvc()
+            } else {
+                discover_unix()
+            }
+        })
+        .clone()
 }
 
 /// Build the argument list that links `object` and the runtime into `output`.

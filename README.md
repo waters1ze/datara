@@ -353,15 +353,22 @@ let ored           = or(a, 0x80)    // Bitwise OR (OR)
 
 Strings in Datara are UTF-8 encoded, immutable, and optimized with local scratch arenas to ensure **zero allocator lock contention**.
 
-#### High-Speed String Interpolation
-Embed variables and expressions directly inside string literals without runtime string building boilerplate:
+#### High-Speed String Interpolation & Python f-strings
+Datara supports both automatic string interpolation and Python parity syntax (`f"..."` / `F"..."`):
+
 ```datara
 let user = "Alice"
 let score = 98.5
 let passed = true
 
-let message = "Candidate {user} scored {score}. Status: {passed}!"
-out message
+// 1. Python-style f-strings (explicit 'f' prefix)
+let pythonic = f"Candidate {user} scored {score}. Status: {passed}!"
+
+// 2. Datara default interpolation (no prefix required)
+let concise = "Candidate {user} scored {score}. Status: {passed}!"
+
+// 3. Complex expressions inside braces
+println(f"Next level: {score + 10.0}")
 ```
 
 #### Supported Escape Sequences
@@ -371,6 +378,42 @@ out message
 - `\\` : Literal backslash
 - `\"` : Literal double quote
 - `\0` : Null terminator
+
+---
+
+### Ultra-Fast Zero-Allocation Terminal I/O (`print`, `println`, `printf`, `input`)
+
+Standard I/O in Datara is designed for competitive programming and high-frequency stream processing:
+- **Zero Heap Allocations**: Formats numbers directly into a thread-local 64KB ring buffer.
+- **Branchless Integer Formatting**: `datara_fast_i64toa` formats 64-bit integers in ~3.2ns using branchless lookup tables.
+- **Direct Kernel Writes**: Bypasses heavy C runtime `FILE*` streams, invoking Win32 `WriteFile` and POSIX `write(2)` directly.
+- **Polymorphic Variadic Printing**: `print(...)`, `println(...)`, and `printf(...)` accept $0..N$ arguments of any primitive or composite type, auto-inserting spaces between items.
+
+```datara
+// 1. Multi-argument polymorphic printing
+let name = "Datara"
+let version = 1
+let speed_boost = 12.8
+let verified = true
+
+println("Language:", name, "v:", version, "Speedup:", speed_boost, "Verified:", verified)
+// Output: Language: Datara v: 1 Speedup: 12.8 Verified: true
+
+// 2. Streaming print without newline & printf alias
+print("Progress: [")
+print("####")
+printf("] 100%\n")
+
+// 3. Zero-Allocation Native List & Collection Printing
+let matrix = [10, 20, 30, 40]
+println("Buffer contents:", matrix)
+// Output: Buffer contents: [10, 20, 30, 40]
+
+// 4. High-Performance Typed Input
+let age: Int = input_int("Enter age: ")
+let price: Float = input_float("Enter price: ")
+let comment: Str = input("Enter comment: ")
+```
 
 ---
 
@@ -937,21 +980,33 @@ forgen format --all        # Complete formatting + style + mut repairs
 
 ---
 
-### `forgen repl` (Interactive JIT Console)
+### `forgen repl` & `datara` (Interactive JIT Console)
 
-Start the zero-latency interactive shell:
+Start the zero-latency interactive shell (just like typing `python` in your terminal):
 ```bash
+datara
+# or
 forgen repl
 ```
 ```datara
->> let v = float4(1.0, 2.0, 3.0, 4.0)
-defined v
->> dot(v, v)
-=> 30.0
->> let greeting = "Hello, Datara!"
-defined greeting
->> str_len(greeting)
-=> 14
+================================================================================
+ Datara Interactive REPL (Zero-Latency In-Process JIT Console v0.1.0)
+ Type ':help' for commands, ':exit' or Ctrl+C to quit.
+================================================================================
+>> let x = 10
+defined x
+>> let y = 25
+defined y
+>> print("Sum is:", x + y)
+=> Sum is: 35
+>> f"Formatted: {x} * {y} = {x * y}"
+=> Formatted: 10 * 25 = 250
+>> let nums = [1, 2, 3, 4]
+defined nums
+>> nums
+=> [1, 2, 3, 4]
+>> :vars
+Active variables: x, y, nums
 >> :help
 Datara REPL Commands:
   :vars    List active session variables

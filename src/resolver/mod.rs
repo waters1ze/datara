@@ -77,8 +77,11 @@ impl Resolver {
         let builtins = [
             "print",
             "println",
+            "printf",
             "eprintln",
             "input",
+            "input_int",
+            "input_float",
             "panic",
             "assert",
             "exit",

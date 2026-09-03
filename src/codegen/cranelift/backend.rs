@@ -558,6 +558,98 @@ impl RealCraneliftBackend {
         func_ids.insert("input".into(), (rt_input_id, rt_input_sig.clone()));
         func_ids.insert("read_line".into(), (rt_input_id, rt_input_sig));
 
+        // Fast streaming print functions
+        let mut void_1_i64_sig = Signature::new(call_conv);
+        void_1_i64_sig.params.push(AbiParam::new(clif_types::I64));
+        let rt_print_str_id = module
+            .declare_function("datara_rt_print_str", Linkage::Import, &void_1_i64_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_print_str".into(),
+            (rt_print_str_id, void_1_i64_sig.clone()),
+        );
+
+        let rt_print_int_id = module
+            .declare_function("datara_rt_print_int", Linkage::Import, &void_1_i64_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_print_int".into(),
+            (rt_print_int_id, void_1_i64_sig.clone()),
+        );
+
+        let mut void_1_f64_sig = Signature::new(call_conv);
+        void_1_f64_sig.params.push(AbiParam::new(clif_types::F64));
+        let rt_print_flt_id = module
+            .declare_function("datara_rt_print_float", Linkage::Import, &void_1_f64_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_print_float".into(),
+            (rt_print_flt_id, void_1_f64_sig),
+        );
+
+        let rt_print_bool_id = module
+            .declare_function("datara_rt_print_bool", Linkage::Import, &void_1_i64_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_print_bool".into(),
+            (rt_print_bool_id, void_1_i64_sig.clone()),
+        );
+
+        let rt_print_list_id = module
+            .declare_function("datara_rt_print_list", Linkage::Import, &void_1_i64_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_print_list".into(),
+            (rt_print_list_id, void_1_i64_sig),
+        );
+
+        let void_0_sig = Signature::new(call_conv);
+        let rt_print_sp_id = module
+            .declare_function("datara_rt_print_space", Linkage::Import, &void_0_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_print_space".into(),
+            (rt_print_sp_id, void_0_sig.clone()),
+        );
+
+        let rt_print_nl_id = module
+            .declare_function("datara_rt_print_newline", Linkage::Import, &void_0_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_print_newline".into(),
+            (rt_print_nl_id, void_0_sig.clone()),
+        );
+
+        let rt_flush_id = module
+            .declare_function("datara_rt_flush", Linkage::Import, &void_0_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert("datara_rt_flush".into(), (rt_flush_id, void_0_sig));
+
+        // Fast typed input functions
+        let mut i64_1_i64_sig = Signature::new(call_conv);
+        i64_1_i64_sig.params.push(AbiParam::new(clif_types::I64));
+        i64_1_i64_sig.returns.push(AbiParam::new(clif_types::I64));
+        let rt_input_int_id = module
+            .declare_function("datara_rt_input_int", Linkage::Import, &i64_1_i64_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_input_int".into(),
+            (rt_input_int_id, i64_1_i64_sig.clone()),
+        );
+        func_ids.insert("input_int".into(), (rt_input_int_id, i64_1_i64_sig));
+
+        let mut f64_1_i64_sig = Signature::new(call_conv);
+        f64_1_i64_sig.params.push(AbiParam::new(clif_types::I64));
+        f64_1_i64_sig.returns.push(AbiParam::new(clif_types::F64));
+        let rt_input_flt_id = module
+            .declare_function("datara_rt_input_float", Linkage::Import, &f64_1_i64_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_input_float".into(),
+            (rt_input_flt_id, f64_1_i64_sig.clone()),
+        );
+        func_ids.insert("input_float".into(), (rt_input_flt_id, f64_1_i64_sig));
+
         let mut rt_pop_sig = Signature::new(call_conv);
         rt_pop_sig.params.push(AbiParam::new(clif_types::I64));
         rt_pop_sig.returns.push(AbiParam::new(clif_types::I64));
@@ -2344,7 +2436,43 @@ impl RealCraneliftBackend {
                                     func, f.name
                                 ));
                             }
-                            let callee_ref = module.declare_func_in_func(callee_id, builder.func);
+
+                            let mut resolved_callee_id = callee_id;
+                            if func.starts_with("datara_rt_print_") && args.len() == 1 {
+                                if let Some(&first_arg_id) = args.first() {
+                                    if let Some(&av) = val_map.get(&first_arg_id) {
+                                        let v_ty = builder.func.dfg.value_type(av);
+                                        if v_ty == clif_types::F64 {
+                                            if let Some(target) =
+                                                func_ids.get("datara_rt_print_float")
+                                            {
+                                                resolved_callee_id = target.0;
+                                            }
+                                        } else if string_vids.contains(&first_arg_id) {
+                                            if let Some(target) =
+                                                func_ids.get("datara_rt_print_str")
+                                            {
+                                                resolved_callee_id = target.0;
+                                            }
+                                        } else if bool_vids.contains(&first_arg_id) {
+                                            if let Some(target) =
+                                                func_ids.get("datara_rt_print_bool")
+                                            {
+                                                resolved_callee_id = target.0;
+                                            }
+                                        } else if list_vids.contains(&first_arg_id) {
+                                            if let Some(target) =
+                                                func_ids.get("datara_rt_print_list")
+                                            {
+                                                resolved_callee_id = target.0;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            let callee_ref =
+                                module.declare_func_in_func(resolved_callee_id, builder.func);
                             let is_str_concat = callee_name.starts_with("datara_rt_str_concat");
                             let mut arg_vals = Vec::new();
                             for a in args {

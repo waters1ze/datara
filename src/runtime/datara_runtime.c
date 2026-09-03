@@ -23,11 +23,13 @@
 #endif
 
 void datara_rt_out_int(int64_t v) {
-    printf("%lld\n", v);
+    datara_rt_print_int(v);
+    datara_rt_print_newline();
 }
 
 void datara_rt_out_bool(int64_t v) {
-    printf(v ? "true\n" : "false\n");
+    datara_rt_print_bool(v);
+    datara_rt_print_newline();
 }
 
 // Returns a pointer to a static literal; never freed. The runtime's string
@@ -37,32 +39,8 @@ const char* datara_rt_bool_to_str(int64_t v) {
 }
 
 void datara_rt_out_float(double v) {
-    // Print the shortest decimal string that parses back to exactly this
-    // double, the way Rust and Python display f64.
-    //
-    // Plain "%g" keeps only 6 significant digits, so it silently corrupted most
-    // values: 249999999134217800 was printed as "2.5e+17", and pi lost
-    // everything past "3.14159". Walking the precision up and checking that the
-    // text round-trips through strtod gives the shortest exact form.
-    if (isnan(v)) {
-        printf("%s\n", signbit(v) ? "-NaN" : "NaN");
-        return;
-    }
-    if (isinf(v)) {
-        printf("%s\n", v < 0 ? "-Infinity" : "Infinity");
-        return;
-    }
-
-    char buf[64];
-    for (int prec = 1; prec < 17; prec++) {
-        snprintf(buf, sizeof(buf), "%.*g", prec, v);
-        if (strtod(buf, NULL) == v) {
-            printf("%s\n", buf);
-            return;
-        }
-    }
-    snprintf(buf, sizeof(buf), "%.17g", v);
-    printf("%s\n", buf);
+    datara_rt_print_float(v);
+    datara_rt_print_newline();
 }
 
 const char* datara_rt_float_to_str(double v) {
@@ -85,7 +63,8 @@ const char* datara_rt_float_to_str(double v) {
 }
 
 void datara_rt_out_str(const char* s) {
-    printf("%s\n", s != NULL ? s : "None");
+    datara_rt_print_str(s != NULL ? s : "None");
+    datara_rt_print_newline();
 }
 
 void datara_rt_err(const char* s) {
@@ -387,24 +366,165 @@ void datara_rt_out_val(uint64_t box) {
     }
 }
 
+// Ultra-Fast Zero-Allocation Streaming Terminal I/O Subsystem
+#define DATARA_OUT_BUF_SIZE 65536
+DATARA_TLS static char datara_out_buf[DATARA_OUT_BUF_SIZE];
+DATARA_TLS static size_t datara_out_pos = 0;
+
+static inline size_t datara_fast_i64toa(int64_t val, char* dst) {
+    char temp[32];
+    char* p = temp;
+    uint64_t u = (uint64_t)val;
+    size_t len = 0;
+    if (val < 0) {
+        dst[len++] = '-';
+        u = ~u + 1;
+    }
+    do {
+        *p++ = (char)('0' + (u % 10));
+        u /= 10;
+    } while (u > 0);
+    while (p > temp) {
+        dst[len++] = *--p;
+    }
+    return len;
+}
+
+void datara_rt_flush(void) {
+    if (datara_out_pos > 0) {
+#ifdef _WIN32
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hOut != INVALID_HANDLE_VALUE && hOut != NULL) {
+            DWORD written = 0;
+            WriteFile(hOut, datara_out_buf, (DWORD)datara_out_pos, &written, NULL);
+        } else {
+            fwrite(datara_out_buf, 1, datara_out_pos, stdout);
+            fflush(stdout);
+        }
+#else
+        ssize_t ret = write(1, datara_out_buf, datara_out_pos);
+        (void)ret;
+#endif
+        datara_out_pos = 0;
+    }
+}
+
+static inline void datara_rt_buf_write(const char* s, size_t len) {
+    if (!s || len == 0) return;
+    if (len >= DATARA_OUT_BUF_SIZE) {
+        datara_rt_flush();
+#ifdef _WIN32
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+        if (hOut != INVALID_HANDLE_VALUE && hOut != NULL) {
+            DWORD written = 0;
+            WriteFile(hOut, s, (DWORD)len, &written, NULL);
+            return;
+        }
+#else
+        ssize_t ret = write(1, s, len);
+        (void)ret;
+        return;
+#endif
+        fwrite(s, 1, len, stdout);
+        fflush(stdout);
+        return;
+    }
+    if (datara_out_pos + len > DATARA_OUT_BUF_SIZE) {
+        datara_rt_flush();
+    }
+    memcpy(datara_out_buf + datara_out_pos, s, len);
+    datara_out_pos += len;
+}
+
+void datara_rt_print_str(const char* s) {
+    if (!s) {
+        datara_rt_buf_write("None", 4);
+    } else {
+        datara_rt_buf_write(s, strlen(s));
+    }
+}
+
+void datara_rt_print_int(int64_t v) {
+    char buf[32];
+    size_t len = datara_fast_i64toa(v, buf);
+    datara_rt_buf_write(buf, len);
+}
+
+void datara_rt_print_float(double v) {
+    if (isnan(v)) {
+        datara_rt_buf_write(signbit(v) ? "-NaN" : "NaN", signbit(v) ? 4 : 3);
+        return;
+    }
+    if (isinf(v)) {
+        datara_rt_buf_write(v < 0 ? "-Infinity" : "Infinity", v < 0 ? 9 : 8);
+        return;
+    }
+    char buf[64];
+    for (int prec = 1; prec < 17; prec++) {
+        snprintf(buf, sizeof(buf), "%.*g", prec, v);
+        if (strtod(buf, NULL) == v) {
+            datara_rt_buf_write(buf, strlen(buf));
+            return;
+        }
+    }
+    snprintf(buf, sizeof(buf), "%.17g", v);
+    datara_rt_buf_write(buf, strlen(buf));
+}
+
+void datara_rt_print_bool(int64_t v) {
+    if (v) {
+        datara_rt_buf_write("true", 4);
+    } else {
+        datara_rt_buf_write("false", 5);
+    }
+}
+
+void datara_rt_print_space(void) {
+    datara_rt_buf_write(" ", 1);
+}
+
+void datara_rt_print_newline(void) {
+    datara_rt_buf_write("\n", 1);
+    datara_rt_flush();
+}
+
+void datara_rt_print_list(void* list) {
+    if (!list) {
+        datara_rt_buf_write("[]", 2);
+        return;
+    }
+    int64_t* arr = (int64_t*)list;
+    int64_t len = arr[0];
+    datara_rt_buf_write("[", 1);
+    for (int64_t i = 0; i < len; i++) {
+        if (i > 0) {
+            datara_rt_buf_write(", ", 2);
+        }
+        datara_rt_print_int(arr[i + 1]);
+    }
+    datara_rt_buf_write("]", 1);
+}
+
 // Prelude built-in functions
 void datara_rt_println(const char* s) {
-    puts(s ? s : "");
-    fflush(stdout);
+    datara_rt_print_str(s);
+    datara_rt_print_newline();
 }
 
 void datara_rt_print(const char* s) {
-    fputs(s ? s : "", stdout);
-    fflush(stdout);
+    datara_rt_print_str(s);
+    datara_rt_flush();
 }
 
 void datara_rt_eprintln(const char* s) {
+    datara_rt_flush();
     fputs(s ? s : "", stderr);
     fputc('\n', stderr);
     fflush(stderr);
 }
 
 void datara_rt_panic(const char* s) {
+    datara_rt_flush();
     fprintf(stderr, "panic: %s\n", s ? s : "explicit panic");
     fflush(stderr);
     exit(1);
@@ -421,24 +541,34 @@ int64_t datara_rt_len(const char* s) {
 }
 
 const char* datara_rt_input(const char* prompt) {
+    datara_rt_flush();
     if (prompt && prompt[0] != '\0') {
-        fputs(prompt, stdout);
-        fflush(stdout);
+        datara_rt_print_str(prompt);
+        datara_rt_flush();
     }
-    char* buf = datara_scratch_alloc(256);
+    char* buf = datara_scratch_alloc(1024);
     if (!buf) return "";
-    if (fgets(buf, 256, stdin) == NULL) {
+    if (fgets(buf, 1024, stdin) == NULL) {
         buf[0] = '\0';
         return buf;
     }
     size_t len = strlen(buf);
-    if (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
-        buf[--len] = '\0';
-    }
-    if (len > 0 && buf[len - 1] == '\r') {
+    while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r')) {
         buf[--len] = '\0';
     }
     return buf;
+}
+
+int64_t datara_rt_input_int(const char* prompt) {
+    const char* s = datara_rt_input(prompt);
+    if (!s || s[0] == '\0') return 0;
+    return (int64_t)strtoll(s, NULL, 10);
+}
+
+double datara_rt_input_float(const char* prompt) {
+    const char* s = datara_rt_input(prompt);
+    if (!s || s[0] == '\0') return 0.0;
+    return strtod(s, NULL);
 }
 
 void datara_rt_out_dec64(int64_t val) {

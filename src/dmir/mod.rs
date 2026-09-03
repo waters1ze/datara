@@ -1769,29 +1769,85 @@ impl<'a> Lowering<'a> {
                             .push(Inst::ConstInt { dest, value: 0 });
                         return Some(dest);
                     }
-                    if fn_name == "println" && args.len() == 1 {
-                        let arg_val = self.lower_expr(&args[0], cur_block)?;
-                        self.get_block_mut(*cur_block)
-                            .instructions
-                            .push(Inst::Out { value: arg_val });
-                        let dest = self.next_val();
-                        self.get_block_mut(*cur_block)
-                            .instructions
-                            .push(Inst::ConstInt { dest, value: 0 });
-                        return Some(dest);
-                    }
-                    if fn_name == "print" && args.len() == 1 {
-                        let arg_val = self.lower_expr(&args[0], cur_block)?;
-                        let dest = self.next_val();
-                        self.get_block_mut(*cur_block)
-                            .instructions
-                            .push(Inst::Call {
-                                dest,
-                                func: "datara_rt_print".into(),
-                                args: vec![arg_val],
-                                ty: "Unit".into(),
-                            });
-                        return Some(dest);
+                    if fn_name == "println" || fn_name == "print" || fn_name == "printf" {
+                        if args.is_empty() {
+                            let dest = self.next_val();
+                            if fn_name == "println" {
+                                self.get_block_mut(*cur_block)
+                                    .instructions
+                                    .push(Inst::Call {
+                                        dest,
+                                        func: "datara_rt_print_newline".into(),
+                                        args: vec![],
+                                        ty: "Unit".into(),
+                                    });
+                            } else {
+                                self.get_block_mut(*cur_block)
+                                    .instructions
+                                    .push(Inst::ConstInt { dest, value: 0 });
+                            }
+                            return Some(dest);
+                        }
+
+                        for (idx, arg) in args.iter().enumerate() {
+                            if idx > 0 {
+                                let sp_dest = self.next_val();
+                                self.get_block_mut(*cur_block)
+                                    .instructions
+                                    .push(Inst::Call {
+                                        dest: sp_dest,
+                                        func: "datara_rt_print_space".into(),
+                                        args: vec![],
+                                        ty: "Unit".into(),
+                                    });
+                            }
+
+                            let arg_val = self.lower_expr(arg, cur_block)?;
+                            let print_func = if self.is_expr_str(arg) {
+                                "datara_rt_print_str"
+                            } else if self.is_expr_float(arg) {
+                                "datara_rt_print_float"
+                            } else if self.is_expr_bool(arg) {
+                                "datara_rt_print_bool"
+                            } else if self.is_expr_list(arg) {
+                                "datara_rt_print_list"
+                            } else {
+                                "datara_rt_print_int"
+                            };
+
+                            let dest = self.next_val();
+                            self.get_block_mut(*cur_block)
+                                .instructions
+                                .push(Inst::Call {
+                                    dest,
+                                    func: print_func.into(),
+                                    args: vec![arg_val],
+                                    ty: "Unit".into(),
+                                });
+                        }
+
+                        let final_dest = self.next_val();
+                        if fn_name == "println" {
+                            self.get_block_mut(*cur_block)
+                                .instructions
+                                .push(Inst::Call {
+                                    dest: final_dest,
+                                    func: "datara_rt_print_newline".into(),
+                                    args: vec![],
+                                    ty: "Unit".into(),
+                                });
+                        } else {
+                            self.get_block_mut(*cur_block)
+                                .instructions
+                                .push(Inst::Call {
+                                    dest: final_dest,
+                                    func: "datara_rt_flush".into(),
+                                    args: vec![],
+                                    ty: "Unit".into(),
+                                });
+                        }
+
+                        return Some(final_dest);
                     }
                     if fn_name == "eprintln" && args.len() == 1 {
                         let arg_val = self.lower_expr(&args[0], cur_block)?;
@@ -1885,7 +1941,12 @@ impl<'a> Lowering<'a> {
                             });
                         return Some(dest);
                     }
-                    if (fn_name == "input" || fn_name == "read_line") && args.len() <= 1 {
+                    if (fn_name == "input"
+                        || fn_name == "read_line"
+                        || fn_name == "input_int"
+                        || fn_name == "input_float")
+                        && args.len() <= 1
+                    {
                         let prompt_val = if !args.is_empty() {
                             self.lower_expr(&args[0], cur_block)?
                         } else {
@@ -1898,14 +1959,21 @@ impl<'a> Lowering<'a> {
                                 });
                             empty
                         };
+                        let (target_func, ret_ty) = if fn_name == "input_int" {
+                            ("datara_rt_input_int", "Int")
+                        } else if fn_name == "input_float" {
+                            ("datara_rt_input_float", "Float")
+                        } else {
+                            ("datara_rt_input", "String")
+                        };
                         let dest = self.next_val();
                         self.get_block_mut(*cur_block)
                             .instructions
                             .push(Inst::Call {
                                 dest,
-                                func: "datara_rt_input".into(),
+                                func: target_func.into(),
                                 args: vec![prompt_val],
-                                ty: "String".into(),
+                                ty: ret_ty.into(),
                             });
                         return Some(dest);
                     }
@@ -3169,6 +3237,11 @@ impl<'a> Lowering<'a> {
                     || member.contains("float")
             }
             Expr::Identifier(name, ..) => {
+                if let Some(ty) = self.lookup_var_type(name)
+                    && ty == crate::types::DataraType::Float
+                {
+                    return true;
+                }
                 self.class_field_types
                     .get(name)
                     .map(|t| t == "Float")
@@ -3189,6 +3262,35 @@ impl<'a> Lowering<'a> {
             }
             _ => false,
         }
+    }
+
+    fn is_expr_bool(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::Literal(LiteralValue::Bool(_), _) => true,
+            Expr::Identifier(name, ..) => {
+                if let Some(ty) = self.lookup_var_type(name)
+                    && ty == crate::types::DataraType::Bool
+                {
+                    return true;
+                }
+                false
+            }
+            Expr::Binary { op, .. } => {
+                matches!(
+                    op.as_str(),
+                    "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||"
+                )
+            }
+            Expr::Unary { op, .. } => op == "!",
+            _ => false,
+        }
+    }
+
+    fn is_expr_list(&self, expr: &Expr) -> bool {
+        matches!(
+            expr,
+            Expr::ListLiteral(..) | Expr::ArrayRepeatLiteral { .. }
+        )
     }
 
     fn find_packet_for_member(&self, object: &Expr, member: &str) -> Option<(usize, usize)> {

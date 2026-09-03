@@ -1493,8 +1493,18 @@ impl<'a> TypeChecker<'a> {
                     if fn_name == "destroy" || fn_name == "unsafe_op" {
                         return DataraType::Unit;
                     }
-                    if fn_name == "println" || fn_name == "print" || fn_name == "eprintln" {
+                    if fn_name == "println"
+                        || fn_name == "print"
+                        || fn_name == "printf"
+                        || fn_name == "eprintln"
+                    {
                         return DataraType::Unit;
+                    }
+                    if fn_name == "input_int" {
+                        return DataraType::Int;
+                    }
+                    if fn_name == "input_float" {
+                        return DataraType::Float;
                     }
                     if fn_name == "len" || fn_name == "now" {
                         return DataraType::Int;
