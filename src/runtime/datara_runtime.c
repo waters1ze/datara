@@ -78,7 +78,7 @@ const char* datara_rt_float_to_str(double v) {
     char* buf = (char*)malloc(64);
     if (!buf) return "";
     if (v == floor(v) && fabs(v) < 1e15) {
-        snprintf(buf, 64, "%.1f", v);
+        snprintf(buf, 64, "%.0f", v);
         return buf;
     }
     for (int prec = 4; prec < 17; prec++) {
@@ -494,7 +494,7 @@ void datara_rt_print_float(double v) {
     }
     char buf[64];
     if (v == floor(v) && fabs(v) < 1e15) {
-        int len = snprintf(buf, sizeof(buf), "%.1f", v);
+        int len = snprintf(buf, sizeof(buf), "%.0f", v);
         datara_rt_buf_write(buf, (size_t)len);
         return;
     }
