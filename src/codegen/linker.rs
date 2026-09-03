@@ -401,6 +401,11 @@ pub fn find_llc() -> Option<PathBuf> {
     })
 }
 
+pub fn find_lld() -> Option<PathBuf> {
+    which(if cfg!(windows) { "lld-link.exe" } else { "lld" })
+        .or_else(|| which(if cfg!(windows) { "lld.exe" } else { "lld" }))
+}
+
 /// Compile an LLVM IR file (.ll) using LLC and link into a native executable.
 pub fn compile_with_llc(
     llc: &Path,
@@ -500,28 +505,46 @@ pub fn compile_with_clang(
             "2" => "-O2",
             _ => "-O3",
         };
-        let mut cmd = Command::new(&clang);
-        cmd.arg(opt_flag);
-        cmd.arg("-flto");
-        cmd.arg("-march=native");
-        cmd.arg(ll_path);
-        if let Some(rt) = runtime_c_path
-            && rt.exists()
-        {
-            cmd.arg(rt);
+        let run_clang = |use_lto: bool| -> Result<std::process::Output, String> {
+            let mut cmd = Command::new(&clang);
+            cmd.arg(opt_flag);
+            if use_lto {
+                cmd.arg("-flto");
+                if cfg!(windows) && find_lld().is_some() {
+                    cmd.arg("-fuse-ld=lld");
+                }
+            }
+            cmd.arg("-march=native");
+            cmd.arg(ll_path);
+            if let Some(rt) = runtime_c_path
+                && rt.exists()
+            {
+                cmd.arg(rt);
+            }
+            cmd.arg("-o").arg(output_exe);
+            if cfg!(windows) {
+                cmd.arg("-lws2_32");
+                cmd.arg("-luser32");
+                cmd.arg("-lkernel32");
+            } else {
+                cmd.arg("-lm");
+                cmd.arg("-lpthread");
+            }
+            cmd.output()
+                .map_err(|e| format!("Failed to run clang: {}", e))
+        };
+
+        let mut res = run_clang(true)?;
+        if !res.status.success() {
+            let stderr_str = String::from_utf8_lossy(&res.stderr);
+            if stderr_str.contains("LTO requires")
+                || stderr_str.contains("-flto")
+                || stderr_str.contains("lld")
+            {
+                // Retry without -flto
+                res = run_clang(false)?;
+            }
         }
-        cmd.arg("-o").arg(output_exe);
-        if cfg!(windows) {
-            cmd.arg("-lws2_32");
-            cmd.arg("-luser32");
-            cmd.arg("-lkernel32");
-        } else {
-            cmd.arg("-lm");
-            cmd.arg("-lpthread");
-        }
-        let res = cmd
-            .output()
-            .map_err(|e| format!("Failed to run clang: {}", e))?;
         if !res.status.success() {
             return Err(format!(
                 "Clang compilation failed:\n{}",

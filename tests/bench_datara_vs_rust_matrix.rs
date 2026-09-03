@@ -186,7 +186,7 @@ fn rust_fnv1a(n: i64) -> i64 {
 // INTEGRATION TEST: COMPREHENSIVE BENCHMARK MATRIX
 // =========================================================================
 #[test]
-fn test_comprehensive_datara_vs_rust_benchmark_matrix() {
+fn bench_comprehensive_datara_vs_rust_benchmark_matrix() {
     println!(
         "\n==============================================================================================="
     );
