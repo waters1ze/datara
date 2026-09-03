@@ -1,10 +1,10 @@
-# 💻 Datara Editor & IDE Ecosystem / Настройка подсветки в любых IDE
+# Datara Editor & IDE Ecosystem / Настройка подсветки в любых IDE
 
 Язык программирования **Datara** предоставляет готовые конфигурации подсветки синтаксиса и интеграцию с Language Server Protocol (`forgen lsp`) для всех современных редакторов кода и сред разработки.
 
 ---
 
-## 🚀 Быстрый переход к вашей среде (Quick Jump)
+## Быстрый переход к вашей среде (Quick Jump)
 
 * [Visual Studio Code / Cursor / Windsurf / VSCodium](#1-visual-studio-code--cursor--windsurf)
 * [JetBrains (IntelliJ IDEA, PyCharm, CLion, RustRover)](#2-jetbrains-ides)
@@ -123,6 +123,6 @@ args = ["lsp"]
 
 ---
 
-## 🎨 Фирменная Windows-иконка файлов `.dtr`
+## Фирменная Windows-иконка файлов `.dtr`
 
 При установке через наш официальный установщик (`installer/DataraSetup.bat`), все файлы с расширением `.dtr` на вашем компьютере автоматически получают официальную иконку Datara высокого разрешения (вплоть до 256x256 пикселей с альфа-прозрачностью) и привязываются к двойному клику ("Открыть с помощью Datara" / "Редактировать в VS Code").

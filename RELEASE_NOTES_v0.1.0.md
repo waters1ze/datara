@@ -1,4 +1,4 @@
-# 🚀 Datara v0.1.0 Release Notes: The Genesis Release
+# Datara v0.1.0 Release Notes: The Genesis Release
 
 We are thrilled to announce the official public release of **Datara v0.1.0** and the **`forgen`** AOT native compiler toolchain!
 
@@ -6,7 +6,7 @@ Datara is a high-performance, compiled Post-OOP systems and application programm
 
 ---
 
-## 🌟 Highlights of v0.1.0
+## Highlights of v0.1.0
 
 ### 1. Dual-Engine Compiler Architecture (`forgen`)
 - **Fast-Dev Cranelift JIT:** Instant 30–50ms cold compilation from source to native CPU instructions.
@@ -40,7 +40,7 @@ Datara is a high-performance, compiled Post-OOP systems and application programm
 
 ---
 
-## 📦 Downloads & Installation
+## Downloads & Installation
 
 ### Windows (64-bit)
 - **GUI Installer (Recommended):** [Datara-Setup.exe](https://github.com/waters1ze/datara/releases/download/v0.1.0/Datara-Setup.exe) (5.4 MB)
@@ -65,7 +65,7 @@ Datara is a high-performance, compiled Post-OOP systems and application programm
 
 ---
 
-## 🛡️ Quality & Verification
+## Quality & Verification
 - **Test Suite:** 88 automated integration and compiler test suites passing (100% green).
 - **Formal Evidence Gate:** All SSA optimizations mathematically validated.
 - **License:** Dual-licensed under Apache-2.0 / MIT.

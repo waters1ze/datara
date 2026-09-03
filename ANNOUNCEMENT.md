@@ -1,4 +1,4 @@
-# 📢 Datara Public Launch & Social Media Kit
+#  Datara Public Launch & Social Media Kit
 
 This document contains pre-formatted, high-engagement announcement templates ready to publish across social networks and developer communities.
 
@@ -47,8 +47,8 @@ Hey everyone!
 
 After extensive engineering, we're publicly launching **Datara v0.1.0** — an open-source systems and application programming language built in Rust:
 
-🔗 **GitHub:** https://github.com/waters1ze/datara  
-📦 **Release Notes & Setup:** https://github.com/waters1ze/datara/releases
+ **GitHub:** https://github.com/waters1ze/datara  
+ **Release Notes & Setup:** https://github.com/waters1ze/datara/releases
 
 ### What makes Datara unique?
 
@@ -77,7 +77,7 @@ curl -fsSL https://raw.githubusercontent.com/waters1ze/datara/main/install.sh | 
 **First Program (`hello.dtr`):**
 ```datara
 fn main() {
-    println("Hello, Datara World! 🚀")
+    println("Hello, Datara World! ")
 }
 ```
 Run with: `forgen run hello.dtr`
@@ -90,16 +90,16 @@ Check out the code, run the benchmarks, and feel free to star the repo or open a
 ## 3. Twitter / X (Thread)
 
 **Tweet 1:**
-> 🚀 Introducing Datara: A high-performance Post-OOP systems programming language designed for mechanical sympathy, zero GC pauses, and instant dev velocity.
+>  Introducing Datara: A high-performance Post-OOP systems programming language designed for mechanical sympathy, zero GC pauses, and instant dev velocity.
 > 
 > Written in Rust, powered by Cranelift + LLVM.
 > 
-> 🔗 https://github.com/waters1ze/datara
+>  https://github.com/waters1ze/datara
 > 
-> Here’s what makes it special 🧵👇
+> Here’s what makes it special 
 
 **Tweet 2:**
-> ⚡ Dual-Engine Compilation:
+>  Dual-Engine Compilation:
 > 
 > • Development: Cranelift JIT gives you 30–50ms cold compile times. Zero waiting.
 > • Production: LLVM AOT (`--llvm`) with Clang -O3, LTO, and adaptive SIMD vectorization.
@@ -107,14 +107,14 @@ Check out the code, run the benchmarks, and feel free to star the repo or open a
 > Best of both worlds.
 
 **Tweet 3:**
-> 🔬 The Evidence Gate Optimizer:
+>  The Evidence Gate Optimizer:
 > 
 > • Closed-Form LoopFold: Converts countable loops to O(1) math at compile time.
 > • Mutable SROA: Keeps structs in CPU registers, bypassing heap allocations entirely.
 > • Wire-Blit String Fusion: Zero intermediate reallocations.
 
 **Tweet 4:**
-> 💻 Universal Developer Experience:
+>  Universal Developer Experience:
 > 
 > • 1-Click Windows Setup (`Datara-Setup.exe`) with Start Menu & Explorer icons
 > • Native Terminal one-liners for Windows, macOS, and Linux
@@ -127,27 +127,27 @@ Check out the code, run the benchmarks, and feel free to star the repo or open a
 > Windows: `irm https://raw.githubusercontent.com/waters1ze/datara/main/install.ps1 | iex`
 > Unix: `curl -fsSL https://raw.githubusercontent.com/waters1ze/datara/main/install.sh | bash`
 > 
-> Star the repo: https://github.com/waters1ze/datara 🚀
+> Star the repo: https://github.com/waters1ze/datara 
 
 ---
 
 ## 4. Telegram & Discord Announcement
 
 ```text
-🚀 Релиз языка программирования Datara v0.1.0!
+ Релиз языка программирования Datara v0.1.0!
 
 Мы рады представить публичный релиз языка Datara и компилятора Forgen!
 
 Datara — это высокопроизводительный Post-OOP системный язык программирования, написанный на Rust. Он сочетает чистоту синтаксиса современных языков со скоростью C/Rust и полным отсутствием пауз сборщика мусора (Zero GC).
 
-🔥 Главные фичи:
+ Главные фичи:
 • Двойной бэкенд: Cranelift для мгновенной сборки (30-50 мс) и LLVM -O3 для продакшна
 • Оптимизатор Evidence Gate: сворачивание циклов в O(1) формулы, скаляризация структур в регистры CPU (0 аллокаций), слияние строк
 • Post-OOP: чистое разделение данных и логики (entity, behavior, packet) без накладных расходов vtable
 • Автономный установщик Datara-Setup.exe с поддержкой меню «Пуск» и Проводника Windows
 • Поддержка всех IDE: VS Code, Cursor, JetBrains, Sublime, Neovim, Helix, Zed
 
-📦 Установка в 1 команду:
+ Установка в 1 команду:
 • Windows: irm https://raw.githubusercontent.com/waters1ze/datara/main/install.ps1 | iex
 • Linux/macOS: curl -fsSL https://raw.githubusercontent.com/waters1ze/datara/main/install.sh | bash
 

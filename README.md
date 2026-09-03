@@ -86,7 +86,7 @@ Datara completely eliminates garbage collection pauses and reference-counting cy
 > **Zero-Configuration & Zero-Dependency Guarantee:**
 > All **33 official Standard Library modules** (`stdlib.math`, `stdlib.io.fs`, `stdlib.json`, `stdlib.crypto`, `stdlib.collections`, `stdlib.time`, `stdlib.net`, etc.) are **compiled directly into the binary** as an in-memory fallback. You never need to manually download or configure them. External third-party packages are installed via the built-in package manager (`dpm add <pkg>`) or restored automatically via `dpm install`.
 
-### Windows Installation
+#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/windows.svg" height="20" valign="middle" alt="Windows" /> Windows Installation
 
 #### Method A: Official Standalone GUI Installer (Recommended)
 Download and run the official 1-click installer:
@@ -101,16 +101,15 @@ Download and run the official 1-click installer:
 - Registers Datara in Windows **"Installed Apps"** (with clean uninstaller).
 - Installs the Datara Language Extension for VS Code / Cursor.
 
-#### Method B: Automated Terminal One-Liner (PowerShell)
+#### Method B: Automated PowerShell One-Liner
 Open PowerShell and run:
 ```powershell
 irm https://raw.githubusercontent.com/waters1ze/datara/main/install.ps1 | iex
 ```
-*Dynamically detects and downloads the latest release from GitHub API, installs binaries, stdlib, icons, and registers `PATH`.*
 
 ---
 
-### Linux & macOS Installation
+### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Linux & <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/apple.svg" height="20" valign="middle" alt="macOS" /> macOS Installation
 
 Open your terminal and run the official Unix installation script:
 ```bash
@@ -131,7 +130,7 @@ source ~/.zshrc    # On macOS / Zsh
 
 Install and run Datara seamlessly across developer ecosystems:
 
-#### ⚡ NPM & NPX (Zero-Install Execution)
+#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/npm.svg" height="20" valign="middle" alt="NPM" /> NPM & NPX (Zero-Install Execution)
 Run Datara files or launch the REPL instantly with `npx`:
 ```bash
 # Instant run with zero local installation:
@@ -144,7 +143,7 @@ npx @waters1ze/datara repl
 npm install -g @waters1ze/datara
 ```
 
-#### 🐍 Python PyPI (`pip install datara`)
+#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/python.svg" height="20" valign="middle" alt="Python" /> Python PyPI (`pip install datara`)
 Install CLI runners and Python FFI bindings via `pip`:
 ```bash
 pip install datara
@@ -155,19 +154,19 @@ import datara
 datara.run("algorithm.dtr")
 ```
 
-#### 🦀 Rust Crates.io (`cargo install forgen`)
+#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/rust.svg" height="20" valign="middle" alt="Rust" /> Rust Crates.io (`cargo install forgen`)
 Compile and install the latest Forgen compiler directly from crates.io:
 ```bash
 cargo install forgen
 ```
 
-#### 🎨 VS Code & Cursor Extension (.vsix)
+#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/vscode.svg" height="20" valign="middle" alt="VS Code" /> VS Code & Cursor Extension (.vsix)
 Install syntax highlighting, type hover, and icon themes in 1 command:
 ```bash
 code --install-extension dist/datara-language-0.1.0.vsix
 ```
 
-#### 🐧 Linux Native Packages (.deb & .rpm)
+#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Linux Native Packages (.deb & .rpm)
 Install native system packages on Debian/Ubuntu or Fedora/RHEL:
 ```bash
 # Debian / Ubuntu / Pop!_OS / Linux Mint:
@@ -177,14 +176,14 @@ sudo dpkg -i datara_0.1.0_amd64.deb
 sudo rpm -ivh datara-0.1.0-1.x86_64.rpm
 ```
 
-#### Windows: Winget & Scoop
+#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/windows.svg" height="20" valign="middle" alt="Windows" /> Windows: Winget & Scoop
 ```powershell
 winget install waters1ze.Datara
 # or Scoop:
 scoop install https://raw.githubusercontent.com/waters1ze/datara/main/packaging/scoop/datara.json
 ```
 
-#### macOS & Linux: Homebrew & AUR
+#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/apple.svg" height="20" valign="middle" alt="macOS" /> macOS & <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Linux: Homebrew & AUR
 ```bash
 brew install waters1ze/tap/datara
 # or Arch Linux:
