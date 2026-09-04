@@ -82,6 +82,7 @@ fn diamond_module(float_arms: bool) -> Module {
                     },
                 },
             ],
+            ..Default::default()
         },
     );
     module

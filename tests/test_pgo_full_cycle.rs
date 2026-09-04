@@ -41,6 +41,7 @@ fn test_pgo_full_cycle_inlining_and_branch_prediction() {
         return_type: "Int".to_string(),
         entry_block: callee_entry,
         blocks: vec![callee_block],
+        ..Default::default()
     };
     module
         .functions
@@ -74,6 +75,7 @@ fn test_pgo_full_cycle_inlining_and_branch_prediction() {
         return_type: "Int".to_string(),
         entry_block: caller_entry,
         blocks: vec![caller_block],
+        ..Default::default()
     };
     module.functions.insert("process_input".to_string(), caller);
 

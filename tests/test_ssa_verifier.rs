@@ -63,6 +63,7 @@ fn verifier_accepts_valid_phi_form() {
                 },
             ),
         ],
+        ..Default::default()
     };
     assert_eq!(verify_function(&f), Ok(()));
 }
@@ -82,6 +83,7 @@ fn verifier_rejects_duplicate_definition() {
                 value: Some(ValueId(0)),
             },
         )],
+        ..Default::default()
     };
     let err = verify_function(&f).expect_err("duplicate definition must be rejected");
     assert!(err.contains("defined more than once"), "got: {}", err);
@@ -111,6 +113,7 @@ fn verifier_rejects_undefined_use() {
                 value: Some(ValueId(1)),
             },
         )],
+        ..Default::default()
     };
     let err = verify_function(&f).expect_err("undefined use must be rejected");
     assert!(err.contains("undefined"), "got: {}", err);
@@ -136,6 +139,7 @@ fn verifier_rejects_branch_arity_mismatch() {
             ),
             block(1, vec![], vec![], Terminator::Return { value: None }),
         ],
+        ..Default::default()
     };
     let err = verify_function(&f).expect_err("arity mismatch must be rejected");
     assert!(
@@ -204,6 +208,7 @@ fn verifier_rejects_use_not_dominated_by_definition() {
                 },
             ),
         ],
+        ..Default::default()
     };
     let err = verify_function(&f).expect_err("use without dominating definition must be rejected");
     assert!(

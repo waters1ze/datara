@@ -135,17 +135,45 @@ impl Lexer {
                 '.' => {
                     if self.peek() == '.' {
                         self.advance();
-                        tokens.push(Token::new(
-                            TokenType::DotDot,
-                            "..".into(),
-                            SourceSpan::new(
-                                start_line,
-                                start_col,
-                                self.line,
-                                self.col,
-                                self.file.clone(),
-                            ),
-                        ));
+                        if self.peek() == '=' {
+                            self.advance();
+                            tokens.push(Token::new(
+                                TokenType::DotDotEq,
+                                "..=".into(),
+                                SourceSpan::new(
+                                    start_line,
+                                    start_col,
+                                    self.line,
+                                    self.col,
+                                    self.file.clone(),
+                                ),
+                            ));
+                        } else if self.peek() == '<' {
+                            self.advance();
+                            tokens.push(Token::new(
+                                TokenType::DotDotLt,
+                                "..<".into(),
+                                SourceSpan::new(
+                                    start_line,
+                                    start_col,
+                                    self.line,
+                                    self.col,
+                                    self.file.clone(),
+                                ),
+                            ));
+                        } else {
+                            tokens.push(Token::new(
+                                TokenType::DotDot,
+                                "..".into(),
+                                SourceSpan::new(
+                                    start_line,
+                                    start_col,
+                                    self.line,
+                                    self.col,
+                                    self.file.clone(),
+                                ),
+                            ));
+                        }
                     } else {
                         tokens.push(Token::new(
                             TokenType::Dot,
@@ -668,6 +696,10 @@ impl Lexer {
                         "packet" => TokenType::Packet,
                         "using" => TokenType::Using,
                         "or" => TokenType::OrKeyword,
+                        "type" => TokenType::Type,
+                        "where" => TokenType::Where,
+                        "require" => TokenType::Require,
+                        "ensure" => TokenType::Ensure,
                         _ => TokenType::Identifier(ident_str.clone()),
                     };
 

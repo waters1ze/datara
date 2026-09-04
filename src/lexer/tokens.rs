@@ -63,6 +63,10 @@ pub enum TokenType {
     Packet,
     Using,
     OrKeyword,
+    Type,
+    Where,
+    Require,
+    Ensure,
 
     // Literals & Identifiers
     Identifier(String),
@@ -78,6 +82,8 @@ pub enum TokenType {
     Arrow,        // ->
     Pipe,         // |>
     DotDot,       // ..
+    DotDotEq,     // ..=
+    DotDotLt,     // ..<
     Plus,         // +
     Minus,        // -
     Star,         // *

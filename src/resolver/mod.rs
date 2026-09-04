@@ -61,6 +61,7 @@ pub struct Resolver {
     pub functions: HashMap<String, Symbol>,
     pub packets: HashMap<String, PacketDecl>,
     pub extern_functions: HashMap<String, ExternFnDecl>,
+    pub type_aliases: HashMap<String, TypeDecl>,
 }
 
 impl Default for Resolver {
@@ -218,6 +219,7 @@ impl Resolver {
             functions: HashMap::new(),
             packets: HashMap::new(),
             extern_functions: HashMap::new(),
+            type_aliases: HashMap::new(),
         }
     }
 
@@ -347,6 +349,7 @@ impl Resolver {
                                 generic_args: Vec::new(),
                                 is_option: false,
                                 error_type: None,
+                                refinement: None,
                                 span: v.span.clone(),
                             }),
                         };
@@ -539,6 +542,7 @@ impl Resolver {
                                     generic_args: Vec::new(),
                                     is_option: false,
                                     error_type: None,
+                                    refinement: None,
                                     span: f.span.clone(),
                                 }),
                                 return_type: None,
@@ -562,6 +566,35 @@ impl Resolver {
                     self.packets.insert(p.name.clone(), p.clone());
                     self.classes.insert(p.name.clone(), sym.clone());
                     self.scopes[0].define(p.name.clone(), sym);
+                }
+
+                Decl::Type(td) => {
+                    if self.type_aliases.contains_key(&td.name)
+                        || self.classes.contains_key(&td.name)
+                    {
+                        diag.error(
+                            ErrorCode::ResolveDuplicateSymbol,
+                            format!("Duplicate type alias '{}'", td.name),
+                            Some(td.span.clone()),
+                        );
+                    }
+                    self.type_aliases.insert(td.name.clone(), td.clone());
+                    let sym = Symbol {
+                        name: td.name.clone(),
+                        kind: SymbolKind::Class,
+                        is_mut: false,
+                        is_export: td.is_export,
+                        span: td.span.clone(),
+                        fields: HashMap::new(),
+                        methods: HashMap::new(),
+                        base_type: Some(td.base_type.name.clone()),
+                        compositions: Vec::new(),
+                        generic_params: Vec::new(),
+                        type_node: Some(td.base_type.clone()),
+                        return_type: None,
+                    };
+                    self.classes.insert(td.name.clone(), sym.clone());
+                    self.scopes[0].define(td.name.clone(), sym);
                 }
             }
         }

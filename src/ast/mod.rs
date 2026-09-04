@@ -20,6 +20,7 @@ pub enum Decl {
     Task(FunctionDecl),
     Packet(PacketDecl),
     ExternFn(ExternFnDecl),
+    Type(TypeDecl),
 }
 
 impl Decl {
@@ -34,6 +35,7 @@ impl Decl {
             Decl::Function(d) | Decl::Flow(d) | Decl::Task(d) => &d.span,
             Decl::Packet(d) => &d.span,
             Decl::ExternFn(d) => &d.span,
+            Decl::Type(d) => &d.span,
         }
     }
 }
@@ -97,12 +99,42 @@ pub struct RoleDecl {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractClause {
+    pub condition: Expr,
+    pub message: Option<String>,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Refinement {
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        inclusive: bool,
+    },
+    Predicate {
+        var_name: String,
+        predicate: Box<Expr>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TypeDecl {
+    pub name: String,
+    pub base_type: TypeNode,
+    pub is_export: bool,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionDecl {
     pub name: String,
     pub generic_params: Vec<String>,
     pub generic_constraints: Vec<(String, String)>,
     pub params: Vec<Param>,
     pub return_type: Option<TypeNode>,
+    pub requires: Vec<ContractClause>,
+    pub ensures: Vec<ContractClause>,
     pub body: Box<Stmt>,
     pub is_expression_body: bool,
     pub is_export: bool,
@@ -154,6 +186,8 @@ pub struct MethodDecl {
     pub generic_params: Vec<String>,
     pub params: Vec<Param>,
     pub return_type: Option<TypeNode>,
+    pub requires: Vec<ContractClause>,
+    pub ensures: Vec<ContractClause>,
     pub body: Option<Box<Stmt>>,
     pub is_expression_body: bool,
     pub is_replaces: bool,
@@ -175,10 +209,22 @@ pub struct TypeNode {
     pub generic_args: Vec<TypeNode>,
     pub is_option: bool,
     pub error_type: Option<Box<TypeNode>>,
+    pub refinement: Option<Refinement>,
     pub span: SourceSpan,
 }
 
 impl TypeNode {
+    pub fn new(name: &str, span: SourceSpan) -> Self {
+        Self {
+            name: name.to_string(),
+            generic_args: Vec::new(),
+            is_option: false,
+            error_type: None,
+            refinement: None,
+            span,
+        }
+    }
+
     pub fn full_type_name(&self) -> String {
         if self.generic_args.is_empty() {
             self.name.clone()
@@ -342,6 +388,7 @@ pub enum Expr {
     Range {
         start: Box<Expr>,
         end: Box<Expr>,
+        inclusive: bool,
         span: SourceSpan,
     },
     Tuple(Vec<Expr>, SourceSpan),

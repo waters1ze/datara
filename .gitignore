@@ -64,3 +64,11 @@ tests/debug_*.dtr
 *.egg-info/
 __pycache__/
 .pytest_cache/
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+

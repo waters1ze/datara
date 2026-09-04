@@ -1,3 +1,4 @@
+use crate::ast::{Expr, LiteralValue, Refinement};
 use crate::dmir::cfg::ControlFlowGraph;
 use crate::dmir::{BasicBlockId, Function, Inst, Terminator, ValueId};
 use crate::optimizer::cost_model::{CostModel, OptimizationDecisionTrace};
@@ -1595,6 +1596,12 @@ impl LoopOptimizer {
         let mut val_to_name: HashMap<ValueId, String> = HashMap::new();
         let mut name_to_val: HashMap<String, ValueId> = HashMap::new();
         let mut copy_of: HashMap<ValueId, ValueId> = HashMap::new();
+        let mut assigned: HashSet<String> = HashSet::new();
+
+        for (p_name, _ty, p_val) in &f.params {
+            name_to_val.insert(p_name.clone(), *p_val);
+            val_to_name.insert(*p_val, p_name.clone());
+        }
 
         for block in &f.blocks {
             for inst in &block.instructions {
@@ -1608,6 +1615,7 @@ impl LoopOptimizer {
                         list_len.insert(*dest, LenVal::Vid(args[1]));
                     }
                     Inst::AssignVar { name, value } => {
+                        assigned.insert(name.clone());
                         if let Some(prev) = name_to_val.get(name) {
                             if *prev != *value {
                                 // Rebinding: invalidate the value direction.
@@ -1677,6 +1685,86 @@ impl LoopOptimizer {
         }
 
         let const_val = |vid: ValueId| -> Option<i64> { consts.get(&vid).copied() };
+
+        // --- Evidence Gate Bounds Check Elimination (BCE) ---
+        // Proves 0 <= idx < len(arr) from parameter refinement types (e.g. idx: Int in 0..<arr.len())
+        // or contract preconditions (require 0 <= idx && idx < arr.len()).
+        let mut proven_bounds: HashMap<String, String> = HashMap::new();
+
+        for (p_name, refn_opt) in &f.param_refinements {
+            if let Some(refn) = refn_opt {
+                match refn {
+                    Refinement::Range {
+                        start,
+                        end,
+                        inclusive,
+                    } => {
+                        if !inclusive
+                            && Self::is_zero_expr(start)
+                            && let Some(arr_name) = Self::extract_len_target(end)
+                        {
+                            proven_bounds.insert(p_name.clone(), arr_name);
+                        }
+                    }
+                    Refinement::Predicate {
+                        var_name,
+                        predicate,
+                    } => {
+                        if let Some(arr_name) =
+                            Self::extract_predicate_len_target(var_name, predicate)
+                        {
+                            proven_bounds.insert(p_name.clone(), arr_name);
+                        }
+                    }
+                }
+            }
+        }
+
+        for req in &f.requires {
+            if let Some((idx_name, arr_name)) =
+                Self::extract_index_bound_from_contract(&req.condition)
+            {
+                proven_bounds.insert(idx_name, arr_name);
+            }
+        }
+
+        let mut evidence_gate_count = 0;
+        if !proven_bounds.is_empty() {
+            for block in &mut f.blocks {
+                for inst in &mut block.instructions {
+                    if let Inst::Call { func, args, .. } = inst
+                        && (func == "datara_rt_list_get" || func == "datara_rt_list_set")
+                        && args.len() >= 2
+                    {
+                        let arr_name = resolve_name(args[0], &copy_of, &val_to_name);
+                        let idx_name = resolve_name(args[1], &copy_of, &val_to_name);
+                        if let (Some(arr), Some(idx)) = (arr_name, idx_name)
+                            && proven_bounds.get(&idx) == Some(&arr)
+                            && !assigned.contains(&idx)
+                            && !assigned.contains(&arr)
+                        {
+                            *func = format!("{}_unchecked", func);
+                            eliminated += 1;
+                            evidence_gate_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        if evidence_gate_count > 0 {
+            trace.record(
+                "EvidenceGate:BCE",
+                &format!("{}:param_refinement", f.name),
+                "Applied",
+                &format!("+{} proven unchecked access", evidence_gate_count),
+                "0",
+                &format!(
+                    "Evidence Gate proved 0 <= idx < len(arr) via refinement/contract for {} accesses: bypassed runtime bounds check",
+                    evidence_gate_count
+                ),
+            );
+        }
 
         for lp in &cfg.loops {
             let header_block = match f.get_block(lp.header) {
@@ -1832,5 +1920,165 @@ impl LoopOptimizer {
             }
         }
         None
+    }
+
+    fn is_zero_expr(expr: &Expr) -> bool {
+        matches!(expr, Expr::Literal(LiteralValue::Int(0), _))
+    }
+
+    fn extract_len_target(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Call { callee, args, .. } if args.is_empty() => {
+                if let Expr::MemberAccess { object, member, .. } = callee.as_ref()
+                    && (member == "len" || member == "length")
+                    && let Expr::Identifier(arr_name, _) = object.as_ref()
+                {
+                    return Some(arr_name.clone());
+                }
+                if let Expr::Identifier(fn_name, _) = callee.as_ref()
+                    && (fn_name == "len" || fn_name == "length")
+                    && let Some(Expr::Identifier(arr_name, _)) = args.first()
+                {
+                    return Some(arr_name.clone());
+                }
+                None
+            }
+            Expr::Call { callee, args, .. } if args.len() == 1 => {
+                if let Expr::Identifier(fn_name, _) = callee.as_ref()
+                    && (fn_name == "len" || fn_name == "length")
+                    && let Some(Expr::Identifier(arr_name, _)) = args.first()
+                {
+                    return Some(arr_name.clone());
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn extract_predicate_len_target(var_name: &str, predicate: &Expr) -> Option<String> {
+        match predicate {
+            Expr::Binary {
+                op, left, right, ..
+            } if op == "&&" => {
+                let left_ok = Self::is_non_negative_check(var_name, left);
+                let right_target = Self::is_less_than_len_check(var_name, right);
+                if left_ok && right_target.is_some() {
+                    return right_target;
+                }
+                let right_ok = Self::is_non_negative_check(var_name, right);
+                let left_target = Self::is_less_than_len_check(var_name, left);
+                if right_ok && left_target.is_some() {
+                    return left_target;
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn is_non_negative_check(var_name: &str, expr: &Expr) -> bool {
+        match expr {
+            Expr::Binary {
+                op, left, right, ..
+            } => {
+                if op == ">=" {
+                    if let Expr::Identifier(name, _) = left.as_ref()
+                        && name == var_name
+                        && Self::is_zero_expr(right)
+                    {
+                        return true;
+                    }
+                } else if op == "<="
+                    && let Expr::Identifier(name, _) = right.as_ref()
+                    && name == var_name
+                    && Self::is_zero_expr(left)
+                {
+                    return true;
+                }
+                false
+            }
+            _ => false,
+        }
+    }
+
+    fn is_less_than_len_check(var_name: &str, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Binary {
+                op, left, right, ..
+            } if op == "<" => {
+                if let Expr::Identifier(name, _) = left.as_ref()
+                    && name == var_name
+                {
+                    return Self::extract_len_target(right);
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn extract_index_bound_from_contract(expr: &Expr) -> Option<(String, String)> {
+        match expr {
+            Expr::Binary {
+                op, left, right, ..
+            } if op == "&&" => {
+                if let (Some(idx1), Some((idx2, arr))) = (
+                    Self::extract_non_negative_var(left),
+                    Self::extract_less_than_len(right),
+                ) && idx1 == idx2
+                {
+                    return Some((idx1, arr));
+                }
+                if let (Some((idx1, arr)), Some(idx2)) = (
+                    Self::extract_less_than_len(left),
+                    Self::extract_non_negative_var(right),
+                ) && idx1 == idx2
+                {
+                    return Some((idx1, arr));
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn extract_non_negative_var(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Binary {
+                op, left, right, ..
+            } => {
+                if op == ">=" {
+                    if let Expr::Identifier(name, _) = left.as_ref()
+                        && Self::is_zero_expr(right)
+                    {
+                        return Some(name.clone());
+                    }
+                } else if op == "<="
+                    && let Expr::Identifier(name, _) = right.as_ref()
+                    && Self::is_zero_expr(left)
+                {
+                    return Some(name.clone());
+                }
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn extract_less_than_len(expr: &Expr) -> Option<(String, String)> {
+        match expr {
+            Expr::Binary {
+                op, left, right, ..
+            } if op == "<" => {
+                if let Expr::Identifier(idx_name, _) = left.as_ref()
+                    && let Some(arr_name) = Self::extract_len_target(right)
+                {
+                    return Some((idx_name.clone(), arr_name));
+                }
+                None
+            }
+            _ => None,
+        }
     }
 }

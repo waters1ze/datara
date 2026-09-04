@@ -60,6 +60,25 @@ impl DataraType {
         if let (DataraType::Result(ok1, err1), DataraType::Result(ok2, err2)) = (self, other) {
             return ok1.is_compatible(ok2) && err1.is_compatible(err2);
         }
+        if let (
+            DataraType::GenericInstance { name: n1, args: a1 },
+            DataraType::GenericInstance { name: n2, args: a2 },
+        ) = (self, other)
+            && n1 == n2
+            && a1.len() == a2.len()
+        {
+            return a1.iter().zip(a2.iter()).all(|(a, b)| a.is_compatible(b));
+        }
+        if let (DataraType::Class(c), DataraType::GenericInstance { name: g, .. }) = (self, other)
+            && c == g
+        {
+            return true;
+        }
+        if let (DataraType::GenericInstance { name: g, .. }, DataraType::Class(c)) = (self, other)
+            && c == g
+        {
+            return true;
+        }
         false
     }
 
@@ -214,6 +233,8 @@ pub struct TypeChecker<'a> {
     /// Preserved mapping of (function_name, variable_name) -> DataraType
     /// across the whole program, surviving block exits so DMIR lowering has full types.
     pub fn_symbol_types: HashMap<(String, String), DataraType>,
+    pub var_refinements: HashMap<String, TypeNode>,
+    pub function_param_nodes: HashMap<String, Vec<Option<TypeNode>>>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -645,6 +666,8 @@ impl<'a> TypeChecker<'a> {
             last_list_element: None,
             current_fn_name: None,
             fn_symbol_types,
+            var_refinements: HashMap::new(),
+            function_param_nodes: HashMap::new(),
         }
     }
 
@@ -697,6 +720,231 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    pub fn resolve_type_node(&self, tn: &TypeNode) -> DataraType {
+        if let Some(td) = self.resolver.type_aliases.get(&tn.name) {
+            return self.resolve_type_node(&td.base_type);
+        }
+        if !tn.generic_args.is_empty() {
+            let args: Vec<DataraType> = tn
+                .generic_args
+                .iter()
+                .map(|arg| self.resolve_type_node(arg))
+                .collect();
+            if tn.name == "Result" && args.len() == 2 {
+                return DataraType::Result(Box::new(args[0].clone()), Box::new(args[1].clone()));
+            }
+            if tn.name == "Option" && args.len() == 1 {
+                return DataraType::Option(Box::new(args[0].clone()));
+            }
+            return DataraType::GenericInstance {
+                name: tn.name.clone(),
+                args,
+            };
+        }
+
+        let base = match tn.name.as_str() {
+            "Int" | "Int64" | "Int32" | "Int16" | "Int8" | "UInt" | "UInt64" | "UInt32"
+            | "UInt16" | "UInt8" | "i64" | "i32" | "i16" | "i8" | "isize" | "u64" | "u32"
+            | "u16" | "u8" | "u128" | "i128" | "usize" | "USize" | "Byte" => DataraType::Int,
+            "Float" | "Float64" | "Float32" | "f64" | "f32" | "f16" => DataraType::Float,
+            "dec64" => DataraType::Dec64,
+            "dec128" => DataraType::Dec128,
+            "Bool" => DataraType::Bool,
+            "String" | "Str" => DataraType::String,
+            "Char" => DataraType::Char,
+            "Unit" => DataraType::Unit,
+            "val" | "Val" => DataraType::Val,
+            "RawPtr" => DataraType::RawPtr,
+            other if other.len() == 1 && other.chars().next().unwrap().is_ascii_uppercase() => {
+                DataraType::TypeParam(other.to_string())
+            }
+            "Item" | "Key" | "Value" | "Element" | "Err" | "Target" => {
+                DataraType::TypeParam(tn.name.clone())
+            }
+            other => DataraType::Class(other.to_string()),
+        };
+
+        if tn.is_option {
+            DataraType::Option(Box::new(base))
+        } else if let Some(err) = &tn.error_type {
+            let err_type = self.resolve_type_node(err);
+            DataraType::Result(Box::new(base), Box::new(err_type))
+        } else {
+            base
+        }
+    }
+
+    pub fn get_refinement<'b>(&'b self, tn: &'b TypeNode) -> Option<&'b Refinement> {
+        if let Some(r) = &tn.refinement {
+            return Some(r);
+        }
+        if let Some(td) = self.resolver.type_aliases.get(&tn.name) {
+            return self.get_refinement(&td.base_type);
+        }
+        None
+    }
+
+    pub fn check_refinement(
+        &self,
+        tn: &TypeNode,
+        init: &Expr,
+        span: &SourceSpan,
+        diag: &mut DiagnosticEngine,
+    ) {
+        let Some(refinement) = self.get_refinement(tn) else {
+            return;
+        };
+
+        match refinement {
+            Refinement::Range {
+                start,
+                end,
+                inclusive,
+            } => match init {
+                Expr::Literal(LiteralValue::Int(val), _) => {
+                    let s_val = Self::extract_int_lit(start);
+                    let e_val = Self::extract_int_lit(end);
+                    if let (Some(s), Some(e)) = (s_val, e_val) {
+                        let in_bounds = if *inclusive {
+                            *val >= s && *val <= e
+                        } else {
+                            *val >= s && *val < e
+                        };
+                        if !in_bounds {
+                            diag.error(
+                                ErrorCode::TypeMismatch,
+                                format!(
+                                    "Refinement type violation: value {} is outside allowed range {}{}{}",
+                                    val,
+                                    s,
+                                    if *inclusive { "..=" } else { "..<" },
+                                    e
+                                ),
+                                Some(span.clone()),
+                            );
+                        }
+                    }
+                }
+                Expr::Literal(LiteralValue::Float(val), _) => {
+                    let s_val = Self::extract_float_lit(start);
+                    let e_val = Self::extract_float_lit(end);
+                    if let (Some(s), Some(e)) = (s_val, e_val) {
+                        let in_bounds = if *inclusive {
+                            *val >= s && *val <= e
+                        } else {
+                            *val >= s && *val < e
+                        };
+                        if !in_bounds {
+                            diag.error(
+                                ErrorCode::TypeMismatch,
+                                format!(
+                                    "Refinement type violation: value {} is outside allowed range {}{}{}",
+                                    val,
+                                    s,
+                                    if *inclusive { "..=" } else { "..<" },
+                                    e
+                                ),
+                                Some(span.clone()),
+                            );
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Refinement::Predicate {
+                var_name,
+                predicate,
+            } => {
+                if let Expr::Literal(lit, _) = init
+                    && let Some(false) = Self::eval_predicate(predicate, var_name, lit)
+                {
+                    let lit_str = match lit {
+                        LiteralValue::Int(i) => i.to_string(),
+                        LiteralValue::Float(f) => f.to_string(),
+                        LiteralValue::String(s) => format!("\"{}\"", s),
+                        LiteralValue::Bool(b) => b.to_string(),
+                        LiteralValue::Char(c) => format!("'{}'", c),
+                        LiteralValue::None => "none".to_string(),
+                    };
+                    diag.error(
+                        ErrorCode::TypeMismatch,
+                        format!(
+                            "Refinement type violation: value {} violates predicate",
+                            lit_str
+                        ),
+                        Some(span.clone()),
+                    );
+                }
+            }
+        }
+    }
+
+    fn extract_int_lit(expr: &Expr) -> Option<i64> {
+        match expr {
+            Expr::Literal(LiteralValue::Int(v), _) => Some(*v),
+            Expr::Unary { op, expr, .. } if op == "-" => Self::extract_int_lit(expr).map(|v| -v),
+            _ => None,
+        }
+    }
+
+    fn extract_float_lit(expr: &Expr) -> Option<f64> {
+        match expr {
+            Expr::Literal(LiteralValue::Float(v), _) => Some(*v),
+            Expr::Literal(LiteralValue::Int(v), _) => Some(*v as f64),
+            Expr::Unary { op, expr, .. } if op == "-" => Self::extract_float_lit(expr).map(|v| -v),
+            _ => None,
+        }
+    }
+
+    fn eval_predicate(expr: &Expr, var_name: &str, lit: &LiteralValue) -> Option<bool> {
+        match expr {
+            Expr::Binary {
+                op, left, right, ..
+            } => {
+                let left_val = Self::eval_expr_for_pred(left, var_name, lit)?;
+                let right_val = Self::eval_expr_for_pred(right, var_name, lit)?;
+                match op.as_str() {
+                    "!=" => Some(left_val != right_val),
+                    "==" => Some(left_val == right_val),
+                    "<" => Some(left_val < right_val),
+                    "<=" => Some(left_val <= right_val),
+                    ">" => Some(left_val > right_val),
+                    ">=" => Some(left_val >= right_val),
+                    "&&" => {
+                        let l = Self::eval_predicate(left, var_name, lit)?;
+                        let r = Self::eval_predicate(right, var_name, lit)?;
+                        Some(l && r)
+                    }
+                    "||" => {
+                        let l = Self::eval_predicate(left, var_name, lit)?;
+                        let r = Self::eval_predicate(right, var_name, lit)?;
+                        Some(l || r)
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn eval_expr_for_pred(expr: &Expr, var_name: &str, lit: &LiteralValue) -> Option<f64> {
+        match expr {
+            Expr::Identifier(name, _) if name == var_name || name == "val" || name == "it" => {
+                match lit {
+                    LiteralValue::Int(i) => Some(*i as f64),
+                    LiteralValue::Float(f) => Some(*f),
+                    _ => None,
+                }
+            }
+            Expr::Literal(LiteralValue::Int(i), _) => Some(*i as f64),
+            Expr::Literal(LiteralValue::Float(f), _) => Some(*f),
+            Expr::Unary { op, expr, .. } if op == "-" => {
+                Self::eval_expr_for_pred(expr, var_name, lit).map(|v| -v)
+            }
+            _ => None,
+        }
+    }
+
     pub fn suggest_type_fix(expected: &DataraType, found: &DataraType) -> Option<String> {
         match (expected, found) {
             (DataraType::Int, DataraType::Float) => Some(
@@ -740,18 +988,21 @@ impl<'a> TypeChecker<'a> {
                     .map(|p| {
                         p.type_node
                             .as_ref()
-                            .map(Self::resolve_tn)
+                            .map(|t| self.resolve_type_node(t))
                             .unwrap_or(DataraType::Int)
                     })
                     .collect();
                 let ret = f
                     .return_type
                     .as_ref()
-                    .map(Self::resolve_tn)
+                    .map(|t| self.resolve_type_node(t))
                     .unwrap_or(DataraType::Unit);
                 let gen_params: Vec<String> = f.generic_params.clone();
                 self.function_signatures
                     .insert(f.name.clone(), (p_types, ret, gen_params));
+                let p_nodes: Vec<Option<TypeNode>> =
+                    f.params.iter().map(|p| p.type_node.clone()).collect();
+                self.function_param_nodes.insert(f.name.clone(), p_nodes);
             }
         }
 
@@ -762,17 +1013,23 @@ impl<'a> TypeChecker<'a> {
 
     fn check_decl(&mut self, decl: &Decl, diag: &mut DiagnosticEngine) {
         match decl {
+            Decl::Type(td) => {
+                let _ = self.resolve_type_node(&td.base_type);
+            }
             Decl::Function(f) | Decl::Flow(f) | Decl::Task(f) => {
                 self.current_fn_name = Some(f.name.clone());
                 for p in &f.params {
                     let p_type = p
                         .type_node
                         .as_ref()
-                        .map(Self::resolve_tn)
+                        .map(|t| self.resolve_type_node(t))
                         .unwrap_or(DataraType::Int);
                     self.symbol_types.insert(p.name.clone(), p_type.clone());
                     self.fn_symbol_types
                         .insert((f.name.clone(), p.name.clone()), p_type);
+                    if let Some(tn) = &p.type_node {
+                        self.var_refinements.insert(p.name.clone(), tn.clone());
+                    }
                 }
                 if let Some(rt) = &f.return_type {
                     Self::validate_error_channels(rt, diag);
@@ -780,9 +1037,20 @@ impl<'a> TypeChecker<'a> {
                 let expected = f
                     .return_type
                     .as_ref()
-                    .map(Self::resolve_tn)
+                    .map(|t| self.resolve_type_node(t))
                     .unwrap_or(DataraType::Unit);
                 self.current_return_type = Some(expected.clone());
+
+                for req in &f.requires {
+                    self.check_expr(&req.condition, diag);
+                }
+
+                self.symbol_types.insert("result".into(), expected.clone());
+                for ens in &f.ensures {
+                    self.check_expr(&ens.condition, diag);
+                }
+                self.symbol_types.remove("result");
+
                 let body_type = self.check_stmt(&f.body, diag);
                 self.current_return_type = None;
                 self.current_fn_name = None;
@@ -821,21 +1089,35 @@ impl<'a> TypeChecker<'a> {
                             let p_type = p
                                 .type_node
                                 .as_ref()
-                                .map(Self::resolve_tn)
+                                .map(|t| self.resolve_type_node(t))
                                 .unwrap_or(DataraType::Int);
                             self.symbol_types.insert(p.name.clone(), p_type.clone());
                             self.fn_symbol_types
                                 .insert((m_fn_name.clone(), p.name.clone()), p_type);
+                            if let Some(tn) = &p.type_node {
+                                self.var_refinements.insert(p.name.clone(), tn.clone());
+                            }
                         }
                         if let Some(rt) = &m.return_type {
                             Self::validate_error_channels(rt, diag);
                         }
-                        self.current_return_type = Some(
-                            m.return_type
-                                .as_ref()
-                                .map(Self::resolve_tn)
-                                .unwrap_or(DataraType::Unit),
-                        );
+                        let expected = m
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type_node(t))
+                            .unwrap_or(DataraType::Unit);
+                        self.current_return_type = Some(expected.clone());
+
+                        for req in &m.requires {
+                            self.check_expr(&req.condition, diag);
+                        }
+
+                        self.symbol_types.insert("result".into(), expected.clone());
+                        for ens in &m.ensures {
+                            self.check_expr(&ens.condition, diag);
+                        }
+                        self.symbol_types.remove("result");
+
                         self.check_stmt(body, diag);
                         self.current_return_type = None;
                         self.current_fn_name = None;
@@ -867,21 +1149,35 @@ impl<'a> TypeChecker<'a> {
                             let p_type = p
                                 .type_node
                                 .as_ref()
-                                .map(Self::resolve_tn)
+                                .map(|t| self.resolve_type_node(t))
                                 .unwrap_or(DataraType::Int);
                             self.symbol_types.insert(p.name.clone(), p_type.clone());
                             self.fn_symbol_types
                                 .insert((m_fn_name.clone(), p.name.clone()), p_type);
+                            if let Some(tn) = &p.type_node {
+                                self.var_refinements.insert(p.name.clone(), tn.clone());
+                            }
                         }
                         if let Some(rt) = &m.return_type {
                             Self::validate_error_channels(rt, diag);
                         }
-                        self.current_return_type = Some(
-                            m.return_type
-                                .as_ref()
-                                .map(Self::resolve_tn)
-                                .unwrap_or(DataraType::Unit),
-                        );
+                        let expected = m
+                            .return_type
+                            .as_ref()
+                            .map(|t| self.resolve_type_node(t))
+                            .unwrap_or(DataraType::Unit);
+                        self.current_return_type = Some(expected.clone());
+
+                        for req in &m.requires {
+                            self.check_expr(&req.condition, diag);
+                        }
+
+                        self.symbol_types.insert("result".into(), expected.clone());
+                        for ens in &m.ensures {
+                            self.check_expr(&ens.condition, diag);
+                        }
+                        self.symbol_types.remove("result");
+
                         self.check_stmt(body, diag);
                         self.current_return_type = None;
                         self.current_fn_name = None;
@@ -955,7 +1251,9 @@ impl<'a> TypeChecker<'a> {
             } => {
                 let init_type = self.check_expr(init, diag);
                 let final_ty = if let Some(tn) = type_node {
-                    let declared = Self::resolve_tn(tn);
+                    self.var_refinements.insert(name.clone(), tn.clone());
+                    self.check_refinement(tn, init, span, diag);
+                    let declared = self.resolve_type_node(tn);
                     if !init_type.is_compatible(&declared) {
                         let help_msg = Self::suggest_type_fix(&declared, &init_type);
                         diag.error_with_help(
@@ -990,7 +1288,9 @@ impl<'a> TypeChecker<'a> {
             } => {
                 let init_type = self.check_expr(init, diag);
                 let final_ty = if let Some(tn) = type_node {
-                    let declared = Self::resolve_tn(tn);
+                    self.var_refinements.insert(name.clone(), tn.clone());
+                    self.check_refinement(tn, init, span, diag);
+                    let declared = self.resolve_type_node(tn);
                     if !init_type.is_compatible(&declared) {
                         let help_msg = Self::suggest_type_fix(&declared, &init_type);
                         diag.error_with_help(
@@ -1025,7 +1325,9 @@ impl<'a> TypeChecker<'a> {
             } => {
                 let init_type = self.check_expr(init, diag);
                 let final_ty = if let Some(tn) = type_node {
-                    let declared = Self::resolve_tn(tn);
+                    self.var_refinements.insert(name.clone(), tn.clone());
+                    self.check_refinement(tn, init, span, diag);
+                    let declared = self.resolve_type_node(tn);
                     if !init_type.is_compatible(&declared) {
                         let help_msg = Self::suggest_type_fix(&declared, &init_type);
                         diag.error_with_help(
@@ -1061,7 +1363,9 @@ impl<'a> TypeChecker<'a> {
             } => {
                 let init_type = self.check_expr(init, diag);
                 let final_ty = if let Some(tn) = type_node {
-                    let declared = Self::resolve_tn(tn);
+                    self.var_refinements.insert(name.clone(), tn.clone());
+                    self.check_refinement(tn, init, span, diag);
+                    let declared = self.resolve_type_node(tn);
                     if !init_type.is_compatible(&declared) {
                         let help_msg = Self::suggest_type_fix(&declared, &init_type);
                         diag.error_with_help(
@@ -1105,6 +1409,9 @@ impl<'a> TypeChecker<'a> {
             } => {
                 let val_type = self.check_expr(value, diag);
                 if let Expr::Identifier(name, _) = target {
+                    if let Some(tn) = self.var_refinements.get(name).cloned() {
+                        self.check_refinement(&tn, value, span, diag);
+                    }
                     if let Some(mut_kind) = self.symbol_mutability.get(name) {
                         match mut_kind {
                             MutabilityKind::Immutable => {
@@ -1564,6 +1871,14 @@ impl<'a> TypeChecker<'a> {
                     }
                     if fn_name == "str_to_float" {
                         return DataraType::Float;
+                    }
+
+                    if let Some(param_nodes) = self.function_param_nodes.get(fn_name).cloned() {
+                        for (arg, p_node) in args.iter().zip(param_nodes.iter()) {
+                            if let Some(tn) = p_node {
+                                self.check_refinement(tn, arg, arg.span(), diag);
+                            }
+                        }
                     }
 
                     if let Some((param_types, ret_type, _gen_params)) =

@@ -18,6 +18,7 @@ fn trivial_module() -> Module {
         return_type: "Int".into(),
         entry_block: BasicBlockId(0),
         blocks: Vec::new(),
+        ..Default::default()
     };
     function.blocks.push(BasicBlock {
         id: BasicBlockId(0),

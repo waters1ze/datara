@@ -675,6 +675,10 @@ int64_t datara_rt_list_get(int64_t* list, int64_t idx) {
     return list[idx + 1];
 }
 
+int64_t datara_rt_list_get_unchecked(int64_t* list, int64_t idx) {
+    return list[idx + 1];
+}
+
 int64_t datara_rt_list_len(int64_t* list) {
     return list ? list[0] : 0;
 }
@@ -683,6 +687,11 @@ int64_t* datara_rt_list_set(int64_t* list, int64_t idx, int64_t v) {
     if (!list) return NULL;
     int64_t count = list[0];
     if (idx < 0 || idx >= count) return list;
+    list[idx + 1] = v;
+    return list;
+}
+
+int64_t* datara_rt_list_set_unchecked(int64_t* list, int64_t idx, int64_t v) {
     list[idx + 1] = v;
     return list;
 }

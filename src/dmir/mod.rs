@@ -9,10 +9,10 @@ pub mod verifier;
 
 pub use verifier::{verify_function, verify_module};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct ValueId(pub usize);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct BasicBlockId(pub usize);
 
 impl std::fmt::Display for ValueId {
@@ -356,9 +356,27 @@ pub struct BasicBlock {
 pub struct Function {
     pub name: String,
     pub params: Vec<(String, String, ValueId)>,
+    #[serde(default)]
+    pub param_refinements: Vec<(String, Option<Refinement>)>,
+    #[serde(default)]
+    pub requires: Vec<ContractClause>,
     pub return_type: String,
     pub entry_block: BasicBlockId,
     pub blocks: Vec<BasicBlock>,
+}
+
+impl Default for Function {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            params: Vec::new(),
+            param_refinements: Vec::new(),
+            requires: Vec::new(),
+            return_type: String::new(),
+            entry_block: BasicBlockId(0),
+            blocks: Vec::new(),
+        }
+    }
 }
 
 impl Function {
@@ -816,9 +834,10 @@ impl<'a> Lowering<'a> {
         self.block_counter = 0;
         self.symbol_values.clear();
 
-        let entry_id = self.create_block("entry");
+        let mut entry_id = self.create_block("entry");
 
         let mut params = Vec::new();
+        let mut param_refinements = Vec::new();
         for p in &f.params {
             let p_val = self.next_val();
             let ty_str = p
@@ -831,10 +850,66 @@ impl<'a> Lowering<'a> {
                     .insert(p.name.clone(), "Float".into());
             }
             params.push((p.name.clone(), ty_str, p_val));
+            let refn = p.type_node.as_ref().and_then(|t| {
+                if let Some(r) = &t.refinement {
+                    Some(r.clone())
+                } else if let Some(td) = self.resolver.type_aliases.get(&t.name) {
+                    td.base_type.refinement.clone()
+                } else {
+                    None
+                }
+            });
+            param_refinements.push((p.name.clone(), refn));
             self.symbol_values.insert(p.name.clone(), p_val);
         }
 
-        let (cur_block, ret_val) = self.lower_stmt_cfg(&f.body, entry_id);
+        for req in &f.requires {
+            if let Some(cond_val) = self.lower_expr(&req.condition, &mut entry_id) {
+                let msg_val = self.next_val();
+                let msg_str = req.message.as_deref().unwrap_or("Precondition failed");
+                self.get_block_mut(entry_id)
+                    .instructions
+                    .push(Inst::ConstStr {
+                        dest: msg_val,
+                        value: msg_str.into(),
+                    });
+                let dest = self.next_val();
+                self.get_block_mut(entry_id).instructions.push(Inst::Call {
+                    dest,
+                    func: "datara_rt_assert".into(),
+                    args: vec![cond_val, msg_val],
+                    ty: "Unit".into(),
+                });
+            }
+        }
+
+        let (mut cur_block, ret_val) = self.lower_stmt_cfg(&f.body, entry_id);
+
+        if !f.ensures.is_empty() {
+            if let Some(rv) = ret_val {
+                self.symbol_values.insert("result".into(), rv);
+            }
+            for ens in &f.ensures {
+                if let Some(cond_val) = self.lower_expr(&ens.condition, &mut cur_block) {
+                    let msg_val = self.next_val();
+                    let msg_str = ens.message.as_deref().unwrap_or("Postcondition failed");
+                    self.get_block_mut(cur_block)
+                        .instructions
+                        .push(Inst::ConstStr {
+                            dest: msg_val,
+                            value: msg_str.into(),
+                        });
+                    let dest = self.next_val();
+                    self.get_block_mut(cur_block).instructions.push(Inst::Call {
+                        dest,
+                        func: "datara_rt_assert".into(),
+                        args: vec![cond_val, msg_val],
+                        ty: "Unit".into(),
+                    });
+                }
+            }
+            self.symbol_values.remove("result");
+        }
 
         let cur = self.get_block_mut(cur_block);
         if matches!(
@@ -855,6 +930,8 @@ impl<'a> Lowering<'a> {
         Function {
             name: f.name.clone(),
             params,
+            param_refinements,
+            requires: f.requires.clone(),
             return_type: f
                 .return_type
                 .as_ref()
@@ -912,10 +989,11 @@ impl<'a> Lowering<'a> {
         self.current_blocks.clear();
         self.block_counter = 0;
 
-        let entry_id = self.create_block("entry");
+        let mut entry_id = self.create_block("entry");
 
         let this_val = self.next_val();
         let mut params = vec![("this".to_string(), class_name.to_string(), this_val)];
+        let mut param_refinements = vec![("this".to_string(), None)];
         self.symbol_values.insert("this".to_string(), this_val);
 
         for p in &m.params {
@@ -926,14 +1004,70 @@ impl<'a> Lowering<'a> {
                 .map(|t| t.full_type_name())
                 .unwrap_or_else(|| "Int".into());
             params.push((p.name.clone(), ty_str, p_val));
+            let refn = p.type_node.as_ref().and_then(|t| {
+                if let Some(r) = &t.refinement {
+                    Some(r.clone())
+                } else if let Some(td) = self.resolver.type_aliases.get(&t.name) {
+                    td.base_type.refinement.clone()
+                } else {
+                    None
+                }
+            });
+            param_refinements.push((p.name.clone(), refn));
             self.symbol_values.insert(p.name.clone(), p_val);
         }
 
-        let (cur_block, ret_val) = if let Some(body) = &m.body {
+        for req in &m.requires {
+            if let Some(cond_val) = self.lower_expr(&req.condition, &mut entry_id) {
+                let msg_val = self.next_val();
+                let msg_str = req.message.as_deref().unwrap_or("Precondition failed");
+                self.get_block_mut(entry_id)
+                    .instructions
+                    .push(Inst::ConstStr {
+                        dest: msg_val,
+                        value: msg_str.into(),
+                    });
+                let dest = self.next_val();
+                self.get_block_mut(entry_id).instructions.push(Inst::Call {
+                    dest,
+                    func: "datara_rt_assert".into(),
+                    args: vec![cond_val, msg_val],
+                    ty: "Unit".into(),
+                });
+            }
+        }
+
+        let (mut cur_block, ret_val) = if let Some(body) = &m.body {
             self.lower_stmt_cfg(body, entry_id)
         } else {
             (entry_id, None)
         };
+
+        if !m.ensures.is_empty() {
+            if let Some(rv) = ret_val {
+                self.symbol_values.insert("result".into(), rv);
+            }
+            for ens in &m.ensures {
+                if let Some(cond_val) = self.lower_expr(&ens.condition, &mut cur_block) {
+                    let msg_val = self.next_val();
+                    let msg_str = ens.message.as_deref().unwrap_or("Postcondition failed");
+                    self.get_block_mut(cur_block)
+                        .instructions
+                        .push(Inst::ConstStr {
+                            dest: msg_val,
+                            value: msg_str.into(),
+                        });
+                    let dest = self.next_val();
+                    self.get_block_mut(cur_block).instructions.push(Inst::Call {
+                        dest,
+                        func: "datara_rt_assert".into(),
+                        args: vec![cond_val, msg_val],
+                        ty: "Unit".into(),
+                    });
+                }
+            }
+            self.symbol_values.remove("result");
+        }
 
         let cur = self.get_block_mut(cur_block);
         if matches!(
@@ -954,6 +1088,8 @@ impl<'a> Lowering<'a> {
         Function {
             name: format!("{}_{}", class_name, m.name),
             params,
+            param_refinements,
+            requires: m.requires.clone(),
             return_type: m
                 .return_type
                 .as_ref()

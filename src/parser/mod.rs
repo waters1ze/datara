@@ -79,11 +79,34 @@ impl<'a> Parser<'a> {
         if self.match_token(&TokenType::Extern) {
             return self.parse_extern_fn_decl().map(Decl::ExternFn);
         }
+        if self.match_token(&TokenType::Type) {
+            return self.parse_type_decl(is_export).map(Decl::Type);
+        }
 
         self.error(
-            "Expected top-level declaration (class, entity, behavior, fn, process, component, role, packet, extern, use)",
+            "Expected top-level declaration (class, entity, behavior, fn, process, component, role, packet, extern, type, use)",
         );
         None
+    }
+
+    fn parse_type_decl(&mut self, is_export: bool) -> Option<TypeDecl> {
+        let start_span = self.previous().span.clone();
+        let name = self.consume_ident("Expected type alias name after 'type'")?;
+        self.consume(&TokenType::Equal, "Expected '=' after type alias name")?;
+        let base_type = self.parse_type()?;
+        self.match_token(&TokenType::Semicolon);
+        Some(TypeDecl {
+            name,
+            base_type,
+            is_export,
+            span: SourceSpan::new(
+                start_span.start_line,
+                start_span.start_col,
+                self.previous().span.end_line,
+                self.previous().span.end_col,
+                self.file.clone(),
+            ),
+        })
     }
 
     fn consume_ident_or_keyword(&mut self, message: &str) -> Option<String> {
@@ -432,6 +455,8 @@ impl<'a> Parser<'a> {
                 return_type = self.parse_type();
             }
 
+            let (requires, ensures) = self.parse_contracts();
+
             let mut body = None;
             let mut is_expression_body = false;
 
@@ -449,6 +474,8 @@ impl<'a> Parser<'a> {
                 generic_params: Vec::new(),
                 params,
                 return_type,
+                requires,
+                ensures,
                 body,
                 is_expression_body,
                 is_replaces,
@@ -508,6 +535,8 @@ impl<'a> Parser<'a> {
             return_type = self.parse_type();
         }
 
+        let (requires, ensures) = self.parse_contracts();
+
         let mut is_expression_body = false;
         let body = if self.match_token(&TokenType::FatArrow) {
             let expr = self.parse_expression()?;
@@ -524,6 +553,8 @@ impl<'a> Parser<'a> {
             generic_constraints,
             params,
             return_type,
+            requires,
+            ensures,
             body,
             is_expression_body,
             is_export,
@@ -673,11 +704,40 @@ impl<'a> Parser<'a> {
             error_type = self.parse_type().map(Box::new);
         }
 
+        let mut refinement = None;
+        if self.match_token(&TokenType::In) {
+            let range_expr = self.parse_range()?;
+            if let Expr::Range {
+                start,
+                end,
+                inclusive,
+                ..
+            } = range_expr
+            {
+                refinement = Some(Refinement::Range {
+                    start,
+                    end,
+                    inclusive,
+                });
+            } else {
+                self.error("Expected range after 'in' in type refinement");
+            }
+        } else if self.match_token(&TokenType::Where) {
+            let predicate_expr = self.parse_expression()?;
+            let var_name =
+                Self::find_first_ident(&predicate_expr).unwrap_or_else(|| "val".to_string());
+            refinement = Some(Refinement::Predicate {
+                var_name,
+                predicate: Box::new(predicate_expr),
+            });
+        }
+
         Some(TypeNode {
             name,
             generic_args,
             is_option,
             error_type,
+            refinement,
             span: SourceSpan::new(
                 start_span.start_line,
                 start_span.start_col,
@@ -686,6 +746,88 @@ impl<'a> Parser<'a> {
                 self.file.clone(),
             ),
         })
+    }
+
+    fn parse_contracts(&mut self) -> (Vec<ContractClause>, Vec<ContractClause>) {
+        let mut requires = Vec::new();
+        let mut ensures = Vec::new();
+        loop {
+            if self.match_token(&TokenType::Require) {
+                let start_span = self.previous().span.clone();
+                if let Some(cond) = self.parse_expression() {
+                    let message = if self.match_token(&TokenType::Comma) {
+                        if let TokenType::StringLiteral(s) = &self.peek().token_type {
+                            let msg = s.clone();
+                            self.advance();
+                            Some(msg)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    self.match_token(&TokenType::Semicolon);
+                    let span = SourceSpan::new(
+                        start_span.start_line,
+                        start_span.start_col,
+                        self.previous().span.end_line,
+                        self.previous().span.end_col,
+                        self.file.clone(),
+                    );
+                    requires.push(ContractClause {
+                        condition: cond,
+                        message,
+                        span,
+                    });
+                }
+            } else if self.match_token(&TokenType::Ensure) {
+                let start_span = self.previous().span.clone();
+                if let Some(cond) = self.parse_expression() {
+                    let message = if self.match_token(&TokenType::Comma) {
+                        if let TokenType::StringLiteral(s) = &self.peek().token_type {
+                            let msg = s.clone();
+                            self.advance();
+                            Some(msg)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    self.match_token(&TokenType::Semicolon);
+                    let span = SourceSpan::new(
+                        start_span.start_line,
+                        start_span.start_col,
+                        self.previous().span.end_line,
+                        self.previous().span.end_col,
+                        self.file.clone(),
+                    );
+                    ensures.push(ContractClause {
+                        condition: cond,
+                        message,
+                        span,
+                    });
+                }
+            } else {
+                break;
+            }
+        }
+        (requires, ensures)
+    }
+
+    fn find_first_ident(expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Identifier(name, _) => Some(name.clone()),
+            Expr::Binary { left, right, .. } => {
+                Self::find_first_ident(left).or_else(|| Self::find_first_ident(right))
+            }
+            Expr::Unary { expr, .. } => Self::find_first_ident(expr),
+            Expr::MemberAccess { object, .. } => Self::find_first_ident(object),
+            Expr::IndexAccess { object, index, .. } => {
+                Self::find_first_ident(object).or_else(|| Self::find_first_ident(index))
+            }
+            _ => None,
+        }
     }
 
     fn parse_block(&mut self) -> Option<Stmt> {
@@ -1245,6 +1387,37 @@ impl<'a> Parser<'a> {
             expr = Expr::Range {
                 start: Box::new(expr),
                 end: Box::new(end),
+                inclusive: false,
+                span,
+            };
+        } else if self.match_token(&TokenType::DotDotEq) {
+            let end = self.parse_term()?;
+            let span = SourceSpan::new(
+                expr.span().start_line,
+                expr.span().start_col,
+                end.span().end_line,
+                end.span().end_col,
+                self.file.clone(),
+            );
+            expr = Expr::Range {
+                start: Box::new(expr),
+                end: Box::new(end),
+                inclusive: true,
+                span,
+            };
+        } else if self.match_token(&TokenType::DotDotLt) {
+            let end = self.parse_term()?;
+            let span = SourceSpan::new(
+                expr.span().start_line,
+                expr.span().start_col,
+                end.span().end_line,
+                end.span().end_col,
+                self.file.clone(),
+            );
+            expr = Expr::Range {
+                start: Box::new(expr),
+                end: Box::new(end),
+                inclusive: false,
                 span,
             };
         }

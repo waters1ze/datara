@@ -195,6 +195,7 @@ impl<'a> LlvmEmitter<'a> {
         ir.push_str("declare ptr @datara_rt_list_create(i64)\n");
         ir.push_str("declare ptr @datara_rt_list_append(ptr, i64)\n");
         ir.push_str("declare i64 @datara_rt_list_get(ptr, i64)\n");
+        ir.push_str("declare i64 @datara_rt_list_get_unchecked(ptr, i64)\n");
         ir.push_str("declare i64 @datara_rt_list_len(ptr)\n");
         ir.push_str("declare i64 @datara_rt_now_ms()\n");
         ir.push_str("declare i64 @datara_rt_now_precise_ms()\n");
