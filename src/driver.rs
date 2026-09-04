@@ -196,6 +196,8 @@ impl ForgenCompiler {
         let base_dirs = self.module_base_dirs(Path::new(file));
         self.resolve_modules(&mut program, &mut diag, &[], base_dirs);
 
+        crate::derive::expand_derives_and_comptime(&mut program);
+
         // 2. Resolver
         let res_start = Instant::now();
         let mut resolver = Resolver::new();
@@ -398,6 +400,8 @@ impl ForgenCompiler {
         let base_dirs = self.module_base_dirs(paths[0].as_path());
         self.resolve_modules(&mut combined_program, &mut diag, paths, base_dirs);
 
+        crate::derive::expand_derives_and_comptime(&mut combined_program);
+
         // 2. Resolver
         let res_start = Instant::now();
         let mut resolver = Resolver::new();
@@ -505,12 +509,14 @@ impl ForgenCompiler {
     #[allow(clippy::result_large_err)]
     pub fn lower_ast_to_dmir(
         &self,
-        program: Program,
+        mut program: Program,
         file: &str,
         diag: &mut DiagnosticEngine,
         total_start: Instant,
         mut timings: CompilationTimings,
     ) -> Result<Module, CompilationResult> {
+        crate::derive::expand_derives_and_comptime(&mut program);
+
         // 3. Resolver
         let res_start = Instant::now();
         let mut resolver = Resolver::new();
@@ -651,13 +657,15 @@ impl ForgenCompiler {
 
     fn compile_ast_internal(
         &self,
-        program: Program,
+        mut program: Program,
         file: &str,
         output_path: Option<&Path>,
         diag: &mut DiagnosticEngine,
         total_start: Instant,
         mut timings: CompilationTimings,
     ) -> CompilationResult {
+        crate::derive::expand_derives_and_comptime(&mut program);
+
         // 3. Resolver
         let res_start = Instant::now();
         let mut resolver = Resolver::new();

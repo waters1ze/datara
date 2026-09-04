@@ -2008,6 +2008,27 @@ impl<'a> Parser<'a> {
             TokenType::Val => Some(Expr::Identifier("val".to_string(), token.span)),
             TokenType::Using => Some(Expr::Identifier("using".to_string(), token.span)),
             TokenType::Packet => Some(Expr::Identifier("packet".to_string(), token.span)),
+            TokenType::Comptime => {
+                let start_span = token.span.clone();
+                let inner = if self.match_token(&TokenType::LBrace) {
+                    let expr = self.parse_expression()?;
+                    let _ = self.consume(&TokenType::RBrace, "Expected '}' after comptime block");
+                    expr
+                } else {
+                    self.parse_expression()?
+                };
+                let span = SourceSpan::new(
+                    start_span.start_line,
+                    start_span.start_col,
+                    inner.span().end_line,
+                    inner.span().end_col,
+                    self.file.clone(),
+                );
+                Some(Expr::Comptime {
+                    expr: Box::new(inner),
+                    span,
+                })
+            }
 
             TokenType::InterpolatedString(ref raw) => {
                 let parsed = self.parse_interpolated_string_content(raw, &token.span);

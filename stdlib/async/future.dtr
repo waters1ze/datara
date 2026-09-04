@@ -1,0 +1,68 @@
+﻿class Future {
+    state: Int
+    value: Str
+    error_code: Int
+}
+
+behavior Future {
+    ready(val: Str) -> Future {
+        return Future {
+            state: 1,
+            value: val,
+            error_code: 0
+        }
+    }
+
+    pending() -> Future {
+        return Future {
+            state: 0,
+            value: "",
+            error_code: 0
+        }
+    }
+
+    failed(code: Int) -> Future {
+        return Future {
+            state: 2,
+            value: "",
+            error_code: code
+        }
+    }
+
+    is_ready() -> Bool {
+        return this.state == 1
+    }
+
+    is_failed() -> Bool {
+        return this.state == 2
+    }
+
+    unwrap() -> Str {
+        return this.value
+    }
+
+    map(suffix: Str) -> Future {
+        if this.state == 1 {
+            return Future {
+                state: 1,
+                value: this.value + suffix,
+                error_code: 0
+            }
+        }
+        return this
+    }
+
+    join(other: Future) -> Future {
+        if this.state == 1 && other.state == 1 {
+            return Future {
+                state: 1,
+                value: this.value + "," + other.value,
+                error_code: 0
+            }
+        }
+        if this.state == 2 {
+            return this
+        }
+        return other
+    }
+}

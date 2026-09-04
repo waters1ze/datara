@@ -1,0 +1,70 @@
+﻿class Task {
+    id: Int
+    name: Str
+    status: Int
+    result: Str
+}
+
+behavior Task {
+    spawn(id: Int, name: Str) -> Task {
+        return Task {
+            id: id,
+            name: name,
+            status: 0,
+            result: ""
+        }
+    }
+
+    complete(result: Str) -> Task {
+        return Task {
+            id: this.id,
+            name: this.name,
+            status: 1,
+            result: result
+        }
+    }
+
+    is_done() -> Bool {
+        return this.status == 1
+    }
+
+    get_result() -> Str {
+        return this.result
+    }
+}
+
+class TaskGroup {
+    group_id: Int
+    total_count: Int
+    completed_count: Int
+}
+
+behavior TaskGroup {
+    new(id: Int) -> TaskGroup {
+        return TaskGroup {
+            group_id: id,
+            total_count: 0,
+            completed_count: 0
+        }
+    }
+
+    add_task() -> TaskGroup {
+        return TaskGroup {
+            group_id: this.group_id,
+            total_count: this.total_count + 1,
+            completed_count: this.completed_count
+        }
+    }
+
+    task_finished() -> TaskGroup {
+        return TaskGroup {
+            group_id: this.group_id,
+            total_count: this.total_count,
+            completed_count: this.completed_count + 1
+        }
+    }
+
+    all_finished() -> Bool {
+        return this.completed_count >= this.total_count
+    }
+}

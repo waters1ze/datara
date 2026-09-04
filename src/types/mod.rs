@@ -3508,6 +3508,7 @@ impl<'a> TypeChecker<'a> {
                     args: vec![elem_ty],
                 }
             }
+            Expr::Comptime { expr, .. } => self.check_expr(expr, diag),
         }
     }
 }

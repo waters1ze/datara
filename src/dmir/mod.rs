@@ -3635,6 +3635,7 @@ impl<'a> Lowering<'a> {
                 *cur_block = merge_block;
                 Some(result_val)
             }
+            Expr::Comptime { expr, .. } => self.lower_expr(expr, cur_block),
         }
     }
 

@@ -488,6 +488,10 @@ pub enum Expr {
         count: usize,
         span: SourceSpan,
     },
+    Comptime {
+        expr: Box<Expr>,
+        span: SourceSpan,
+    },
 }
 
 impl Expr {
@@ -513,7 +517,8 @@ impl Expr {
             | Expr::MapLiteral(_, s)
             | Expr::ErrorPropagate(_, s)
             | Expr::OrRecovery { span: s, .. }
-            | Expr::ArrayRepeatLiteral { span: s, .. } => s,
+            | Expr::ArrayRepeatLiteral { span: s, .. }
+            | Expr::Comptime { span: s, .. } => s,
         }
     }
 }

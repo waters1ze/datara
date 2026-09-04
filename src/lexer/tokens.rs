@@ -71,6 +71,7 @@ pub enum TokenType {
     Asm,
     Bit,
     Bits,
+    Comptime,
     At,
 
     // Literals & Identifiers

@@ -3,7 +3,7 @@ use crate::codegen::CodegenBackend;
 use crate::codegen::linker::{compile_with_clang, find_clang};
 use crate::codegen::target::{Arch, CallingConvention, Os, TargetInfo};
 use crate::dmir::{BasicBlockId, Function, Inst, Module, Terminator, ValueId};
-use crate::types::TypeChecker;
+use crate::types::{DataraType, TypeChecker};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -13,6 +13,33 @@ pub struct LlvmEmitter<'a> {
     pub target: &'a TargetInfo,
 }
 
+fn get_range_for_var(
+    fn_name: &str,
+    var_name: &str,
+    ty_hint: Option<&str>,
+    types: &TypeChecker,
+) -> Option<(i64, i64)> {
+    if let Some(DataraType::Range { min, max, .. }) = types
+        .fn_symbol_types
+        .get(&(fn_name.to_string(), var_name.to_string()))
+        .or_else(|| types.symbol_types.get(var_name))
+    {
+        return Some((*min as i64, *max as i64));
+    }
+    if let Some(th) = ty_hint
+        && th.starts_with("Int<")
+        && th.ends_with('>')
+    {
+        let inner = &th[4..th.len() - 1];
+        if let Some((s_min, s_max)) = inner.split_once("..")
+            && let (Ok(min), Ok(max)) = (s_min.trim().parse::<i64>(), s_max.trim().parse::<i64>())
+        {
+            return Some((min, max));
+        }
+    }
+    None
+}
+
 impl<'a> LlvmEmitter<'a> {
     pub fn new(target: &'a TargetInfo) -> Self {
         Self { target }
@@ -20,13 +47,22 @@ impl<'a> LlvmEmitter<'a> {
 
     /// Map Datara / DMIR type names to LLVM IR types.
     pub fn dmir_type_to_llvm(&self, ty: &str) -> &'static str {
-        match ty {
-            "Int" => "i64",
-            "Float" => "double",
-            "Bool" => "i64",
-            "Str" => "ptr",
-            "Unit" => "void",
-            _ => "ptr",
+        if ty == "Int"
+            || ty.starts_with("Int<")
+            || ty == "UInt"
+            || ty.starts_with("UInt<")
+            || ty == "Byte"
+            || ty == "Bool"
+        {
+            "i64"
+        } else if ty == "Float" || ty.starts_with("Float<") {
+            "double"
+        } else if ty == "Str" || ty == "String" {
+            "ptr"
+        } else if ty == "Unit" || ty == "void" {
+            "void"
+        } else {
+            "ptr"
         }
     }
 
@@ -54,7 +90,7 @@ impl<'a> LlvmEmitter<'a> {
     }
 
     /// Emit complete LLVM IR module from DMIR Module.
-    pub fn emit_module(&self, module: &Module, _program: &Program, _types: &TypeChecker) -> String {
+    pub fn emit_module(&self, module: &Module, _program: &Program, types: &TypeChecker) -> String {
         let mut ir = String::new();
 
         ir.push_str(
@@ -161,6 +197,7 @@ impl<'a> LlvmEmitter<'a> {
 
         // 2. Declare external Datara runtime functions
         ir.push_str("; --- Datara Standard Runtime Declarations ---\n");
+        ir.push_str("declare void @llvm.assume(i1)\n");
         ir.push_str("declare void @datara_rt_out_int(i64)\n");
         ir.push_str("declare void @datara_rt_out_float(double)\n");
         ir.push_str("declare void @datara_rt_out_bool(i64)\n");
@@ -197,6 +234,11 @@ impl<'a> LlvmEmitter<'a> {
         ir.push_str("declare i64 @datara_rt_file_append(ptr, ptr)\n");
         ir.push_str("declare i64 @datara_rt_file_exists(ptr)\n");
         ir.push_str("declare ptr @datara_rt_list_create(i64)\n");
+        ir.push_str("declare ptr @datara_rt_list_create_1(i64)\n");
+        ir.push_str("declare ptr @datara_rt_list_create_2(i64, i64)\n");
+        ir.push_str("declare ptr @datara_rt_list_create_3(i64, i64, i64)\n");
+        ir.push_str("declare ptr @datara_rt_list_create_4(i64, i64, i64, i64)\n");
+        ir.push_str("declare ptr @datara_rt_list_create_5(i64, i64, i64, i64, i64)\n");
         ir.push_str("declare ptr @datara_rt_list_append(ptr, i64)\n");
         ir.push_str("declare i64 @datara_rt_list_get(ptr, i64)\n");
         ir.push_str("declare i64 @datara_rt_list_get_unchecked(ptr, i64)\n");
@@ -260,8 +302,17 @@ impl<'a> LlvmEmitter<'a> {
         }
 
         // 3. Emit all functions
+        let mut range_metadata_map: HashMap<(i64, i64), usize> = HashMap::new();
+        let mut next_meta_id = 10;
         for f in module.functions.values() {
-            ir.push_str(&self.emit_function(f, module, &string_literal_map));
+            ir.push_str(&self.emit_function(
+                f,
+                module,
+                &string_literal_map,
+                types,
+                &mut range_metadata_map,
+                &mut next_meta_id,
+            ));
             ir.push('\n');
         }
 
@@ -287,6 +338,18 @@ impl<'a> LlvmEmitter<'a> {
         ));
         ir.push_str("!3 = !{!\"llvm.loop.unroll.enable\", i1 1}\n\n");
 
+        // 5. Emit Formal Value Range Propagation (FVRP) Metadata Nodes
+        if !range_metadata_map.is_empty() {
+            ir.push_str("; --- FVRP Range Metadata Nodes ---\n");
+            let mut sorted_ranges: Vec<((i64, i64), usize)> =
+                range_metadata_map.into_iter().collect();
+            sorted_ranges.sort_by_key(|&(_, id)| id);
+            for ((min, high), id) in sorted_ranges {
+                ir.push_str(&format!("!{} = !{{i64 {}, i64 {}}}\n", id, min, high));
+            }
+            ir.push('\n');
+        }
+
         ir
     }
 
@@ -296,6 +359,9 @@ impl<'a> LlvmEmitter<'a> {
         f: &Function,
         module: &Module,
         strings: &HashMap<String, usize>,
+        types: &TypeChecker,
+        range_metadata: &mut HashMap<(i64, i64), usize>,
+        next_meta_id: &mut usize,
     ) -> String {
         let mut out = String::new();
         let is_main = f.name == "main";
@@ -390,6 +456,24 @@ impl<'a> LlvmEmitter<'a> {
                     "  store {} %v{}, ptr %var_{}, align 8\n",
                     llvm_pty, pval.0, pname
                 ));
+                if let Some((min, max)) = get_range_for_var(&f.name, pname, Some(pty), types) {
+                    out.push_str(&format!(
+                        "  %fvrp_pmin_{} = icmp sge i64 %v{}, {}\n",
+                        pname, pval.0, min
+                    ));
+                    out.push_str(&format!(
+                        "  call void @llvm.assume(i1 %fvrp_pmin_{})\n",
+                        pname
+                    ));
+                    out.push_str(&format!(
+                        "  %fvrp_pmax_{} = icmp sle i64 %v{}, {}\n",
+                        pname, pval.0, max
+                    ));
+                    out.push_str(&format!(
+                        "  call void @llvm.assume(i1 %fvrp_pmax_{})\n",
+                        pname
+                    ));
+                }
             }
             for vname in &local_vars {
                 if !f.params.iter().any(|(p, _, _)| p == vname) {
@@ -452,6 +536,10 @@ impl<'a> LlvmEmitter<'a> {
                     &mut value_types,
                     &mut var_types,
                     &mut out,
+                    &f.name,
+                    types,
+                    range_metadata,
+                    next_meta_id,
                 );
             }
 
@@ -504,6 +592,7 @@ impl<'a> LlvmEmitter<'a> {
         out
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn emit_instruction(
         &self,
         inst: &Inst,
@@ -512,6 +601,10 @@ impl<'a> LlvmEmitter<'a> {
         value_types: &mut HashMap<ValueId, &'static str>,
         var_types: &mut HashMap<String, &'static str>,
         out: &mut String,
+        fn_name: &str,
+        types: &TypeChecker,
+        range_metadata: &mut HashMap<(i64, i64), usize>,
+        next_meta_id: &mut usize,
     ) {
         match inst {
             Inst::ConstInt { dest, value } => {
@@ -542,10 +635,23 @@ impl<'a> LlvmEmitter<'a> {
                 let vty = var_types.get(name).copied().unwrap_or("i64");
                 value_types.insert(*dest, vty);
                 let align = if vty == "<4 x float>" { 16 } else { 8 };
-                out.push_str(&format!(
-                    "  %v{} = load {}, ptr %var_{}, align {}\n",
-                    dest.0, vty, name, align
-                ));
+                if let Some((min, max)) = get_range_for_var(fn_name, name, None, types) {
+                    let high = max.saturating_add(1);
+                    let meta_id = *range_metadata.entry((min, high)).or_insert_with(|| {
+                        let id = *next_meta_id;
+                        *next_meta_id += 1;
+                        id
+                    });
+                    out.push_str(&format!(
+                        "  %v{} = load {}, ptr %var_{}, align {}, !range !{}\n",
+                        dest.0, vty, name, align, meta_id
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "  %v{} = load {}, ptr %var_{}, align {}\n",
+                        dest.0, vty, name, align
+                    ));
+                }
             }
             Inst::AssignVar { name, value } => {
                 let vty = value_types.get(value).copied().unwrap_or("i64");
@@ -555,6 +661,24 @@ impl<'a> LlvmEmitter<'a> {
                     "  store {} %v{}, ptr %var_{}, align {}\n",
                     vty, value.0, name, align
                 ));
+                if let Some((min, max)) = get_range_for_var(fn_name, name, None, types) {
+                    out.push_str(&format!(
+                        "  %fvrp_amin_{}_{} = icmp sge i64 %v{}, {}\n",
+                        name, value.0, value.0, min
+                    ));
+                    out.push_str(&format!(
+                        "  call void @llvm.assume(i1 %fvrp_amin_{}_{})\n",
+                        name, value.0
+                    ));
+                    out.push_str(&format!(
+                        "  %fvrp_amax_{}_{} = icmp sle i64 %v{}, {}\n",
+                        name, value.0, value.0, max
+                    ));
+                    out.push_str(&format!(
+                        "  call void @llvm.assume(i1 %fvrp_amax_{}_{})\n",
+                        name, value.0
+                    ));
+                }
             }
             Inst::BinOp {
                 dest,
@@ -1061,6 +1185,19 @@ impl<'a> LlvmEmitter<'a> {
                     out.push_str(&format!(
                         "  %v{} = call {} @{}({})\n",
                         dest.0, ret_ty, actual_func, args_str
+                    ));
+                }
+                if (actual_func == "datara_rt_list_get"
+                    || actual_func == "datara_rt_list_get_unchecked")
+                    && args.len() >= 2
+                {
+                    out.push_str(&format!(
+                        "  %fvrp_bce_min_{} = icmp sge i64 %v{}, 0\n",
+                        dest.0, args[1].0
+                    ));
+                    out.push_str(&format!(
+                        "  call void @llvm.assume(i1 %fvrp_bce_min_{})\n",
+                        dest.0
                     ));
                 }
             }

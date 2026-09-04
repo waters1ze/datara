@@ -1,4 +1,4 @@
-extern "C" fn datara_rt_dialog_info(title: Str, msg: Str) -> Int
+﻿extern "C" fn datara_rt_dialog_info(title: Str, msg: Str) -> Int
 extern "C" fn datara_rt_dialog_alert(title: Str, msg: Str) -> Int
 extern "C" fn datara_rt_dialog_confirm(title: Str, msg: Str) -> Int
 
@@ -9,14 +9,98 @@ class NativeDialog {
 
 behavior NativeDialog {
     show_info() -> Int {
-        return datara_rt_dialog_info(this.title, this.message)
+        unsafe(justification: "Calling native OS message box dialog") {
+            return datara_rt_dialog_info(this.title, this.message)
+        }
     }
 
     show_alert() -> Int {
-        return datara_rt_dialog_alert(this.title, this.message)
+        unsafe(justification: "Calling native OS alert box dialog") {
+            return datara_rt_dialog_alert(this.title, this.message)
+        }
     }
 
     show_confirm() -> Int {
-        return datara_rt_dialog_confirm(this.title, this.message)
+        unsafe(justification: "Calling native OS confirmation dialog") {
+            return datara_rt_dialog_confirm(this.title, this.message)
+        }
+    }
+}
+
+class NativeCanvas {
+    width: Int
+    height: Int
+    buffer: Str
+}
+
+behavior NativeCanvas {
+    new(width: Int, height: Int) -> NativeCanvas {
+        return NativeCanvas {
+            width: width,
+            height: height,
+            buffer: ""
+        }
+    }
+
+    draw_rect(x: Int, y: Int, w: Int, h: Int, color: Str) -> NativeCanvas {
+        let op = "[rect x=" + x + " y=" + y + " w=" + w + " h=" + h + " c=" + color + "];"
+        return NativeCanvas {
+            width: this.width,
+            height: this.height,
+            buffer: this.buffer + op
+        }
+    }
+
+    draw_text(x: Int, y: Int, text: Str, color: Str) -> NativeCanvas {
+        let op = "[text x=" + x + " y=" + y + " t='" + text + "' c=" + color + "];"
+        return NativeCanvas {
+            width: this.width,
+            height: this.height,
+            buffer: this.buffer + op
+        }
+    }
+
+    render() -> Str {
+        return this.buffer
+    }
+}
+
+class NativeWindow {
+    title: Str
+    width: Int
+    height: Int
+    is_open: Bool
+    canvas: NativeCanvas
+}
+
+behavior NativeWindow {
+    create(title: Str, width: Int, height: Int) -> NativeWindow {
+        return NativeWindow {
+            title: title,
+            width: width,
+            height: height,
+            is_open: true,
+            canvas: NativeCanvas.new(width, height)
+        }
+    }
+
+    close() -> NativeWindow {
+        return NativeWindow {
+            title: this.title,
+            width: this.width,
+            height: this.height,
+            is_open: false,
+            canvas: this.canvas
+        }
+    }
+
+    paint(canvas: NativeCanvas) -> NativeWindow {
+        return NativeWindow {
+            title: this.title,
+            width: this.width,
+            height: this.height,
+            is_open: this.is_open,
+            canvas: canvas
+        }
     }
 }

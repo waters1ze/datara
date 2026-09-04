@@ -1,3 +1,4 @@
+use crate::lexer::tokens::TokenType;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{self, BufRead, Read, Write};
@@ -124,7 +125,21 @@ impl LspServer {
                             "triggerCharacters": [".", ":", " "]
                         },
                         "documentFormattingProvider": true,
-                        "definitionProvider": true
+                        "definitionProvider": true,
+                        "inlayHintProvider": true,
+                        "codeActionProvider": {
+                            "codeActionKinds": ["quickfix"]
+                        },
+                        "semanticTokensProvider": {
+                            "legend": {
+                                "tokenTypes": [
+                                    "keyword", "type", "function", "variable", "parameter",
+                                    "string", "number", "operator", "comment", "struct"
+                                ],
+                                "tokenModifiers": ["declaration", "readonly", "static"]
+                            },
+                            "full": true
+                        }
                     },
                     "serverInfo": {
                         "name": "forgen-lsp",
@@ -337,6 +352,83 @@ impl LspServer {
                     };
 
                     self.send_response(id.clone(), def_loc.unwrap_or(Value::Null), writer)?;
+                }
+            }
+
+            "textDocument/inlayHint" => {
+                if let Some(ref id) = req.id {
+                    let uri = req
+                        .params
+                        .as_ref()
+                        .and_then(|p| p.get("textDocument"))
+                        .and_then(|td| td.get("uri"))
+                        .and_then(|u| u.as_str());
+
+                    let hints = if let Some(u) = uri
+                        && let Ok(docs) = self.documents.lock()
+                        && let Some(src) = docs.get(u)
+                    {
+                        Self::compute_inlay_hints(src)
+                    } else {
+                        Vec::new()
+                    };
+
+                    self.send_response(
+                        id.clone(),
+                        serde_json::to_value(hints).unwrap_or(serde_json::json!([])),
+                        writer,
+                    )?;
+                }
+            }
+
+            "textDocument/codeAction" => {
+                if let Some(ref id) = req.id {
+                    let uri = req
+                        .params
+                        .as_ref()
+                        .and_then(|p| p.get("textDocument"))
+                        .and_then(|td| td.get("uri"))
+                        .and_then(|u| u.as_str())
+                        .unwrap_or("file.dtr");
+
+                    let diags = req
+                        .params
+                        .as_ref()
+                        .and_then(|p| p.get("context"))
+                        .and_then(|c| c.get("diagnostics"))
+                        .and_then(|d| d.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+
+                    let actions = Self::compute_code_actions(uri, &diags);
+                    self.send_response(
+                        id.clone(),
+                        serde_json::to_value(actions).unwrap_or(serde_json::json!([])),
+                        writer,
+                    )?;
+                }
+            }
+
+            "textDocument/semanticTokens/full" => {
+                if let Some(ref id) = req.id {
+                    let uri = req
+                        .params
+                        .as_ref()
+                        .and_then(|p| p.get("textDocument"))
+                        .and_then(|td| td.get("uri"))
+                        .and_then(|u| u.as_str());
+
+                    let token_data = if let Some(u) = uri
+                        && let Ok(docs) = self.documents.lock()
+                        && let Some(src) = docs.get(u)
+                    {
+                        Self::compute_semantic_tokens(src)
+                    } else {
+                        Vec::new()
+                    };
+
+                    let resp = serde_json::json!({ "data": token_data });
+                    self.send_response(id.clone(), resp, writer)?;
                 }
             }
 
@@ -578,6 +670,280 @@ impl LspServer {
             }
         }
         None
+    }
+
+    pub fn compute_inlay_hints(source: &str) -> Vec<Value> {
+        let mut diag = crate::diagnostics::DiagnosticEngine::new("en");
+        let mut lexer = crate::lexer::Lexer::new(source, "file.dtr");
+        let tokens = lexer.tokenize(&mut diag);
+        let mut hints = Vec::new();
+
+        let mut i = 0;
+        while i < tokens.len() {
+            if matches!(
+                tokens[i].token_type,
+                TokenType::Let | TokenType::Mut | TokenType::Val
+            ) && i + 2 < tokens.len()
+                && let TokenType::Identifier(ref _name) = tokens[i + 1].token_type
+                && tokens[i + 2].token_type == TokenType::Equal
+            {
+                let inferred = if i + 3 < tokens.len() {
+                    match &tokens[i + 3].token_type {
+                        TokenType::IntLiteral(_) => "Int",
+                        TokenType::FloatLiteral(_) => "Float",
+                        TokenType::StringLiteral(_) | TokenType::InterpolatedString(_) => "Str",
+                        TokenType::True | TokenType::False => "Bool",
+                        TokenType::Identifier(cls)
+                            if cls
+                                .chars()
+                                .next()
+                                .map(|c| c.is_ascii_uppercase())
+                                .unwrap_or(false) =>
+                        {
+                            cls.as_str()
+                        }
+                        TokenType::LParen => "Tuple",
+                        TokenType::LBracket => "List",
+                        _ => "Any",
+                    }
+                } else {
+                    "Any"
+                };
+
+                let id_span = &tokens[i + 1].span;
+                hints.push(serde_json::json!({
+                    "position": {
+                        "line": id_span.start_line.saturating_sub(1),
+                        "character": id_span.end_col.saturating_sub(1)
+                    },
+                    "label": format!(": {}", inferred),
+                    "kind": 1,
+                    "paddingLeft": true,
+                    "paddingRight": false
+                }));
+            }
+            i += 1;
+        }
+
+        hints
+    }
+
+    pub fn compute_code_actions(uri: &str, diagnostics: &[Value]) -> Vec<Value> {
+        let mut actions = Vec::new();
+
+        for diag in diagnostics {
+            let code = diag.get("code").and_then(|c| c.as_str()).unwrap_or("");
+            let msg = diag.get("message").and_then(|m| m.as_str()).unwrap_or("");
+            let range = diag.get("range").cloned().unwrap_or(serde_json::json!({
+                "start": { "line": 0, "character": 0 },
+                "end": { "line": 0, "character": 0 }
+            }));
+
+            if code == "E0310" || msg.to_lowercase().contains("non-exhaustive") {
+                let end_line = range
+                    .get("end")
+                    .and_then(|e| e.get("line"))
+                    .and_then(|l| l.as_u64())
+                    .unwrap_or(0);
+                actions.push(serde_json::json!({
+                    "title": "Quick Fix: Add default match arm '_ => { ... }'",
+                    "kind": "quickfix",
+                    "diagnostics": [diag],
+                    "edit": {
+                        "changes": {
+                            uri: [
+                                {
+                                    "range": {
+                                        "start": { "line": end_line, "character": 0 },
+                                        "end": { "line": end_line, "character": 0 }
+                                    },
+                                    "newText": "        _ => { return 0 }\n"
+                                }
+                            ]
+                        }
+                    }
+                }));
+            } else if code == "E0311" || msg.to_lowercase().contains("unreachable") {
+                actions.push(serde_json::json!({
+                    "title": "Quick Fix: Remove unreachable match arm",
+                    "kind": "quickfix",
+                    "diagnostics": [diag],
+                    "edit": {
+                        "changes": {
+                            uri: [
+                                {
+                                    "range": range.clone(),
+                                    "newText": ""
+                                }
+                            ]
+                        }
+                    }
+                }));
+            } else if msg.to_lowercase().contains("mutable") || msg.to_lowercase().contains("mut") {
+                actions.push(serde_json::json!({
+                    "title": "Quick Fix: Replace 'mut' with immutable 'let'",
+                    "kind": "quickfix",
+                    "diagnostics": [diag],
+                    "edit": {
+                        "changes": {
+                            uri: [
+                                {
+                                    "range": range.clone(),
+                                    "newText": "let"
+                                }
+                            ]
+                        }
+                    }
+                }));
+            }
+        }
+
+        actions
+    }
+
+    pub fn compute_semantic_tokens(source: &str) -> Vec<u32> {
+        let mut diag = crate::diagnostics::DiagnosticEngine::new("en");
+        let mut lexer = crate::lexer::Lexer::new(source, "file.dtr");
+        let tokens = lexer.tokenize(&mut diag);
+
+        let mut parsed_tokens: Vec<(usize, usize, usize, usize, usize)> = Vec::new();
+
+        for tok in tokens {
+            if tok.token_type == TokenType::Eof {
+                continue;
+            }
+            let line = tok.span.start_line.saturating_sub(1);
+            let col = tok.span.start_col.saturating_sub(1);
+            let len = tok.lexeme.len().max(1);
+
+            let token_type = match &tok.token_type {
+                TokenType::Let
+                | TokenType::Mut
+                | TokenType::Val
+                | TokenType::Const
+                | TokenType::Fn
+                | TokenType::Function
+                | TokenType::Class
+                | TokenType::Record
+                | TokenType::Enum
+                | TokenType::Component
+                | TokenType::Role
+                | TokenType::Behavior
+                | TokenType::From
+                | TokenType::Extends
+                | TokenType::With
+                | TokenType::Replaces
+                | TokenType::Export
+                | TokenType::Import
+                | TokenType::As
+                | TokenType::If
+                | TokenType::Else
+                | TokenType::For
+                | TokenType::In
+                | TokenType::While
+                | TokenType::Loop
+                | TokenType::Match
+                | TokenType::When
+                | TokenType::Decide
+                | TokenType::Select
+                | TokenType::Return
+                | TokenType::Break
+                | TokenType::Continue
+                | TokenType::Parallel
+                | TokenType::Async
+                | TokenType::Await
+                | TokenType::Task
+                | TokenType::Flow
+                | TokenType::Entity
+                | TokenType::Process
+                | TokenType::Then
+                | TokenType::Unsafe
+                | TokenType::Extern
+                | TokenType::True
+                | TokenType::False
+                | TokenType::None
+                | TokenType::Own
+                | TokenType::View
+                | TokenType::MutView
+                | TokenType::Shared
+                | TokenType::Out
+                | TokenType::Err
+                | TokenType::Use
+                | TokenType::Try
+                | TokenType::Catch
+                | TokenType::Comptime => 0, // keyword
+
+                TokenType::StringLiteral(_)
+                | TokenType::InterpolatedString(_)
+                | TokenType::CharLiteral(_) => 5, // string
+                TokenType::IntLiteral(_) | TokenType::FloatLiteral(_) => 6, // number
+
+                TokenType::ColonEqual
+                | TokenType::FatArrow
+                | TokenType::Arrow
+                | TokenType::Pipe
+                | TokenType::DotDot
+                | TokenType::DotDotEq
+                | TokenType::DotDotLt
+                | TokenType::Plus
+                | TokenType::Minus
+                | TokenType::Star
+                | TokenType::Slash
+                | TokenType::Percent
+                | TokenType::EqualEqual
+                | TokenType::NotEqual
+                | TokenType::Less
+                | TokenType::LessEqual
+                | TokenType::Greater
+                | TokenType::GreaterEqual
+                | TokenType::And
+                | TokenType::Or
+                | TokenType::Bang
+                | TokenType::Question
+                | TokenType::Equal => 7, // operator
+
+                TokenType::Identifier(s) => {
+                    if s.chars()
+                        .next()
+                        .map(|c| c.is_ascii_uppercase())
+                        .unwrap_or(false)
+                    {
+                        1 // type / struct
+                    } else {
+                        3 // variable
+                    }
+                }
+                _ => continue,
+            };
+
+            parsed_tokens.push((line, col, len, token_type, 0));
+        }
+
+        parsed_tokens.sort_by_key(|a| (a.0, a.1));
+
+        let mut data = Vec::with_capacity(parsed_tokens.len() * 5);
+        let mut prev_line = 0;
+        let mut prev_char = 0;
+
+        for (line, col, len, token_type, modifiers) in parsed_tokens {
+            let delta_line = line.saturating_sub(prev_line);
+            let delta_char = if delta_line == 0 {
+                col.saturating_sub(prev_char)
+            } else {
+                col
+            };
+
+            data.push(delta_line as u32);
+            data.push(delta_char as u32);
+            data.push(len as u32);
+            data.push(token_type as u32);
+            data.push(modifiers as u32);
+
+            prev_line = line;
+            prev_char = col;
+        }
+
+        data
     }
 }
 

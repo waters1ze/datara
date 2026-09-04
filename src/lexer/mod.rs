@@ -763,6 +763,7 @@ impl Lexer {
                         "register" => TokenType::Register,
                         "bit" => TokenType::Bit,
                         "bits" => TokenType::Bits,
+                        "comptime" => TokenType::Comptime,
                         "asm" if self.peek() == '!' => {
                             self.advance();
                             TokenType::Asm

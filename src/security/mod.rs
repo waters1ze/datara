@@ -1478,6 +1478,9 @@ impl<'a> SecurityVerifier<'a> {
             Expr::ArrayRepeatLiteral { elem, .. } => {
                 self.verify_expr(elem, ctx, diag);
             }
+            Expr::Comptime { expr, .. } => {
+                self.verify_expr(expr, ctx, diag);
+            }
             Expr::ObjectInit {
                 class_name,
                 fields,

@@ -1212,6 +1212,9 @@ impl Resolver {
             Expr::ArrayRepeatLiteral { elem, .. } => {
                 self.resolve_expr(elem, diag);
             }
+            Expr::Comptime { expr, .. } => {
+                self.resolve_expr(expr, diag);
+            }
             _ => {}
         }
     }

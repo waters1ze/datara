@@ -1,0 +1,43 @@
+﻿class EventLoop {
+    is_running: Bool
+    queue_len: Int
+    tick_count: Int
+}
+
+behavior EventLoop {
+    new() -> EventLoop {
+        return EventLoop {
+            is_running: true,
+            queue_len: 0,
+            tick_count: 0
+        }
+    }
+
+    schedule(count: Int) -> EventLoop {
+        return EventLoop {
+            is_running: true,
+            queue_len: this.queue_len + count,
+            tick_count: this.tick_count
+        }
+    }
+
+    tick() -> EventLoop {
+        mut next_len = this.queue_len - 1
+        if next_len < 0 {
+            next_len = 0
+        }
+        return EventLoop {
+            is_running: next_len > 0,
+            queue_len: next_len,
+            tick_count: this.tick_count + 1
+        }
+    }
+
+    run_until_complete() -> Int {
+        mut loop_state = this
+        while loop_state.is_running && loop_state.queue_len > 0 {
+            loop_state = loop_state.tick()
+        }
+        return loop_state.tick_count
+    }
+}

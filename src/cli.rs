@@ -1439,6 +1439,9 @@ pub fn run_cli() {
             match registry.publish(Path::new(".")) {
                 Ok(pkg) => {
                     println!("[====.] Generating Merkle digest ({})", pkg.digest);
+                    if !pkg.capabilities.is_empty() {
+                        println!("   Audited Capabilities: {}", pkg.capabilities.join(", "));
+                    }
                     println!(
                         "[DONE] Package '{}' (v{}) published successfully to HyperGrid Registry",
                         pkg.name, pkg.version

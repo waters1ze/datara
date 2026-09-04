@@ -1,4 +1,4 @@
-class Signal {
+﻿class Signal {
     id: Int
     name: Str
     value: Str
@@ -38,6 +38,44 @@ class Action {
 behavior Action {
     to_attr() -> Str {
         return "data-on-" + this.event_type + "='" + this.callback_name + "' data-target='" + this.target_id + "'"
+    }
+}
+
+class VNode {
+    tag: Str
+    id: Str
+    text: Str
+    dirty: Bool
+}
+
+behavior VNode {
+    new(tag: Str, id: Str, text: Str) -> VNode {
+        return VNode {
+            tag: tag,
+            id: id,
+            text: text,
+            dirty: false
+        }
+    }
+
+    set_text(new_text: Str) -> VNode {
+        return VNode {
+            tag: this.tag,
+            id: this.id,
+            text: new_text,
+            dirty: true
+        }
+    }
+
+    render() -> Str {
+        return "<" + this.tag + " id='" + this.id + "'>" + this.text + "</" + this.tag + ">"
+    }
+
+    diff(next: VNode) -> Str {
+        if this.text != next.text {
+            return "PATCH_TEXT:" + next.id + ":" + next.text
+        }
+        return "NOOP"
     }
 }
 

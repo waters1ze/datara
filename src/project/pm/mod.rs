@@ -94,6 +94,22 @@ impl DataraLock {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RegistryIndex {
+    pub updated_at: String,
+    pub packages: HashMap<String, RegistryIndexEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryIndexEntry {
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub digest: String,
+    pub capabilities: Vec<String>,
+    pub bundle_file: String,
+}
+
 pub struct HyperGridRegistry {
     pub store_path: PathBuf,
     pub packages: HashMap<String, HyperGridPackage>,
@@ -113,6 +129,7 @@ impl HyperGridRegistry {
             packages: HashMap::new(),
         };
         reg.init_curated_index();
+        reg.load_index_from_disk();
         reg
     }
 
@@ -528,6 +545,153 @@ behavior Matrix2x2 {
         format!("sha256:{}", sha256::hexdigest(digest_input.as_bytes()))
     }
 
+    pub fn compute_merkle_root(files: &HashMap<String, String>) -> String {
+        if files.is_empty() {
+            return "merkle:sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855".into();
+        }
+        let mut file_keys: Vec<&String> = files.keys().collect();
+        file_keys.sort();
+
+        // 1. Calculate leaf hashes for each file
+        let mut current_level: Vec<String> = file_keys
+            .iter()
+            .map(|k| {
+                let content = files.get(k.as_str()).map(|s| s.as_str()).unwrap_or("");
+                let normalized = content.replace("\r\n", "\n");
+                let leaf_input = format!("leaf:{}:{}:{}", k, normalized.len(), normalized);
+                sha256::hexdigest(leaf_input.as_bytes())
+            })
+            .collect();
+
+        // 2. Build Merkle tree layers up to the root
+        while current_level.len() > 1 {
+            let mut next_level = Vec::with_capacity(current_level.len().div_ceil(2));
+            for chunk in current_level.chunks(2) {
+                if chunk.len() == 2 {
+                    let pair_input = format!("node:{}:{}", chunk[0], chunk[1]);
+                    next_level.push(sha256::hexdigest(pair_input.as_bytes()));
+                } else {
+                    let pair_input = format!("node:{}:{}", chunk[0], chunk[0]);
+                    next_level.push(sha256::hexdigest(pair_input.as_bytes()));
+                }
+            }
+            current_level = next_level;
+        }
+
+        format!("merkle:sha256:{}", current_level[0])
+    }
+
+    pub fn extract_capabilities(files: &HashMap<String, String>) -> Vec<String> {
+        let mut caps = std::collections::BTreeSet::new();
+
+        for content in files.values() {
+            if content.contains("stdlib.net")
+                || content.contains("TcpStream")
+                || content.contains("fetch(")
+                || content.contains("http")
+                || content.contains("socket")
+            {
+                caps.insert("net.network".to_string());
+            }
+            if content.contains("stdlib.io.fs")
+                || content.contains("file_")
+                || content.contains("fs.")
+                || content.contains("File.")
+            {
+                caps.insert("fs.filesystem".to_string());
+            }
+            if content.contains("stdlib.sys")
+                || content.contains("sys.")
+                || content.contains("get_env")
+                || content.contains("process")
+            {
+                caps.insert("sys.system".to_string());
+            }
+            if content.contains("unsafe") || content.contains("ptr_") || content.contains("alloc_")
+            {
+                caps.insert("unsafe.memory".to_string());
+            }
+            if content.contains("sha256") || content.contains("hmac") || content.contains("crypto")
+            {
+                caps.insert("crypto.security".to_string());
+            }
+            if content.contains("stdlib.ui")
+                || content.contains("Page")
+                || content.contains("Widget")
+                || content.contains("Component")
+            {
+                caps.insert("ui.rendering".to_string());
+            }
+            if content.contains("stdlib.async")
+                || content.contains("spawn")
+                || content.contains("Future")
+                || content.contains("Task")
+            {
+                caps.insert("async.concurrency".to_string());
+            }
+            if content.contains("sql") || content.contains("database") || content.contains("Sqlite")
+            {
+                caps.insert("db.database".to_string());
+            }
+        }
+
+        caps.into_iter().collect()
+    }
+
+    pub fn update_disk_index(&self, pkg: &HyperGridPackage) {
+        let index_path = self.store_path.join("index.json");
+        let mut index: RegistryIndex = if index_path.exists() {
+            fs::read_to_string(&index_path)
+                .ok()
+                .and_then(|c| serde_json::from_str(&c).ok())
+                .unwrap_or_default()
+        } else {
+            RegistryIndex::default()
+        };
+
+        index.updated_at = format!("{:?}", std::time::SystemTime::now());
+        index.packages.insert(
+            pkg.name.clone(),
+            RegistryIndexEntry {
+                name: pkg.name.clone(),
+                version: pkg.version.clone(),
+                description: pkg.description.clone(),
+                digest: pkg.digest.clone(),
+                capabilities: pkg.capabilities.clone(),
+                bundle_file: format!("bundles/{}-{}.dtr-pkg", pkg.name, pkg.version),
+            },
+        );
+
+        if let Ok(data) = serde_json::to_string_pretty(&index) {
+            let _ = fs::write(index_path, data);
+        }
+    }
+
+    pub fn load_index_from_disk(&mut self) {
+        let index_path = self.store_path.join("index.json");
+        if !index_path.exists() {
+            return;
+        }
+        let content = match fs::read_to_string(&index_path) {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+        let index: RegistryIndex = match serde_json::from_str(&content) {
+            Ok(idx) => idx,
+            Err(_) => return,
+        };
+
+        for (name, entry) in index.packages {
+            let bundle_path = self.store_path.join(&entry.bundle_file);
+            if bundle_path.exists()
+                && let Ok(b_content) = fs::read_to_string(&bundle_path)
+                && let Ok(pkg) = serde_json::from_str::<HyperGridPackage>(&b_content)
+            {
+                self.packages.insert(name, pkg);
+            }
+        }
+    }
+
     /// Package names become path components (`packages/<name>`, CAS
     /// `<store>/<name>/<version>`), so they must be plain identifiers: no path
     /// separators, no `..`, no leading dot/dash.
@@ -763,7 +927,12 @@ behavior Matrix2x2 {
             // Calculate current digest
             let mut files = HashMap::new();
             let _ = Self::collect_files_recursive(&pkg_dir, &pkg_dir, &mut files);
-            let current_digest = Self::compute_digest(&files);
+            let is_merkle = locked.digest.starts_with("merkle:");
+            let current_digest = if is_merkle {
+                Self::compute_merkle_root(&files)
+            } else {
+                Self::compute_digest(&files)
+            };
 
             // No exceptions: every locked package must match its recorded
             // digest. The former `locked.digest.starts_with("sha256:7f8a9e01")`
@@ -984,20 +1153,43 @@ entry = "src/main.dtr"
             return Err("Cannot publish: no .dtr source files found to publish".into());
         }
 
-        let digest_hex = Self::compute_digest(&files);
+        let digest_hex = Self::compute_merkle_root(&files);
+        let capabilities = Self::extract_capabilities(&files);
 
         let pkg = HyperGridPackage {
             name: name.clone(),
-            version,
+            version: version.clone(),
             description,
             author,
             license,
             digest: digest_hex,
-            capabilities: vec![],
+            capabilities,
             dependencies: manifest.dependencies.keys().cloned().collect(),
             entry: manifest.package.entry.unwrap_or_else(|| "main.dtr".into()),
             files,
         };
+
+        // Create .dtr-pkg bundle
+        if let Ok(bundle_json) = serde_json::to_string_pretty(&pkg) {
+            // 1. Write to local dist/ folder
+            let dist_dir = project_root.join("dist");
+            let _ = fs::create_dir_all(&dist_dir);
+            let _ = fs::write(
+                dist_dir.join(format!("{}-{}.dtr-pkg", name, version)),
+                &bundle_json,
+            );
+
+            // 2. Write to CAS bundles/ directory
+            let cas_bundles = self.store_path.join("bundles");
+            let _ = fs::create_dir_all(&cas_bundles);
+            let _ = fs::write(
+                cas_bundles.join(format!("{}-{}.dtr-pkg", name, version)),
+                &bundle_json,
+            );
+        }
+
+        // 3. Update Git-backed index.json in store_path
+        self.update_disk_index(&pkg);
 
         self.packages.insert(name, pkg.clone());
         Ok(pkg)
@@ -1616,6 +1808,9 @@ pub fn run_dpm_cli_args(args: &[String]) {
             match reg.publish(current_dir) {
                 Ok(pkg) => {
                     println!("[====.] Generated Merkle digest: {}", pkg.digest);
+                    if !pkg.capabilities.is_empty() {
+                        println!("   Audited Capabilities: {}", pkg.capabilities.join(", "));
+                    }
                     println!(
                         "[DONE] Package '{}' (v{}) published successfully to DPM Registry",
                         pkg.name, pkg.version

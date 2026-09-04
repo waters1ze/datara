@@ -1,6 +1,7 @@
 pub mod ast;
 pub mod cli;
 pub mod codegen;
+pub mod derive;
 pub mod diagnostics;
 pub mod dmir;
 pub mod doc;
