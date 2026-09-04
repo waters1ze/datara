@@ -54,6 +54,14 @@ pub enum ErrorCode {
     // Real-Time & Safety Verification Gate Errors (E0950-E0951)
     AllocationViolation,
     PanicViolation,
+
+    // Language Safety & Formal Verification Errors (E0310-E0947)
+    NonExhaustiveMatch,
+    UnreachablePattern,
+    DimensionMismatch,
+    InvariantViolation,
+    TerminationViolation,
+    RangeViolation,
 }
 
 impl ErrorCode {
@@ -102,6 +110,12 @@ impl ErrorCode {
             ErrorCode::DataRaceViolation => "E0943",
             ErrorCode::AllocationViolation => "E0950",
             ErrorCode::PanicViolation => "E0951",
+            ErrorCode::NonExhaustiveMatch => "E0310",
+            ErrorCode::UnreachablePattern => "E0311",
+            ErrorCode::DimensionMismatch => "E0420",
+            ErrorCode::InvariantViolation => "E0945",
+            ErrorCode::TerminationViolation => "E0946",
+            ErrorCode::RangeViolation => "E0947",
         }
     }
 
@@ -173,6 +187,24 @@ impl ErrorCode {
                 ErrorCode::PanicViolation => {
                     "Нарушение режима реального времени: недоказанный путь паники в контексте '@no_panic'"
                 }
+                ErrorCode::NonExhaustiveMatch => {
+                    "Неисчерпывающий паттерн в сопоставлении с образцом (match): покрыты не все варианты"
+                }
+                ErrorCode::UnreachablePattern => {
+                    "Недостижимый паттерн в сопоставлении с образцом (match)"
+                }
+                ErrorCode::DimensionMismatch => {
+                    "Несоответствие размерностей единиц измерения (Units of Measure)"
+                }
+                ErrorCode::InvariantViolation => {
+                    "Нарушение инварианта структуры данных (Class/Struct Invariant)"
+                }
+                ErrorCode::TerminationViolation => {
+                    "Нарушение завершимости: невозможно доказать завершение цикла или рекурсии в 'pure' функции"
+                }
+                ErrorCode::RangeViolation => {
+                    "Нарушение диапазона: значение выходит за границы допустимого интервала или массива"
+                }
             }
         } else {
             match self {
@@ -240,6 +272,22 @@ impl ErrorCode {
                 }
                 ErrorCode::PanicViolation => {
                     "Real-Time Violation: Unproven panic path in '@no_panic' context"
+                }
+                ErrorCode::NonExhaustiveMatch => {
+                    "Non-exhaustive patterns in match expression: missing patterns"
+                }
+                ErrorCode::UnreachablePattern => "Unreachable pattern in match expression",
+                ErrorCode::DimensionMismatch => {
+                    "Dimension mismatch: incompatible units of measure in arithmetic expression"
+                }
+                ErrorCode::InvariantViolation => {
+                    "Class invariant violation: class invariant cannot be proven upon method exit"
+                }
+                ErrorCode::TerminationViolation => {
+                    "Termination violation: cannot prove function termination in pure context"
+                }
+                ErrorCode::RangeViolation => {
+                    "Range violation: value exceeds static type interval or array bounds"
                 }
             }
         }

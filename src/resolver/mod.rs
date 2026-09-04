@@ -62,6 +62,7 @@ pub struct Resolver {
     pub packets: HashMap<String, PacketDecl>,
     pub extern_functions: HashMap<String, ExternFnDecl>,
     pub type_aliases: HashMap<String, TypeDecl>,
+    pub enums: HashMap<String, EnumDecl>,
 }
 
 impl Default for Resolver {
@@ -227,6 +228,7 @@ impl Resolver {
             packets: HashMap::new(),
             extern_functions: HashMap::new(),
             type_aliases: HashMap::new(),
+            enums: HashMap::new(),
         }
     }
 
@@ -341,6 +343,7 @@ impl Resolver {
                             ClassItem::Using(u, _) => {
                                 sym.compositions.push(u.clone());
                             }
+                            ClassItem::Invariant(_, _) => {}
                         }
                     }
 
@@ -349,6 +352,7 @@ impl Resolver {
                 }
 
                 Decl::Enum(e) => {
+                    self.enums.insert(e.name.clone(), e.clone());
                     if self.classes.contains_key(&e.name) {
                         diag.error(
                             ErrorCode::ResolveDuplicateSymbol,
@@ -461,6 +465,7 @@ impl Resolver {
                             ClassItem::Using(u, _) => {
                                 sym.compositions.push(u.clone());
                             }
+                            ClassItem::Invariant(_, _) => {}
                         }
                     }
                     self.components.insert(c.name.clone(), sym.clone());

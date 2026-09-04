@@ -495,6 +495,8 @@ impl<'a> ClifEmitter<'a> {
             "Bool" => "i8",
             "String" | "Str" => "i64",
             "Unit" => "i64",
+            s if s.starts_with("Float<") => "f64",
+            s if s.starts_with("Int<") => "i64",
             _ => "i64",
         }
     }

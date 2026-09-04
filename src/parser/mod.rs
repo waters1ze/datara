@@ -409,6 +409,13 @@ impl<'a> Parser<'a> {
             }
         }
 
+        let mut invariants = Vec::new();
+        for item in &body_items {
+            if let ClassItem::Invariant(inv, _) = item {
+                invariants.push(inv.clone());
+            }
+        }
+
         let end_token = self.consume(&TokenType::RBrace, "Expected '}' after class body")?;
         Some(ClassDecl {
             name,
@@ -417,6 +424,7 @@ impl<'a> Parser<'a> {
             base_type,
             compositions,
             body_items,
+            invariants,
             is_export,
             span: SourceSpan::new(
                 start_span.start_line,
@@ -597,6 +605,14 @@ impl<'a> Parser<'a> {
             return Some(ClassItem::Using(name, self.previous().span.clone()));
         }
 
+        if self.check_ident_str("invariant") {
+            self.advance();
+            let expr = self.parse_expression()?;
+            let span = expr.span().clone();
+            let _ = self.match_token(&TokenType::Semicolon);
+            return Some(ClassItem::Invariant(expr, span));
+        }
+
         let _ = self.match_token(&TokenType::Fn) || self.match_token(&TokenType::Function);
         let is_replaces = self.match_token(&TokenType::Replaces);
         let is_mut = self.match_token(&TokenType::Mut);
@@ -623,6 +639,10 @@ impl<'a> Parser<'a> {
             }
 
             let (requires, ensures) = self.parse_contracts();
+            let mut decreases = None;
+            if self.match_ident_str("decreases") {
+                decreases = Some(self.parse_expression()?);
+            }
 
             let mut body = None;
             let mut is_expression_body = false;
@@ -644,6 +664,7 @@ impl<'a> Parser<'a> {
                 return_type,
                 requires,
                 ensures,
+                decreases,
                 body,
                 is_expression_body,
                 is_replaces,
@@ -738,6 +759,10 @@ impl<'a> Parser<'a> {
         }
 
         let (requires, ensures) = self.parse_contracts();
+        let mut decreases = None;
+        if self.match_ident_str("decreases") {
+            decreases = Some(self.parse_expression()?);
+        }
 
         let mut is_expression_body = false;
         let body = if self.match_token(&TokenType::FatArrow) {
@@ -758,6 +783,7 @@ impl<'a> Parser<'a> {
             return_type,
             requires,
             ensures,
+            decreases,
             body,
             is_expression_body,
             is_export,
@@ -898,13 +924,64 @@ impl<'a> Parser<'a> {
         let name = self.consume_ident("Expected type name")?;
 
         let mut generic_args = Vec::new();
+        let mut refinement = None;
         if self.match_token(&TokenType::Less) {
-            while !self.check(&TokenType::Greater) && !self.is_at_end() {
-                if let Some(arg) = self.parse_type() {
-                    generic_args.push(arg);
+            if matches!(self.peek().token_type, TokenType::IntLiteral(_))
+                && self.current + 1 < self.tokens.len()
+                && matches!(
+                    self.tokens[self.current + 1].token_type,
+                    TokenType::DotDot | TokenType::DotDotEq
+                )
+            {
+                if let Some(range_expr) = self.parse_range()
+                    && let Expr::Range {
+                        start,
+                        end,
+                        inclusive,
+                        ..
+                    } = range_expr
+                {
+                    refinement = Some(Refinement::Range {
+                        start,
+                        end,
+                        inclusive,
+                    });
                 }
-                if !self.match_token(&TokenType::Comma) {
-                    break;
+            } else {
+                while !self.check(&TokenType::Greater) && !self.is_at_end() {
+                    if let TokenType::Identifier(ref id) = self.peek().token_type {
+                        let mut unit_name = id.clone();
+                        let unit_span = self.peek().span.clone();
+                        self.advance();
+                        while (self.check(&TokenType::Slash) || self.check(&TokenType::Star))
+                            && !self.is_at_end()
+                        {
+                            let op_tok = self.advance();
+                            let op_str = if matches!(op_tok.token_type, TokenType::Slash) {
+                                "/"
+                            } else {
+                                "*"
+                            };
+                            if let TokenType::Identifier(ref next_id) = self.peek().token_type {
+                                unit_name.push_str(op_str);
+                                unit_name.push_str(next_id);
+                                self.advance();
+                            }
+                        }
+                        generic_args.push(TypeNode {
+                            name: unit_name,
+                            generic_args: Vec::new(),
+                            is_option: false,
+                            error_type: None,
+                            refinement: None,
+                            span: unit_span,
+                        });
+                    } else if let Some(arg) = self.parse_type() {
+                        generic_args.push(arg);
+                    }
+                    if !self.match_token(&TokenType::Comma) {
+                        break;
+                    }
                 }
             }
             self.consume(
@@ -920,8 +997,7 @@ impl<'a> Parser<'a> {
             error_type = self.parse_type().map(Box::new);
         }
 
-        let mut refinement = None;
-        if self.check(&TokenType::In) {
+        if refinement.is_none() && self.check(&TokenType::In) {
             let is_bitfield = self.current + 1 < self.tokens.len()
                 && matches!(
                     self.tokens[self.current + 1].token_type,
@@ -2568,6 +2644,25 @@ impl<'a> Parser<'a> {
             false
         } else {
             std::mem::discriminant(&self.peek().token_type) == std::mem::discriminant(token_type)
+        }
+    }
+
+    fn check_ident_str(&self, expected: &str) -> bool {
+        if self.is_at_end() {
+            false
+        } else if let TokenType::Identifier(s) = &self.peek().token_type {
+            s == expected
+        } else {
+            false
+        }
+    }
+
+    fn match_ident_str(&mut self, expected: &str) -> bool {
+        if self.check_ident_str(expected) {
+            self.advance();
+            true
+        } else {
+            false
         }
     }
 

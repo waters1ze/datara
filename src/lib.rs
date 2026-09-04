@@ -24,6 +24,7 @@ pub mod security;
 pub mod semantic_graph;
 pub mod stdlib;
 pub mod types;
+pub mod update;
 
 pub use driver::ForgenCompiler;
 pub use project::{

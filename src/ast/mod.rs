@@ -89,6 +89,7 @@ pub struct ClassDecl {
     pub base_type: Option<String>,
     pub compositions: Vec<String>,
     pub body_items: Vec<ClassItem>,
+    pub invariants: Vec<Expr>,
     pub is_export: bool,
     pub span: SourceSpan,
 }
@@ -170,6 +171,7 @@ pub struct FunctionDecl {
     pub return_type: Option<TypeNode>,
     pub requires: Vec<ContractClause>,
     pub ensures: Vec<ContractClause>,
+    pub decreases: Option<Expr>,
     pub body: Box<Stmt>,
     pub is_expression_body: bool,
     pub is_export: bool,
@@ -181,6 +183,7 @@ pub enum ClassItem {
     Field(FieldDecl),
     Method(MethodDecl),
     Using(String, SourceSpan),
+    Invariant(Expr, SourceSpan),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -225,6 +228,7 @@ pub struct MethodDecl {
     pub return_type: Option<TypeNode>,
     pub requires: Vec<ContractClause>,
     pub ensures: Vec<ContractClause>,
+    pub decreases: Option<Expr>,
     pub body: Option<Box<Stmt>>,
     pub is_expression_body: bool,
     pub is_replaces: bool,

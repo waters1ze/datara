@@ -31,6 +31,15 @@ pub enum DataraType {
     Dec64,
     Dec128,
     RawPtr,
+    Range {
+        base: Box<DataraType>,
+        min: i128,
+        max: i128,
+    },
+    Measure {
+        base: Box<DataraType>,
+        unit: String,
+    },
 }
 
 impl DataraType {
@@ -76,6 +85,40 @@ impl DataraType {
         }
         if let (DataraType::GenericInstance { name: g, .. }, DataraType::Class(c)) = (self, other)
             && c == g
+        {
+            return true;
+        }
+        if let (
+            DataraType::Measure { base: b1, unit: u1 },
+            DataraType::Measure { base: b2, unit: u2 },
+        ) = (self, other)
+        {
+            return u1 == u2 && b1.is_compatible(b2);
+        }
+        if let (
+            DataraType::Range {
+                base: b1,
+                min: min1,
+                max: max1,
+            },
+            DataraType::Range {
+                base: b2,
+                min: min2,
+                max: max2,
+            },
+        ) = (self, other)
+        {
+            return b1.is_compatible(b2) && min1 >= min2 && max1 <= max2;
+        }
+        if let DataraType::Range { base, .. } = self
+            && !matches!(other, DataraType::Range { .. })
+            && base.is_compatible(other)
+        {
+            return true;
+        }
+        if let DataraType::Range { base, .. } = other
+            && !matches!(self, DataraType::Range { .. })
+            && self.is_compatible(base)
         {
             return true;
         }
@@ -156,6 +199,8 @@ impl std::fmt::Display for DataraType {
             DataraType::Dec64 => write!(f, "dec64"),
             DataraType::Dec128 => write!(f, "dec128"),
             DataraType::RawPtr => write!(f, "RawPtr"),
+            DataraType::Range { base, min, max } => write!(f, "{}<{}..{}>", base, min, max),
+            DataraType::Measure { base, unit } => write!(f, "{}<{}>", base, unit),
         }
     }
 }
@@ -235,6 +280,7 @@ pub struct TypeChecker<'a> {
     pub fn_symbol_types: HashMap<(String, String), DataraType>,
     pub var_refinements: HashMap<String, TypeNode>,
     pub function_param_nodes: HashMap<String, Vec<Option<TypeNode>>>,
+    pub var_array_lengths: HashMap<String, usize>,
 }
 
 impl<'a> TypeChecker<'a> {
@@ -781,6 +827,7 @@ impl<'a> TypeChecker<'a> {
             fn_symbol_types,
             var_refinements: HashMap::new(),
             function_param_nodes: HashMap::new(),
+            var_array_lengths: HashMap::new(),
         }
     }
 
@@ -795,13 +842,33 @@ impl<'a> TypeChecker<'a> {
             if tn.name == "Option" && args.len() == 1 {
                 return DataraType::Option(Box::new(args[0].clone()));
             }
+            if (tn.name == "Float"
+                || tn.name == "Float64"
+                || tn.name == "Float32"
+                || tn.name == "Int"
+                || tn.name == "Int64"
+                || tn.name == "UInt"
+                || tn.name == "UInt64")
+                && tn.generic_args.len() == 1
+            {
+                let unit = tn.generic_args[0].name.clone();
+                let base = if tn.name.starts_with("Float") {
+                    DataraType::Float
+                } else {
+                    DataraType::Int
+                };
+                return DataraType::Measure {
+                    base: Box::new(base),
+                    unit,
+                };
+            }
             return DataraType::GenericInstance {
                 name: tn.name.clone(),
                 args,
             };
         }
 
-        let base = match tn.name.as_str() {
+        let mut base = match tn.name.as_str() {
             "Int" | "Int64" | "Int32" | "Int16" | "Int8" | "UInt" | "UInt64" | "UInt32"
             | "UInt16" | "UInt8" | "i64" | "i32" | "i16" | "i8" | "isize" | "u64" | "u32"
             | "u16" | "u8" | "u128" | "i128" | "usize" | "USize" | "Byte" => DataraType::Int,
@@ -822,6 +889,33 @@ impl<'a> TypeChecker<'a> {
             }
             other => DataraType::Class(other.to_string()),
         };
+
+        if let Some(Refinement::Range {
+            start,
+            end,
+            inclusive,
+        }) = &tn.refinement
+        {
+            let min = match &**start {
+                Expr::Literal(LiteralValue::Int(n), _) => *n as i128,
+                _ => 0,
+            };
+            let max = match &**end {
+                Expr::Literal(LiteralValue::Int(n), _) => {
+                    if *inclusive {
+                        *n as i128
+                    } else {
+                        (*n - 1) as i128
+                    }
+                }
+                _ => i128::MAX,
+            };
+            base = DataraType::Range {
+                base: Box::new(base),
+                min,
+                max,
+            };
+        }
 
         if tn.is_option {
             DataraType::Option(Box::new(base))
@@ -849,13 +943,33 @@ impl<'a> TypeChecker<'a> {
             if tn.name == "Option" && args.len() == 1 {
                 return DataraType::Option(Box::new(args[0].clone()));
             }
+            if (tn.name == "Float"
+                || tn.name == "Float64"
+                || tn.name == "Float32"
+                || tn.name == "Int"
+                || tn.name == "Int64"
+                || tn.name == "UInt"
+                || tn.name == "UInt64")
+                && tn.generic_args.len() == 1
+            {
+                let unit = tn.generic_args[0].name.clone();
+                let base = if tn.name.starts_with("Float") {
+                    DataraType::Float
+                } else {
+                    DataraType::Int
+                };
+                return DataraType::Measure {
+                    base: Box::new(base),
+                    unit,
+                };
+            }
             return DataraType::GenericInstance {
                 name: tn.name.clone(),
                 args,
             };
         }
 
-        let base = match tn.name.as_str() {
+        let mut base = match tn.name.as_str() {
             "Int" | "Int64" | "Int32" | "Int16" | "Int8" | "UInt" | "UInt64" | "UInt32"
             | "UInt16" | "UInt8" | "i64" | "i32" | "i16" | "i8" | "isize" | "u64" | "u32"
             | "u16" | "u8" | "u128" | "i128" | "usize" | "USize" | "Byte" => DataraType::Int,
@@ -876,6 +990,33 @@ impl<'a> TypeChecker<'a> {
             }
             other => DataraType::Class(other.to_string()),
         };
+
+        if let Some(Refinement::Range {
+            start,
+            end,
+            inclusive,
+        }) = &tn.refinement
+        {
+            let min = match &**start {
+                Expr::Literal(LiteralValue::Int(n), _) => *n as i128,
+                _ => 0,
+            };
+            let max = match &**end {
+                Expr::Literal(LiteralValue::Int(n), _) => {
+                    if *inclusive {
+                        *n as i128
+                    } else {
+                        (*n - 1) as i128
+                    }
+                }
+                _ => i128::MAX,
+            };
+            base = DataraType::Range {
+                base: Box::new(base),
+                min,
+                max,
+            };
+        }
 
         if tn.is_option {
             DataraType::Option(Box::new(base))
@@ -1349,6 +1490,312 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    fn check_range_and_measure_assignment(
+        &self,
+        declared: &DataraType,
+        init_type: &DataraType,
+        init: &Expr,
+        span: &SourceSpan,
+        diag: &mut DiagnosticEngine,
+    ) {
+        // Range check
+        if let DataraType::Range { min, max, .. } = declared {
+            let lit_val = match init {
+                Expr::Literal(LiteralValue::Int(n), _) => Some(*n as i128),
+                Expr::Unary { op, expr, .. } if op == "-" => {
+                    if let Expr::Literal(LiteralValue::Int(n), _) = &**expr {
+                        Some(-(*n as i128))
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+
+            if let Some(v) = lit_val {
+                if v < *min || v > *max {
+                    diag.error_with_help(
+                        ErrorCode::RangeViolation,
+                        format!(
+                            "Value {} is out of bounds for range type '{}' (allowed [{}..{}])",
+                            v, declared, min, max
+                        ),
+                        Some(span.clone()),
+                        Some(format!("Ensure value is between {} and {}", min, max)),
+                    );
+                }
+            } else if let DataraType::Range {
+                min: r_min,
+                max: r_max,
+                ..
+            } = init_type
+                && (*r_min < *min || *r_max > *max)
+            {
+                diag.error_with_help(
+                    ErrorCode::RangeViolation,
+                    format!(
+                        "Range [{}..{}] does not fit within target range [{}..{}]",
+                        r_min, r_max, min, max
+                    ),
+                    Some(span.clone()),
+                    Some(format!("Ensure range is within [{}..{}]", min, max)),
+                );
+            }
+        }
+
+        // Measure check
+        if let DataraType::Measure {
+            unit: decl_unit, ..
+        } = declared
+            && let DataraType::Measure {
+                unit: init_unit, ..
+            } = init_type
+            && decl_unit != init_unit
+        {
+            diag.error_with_help(
+                ErrorCode::DimensionMismatch,
+                format!(
+                    "Cannot assign value of unit '{}' to variable of unit '{}'",
+                    init_unit, decl_unit
+                ),
+                Some(span.clone()),
+                Some(format!("Convert or adjust unit to '{}'", decl_unit)),
+            );
+        }
+    }
+
+    fn check_match_exhaustiveness(
+        &self,
+        val_ty: &DataraType,
+        arms: &[MatchArm],
+        match_span: &SourceSpan,
+        diag: &mut DiagnosticEngine,
+    ) {
+        if arms.is_empty() {
+            diag.error(
+                ErrorCode::NonExhaustiveMatch,
+                "Match expression has no arms and is non-exhaustive".to_string(),
+                Some(match_span.clone()),
+            );
+            return;
+        }
+
+        enum Domain {
+            Option,
+            Result,
+            Bool,
+            Enum(Vec<String>),
+            Infinite,
+        }
+
+        let domain = match val_ty {
+            DataraType::Option(_) => Domain::Option,
+            DataraType::Result(_, _) => Domain::Result,
+            DataraType::Bool => Domain::Bool,
+            DataraType::Class(cls_name) => {
+                if let Some(e) = self.resolver.enums.get(cls_name) {
+                    Domain::Enum(e.variants.iter().map(|v| v.name.clone()).collect())
+                } else {
+                    Domain::Infinite
+                }
+            }
+            _ => Domain::Infinite,
+        };
+
+        let mut covered_variants: HashSet<String> = HashSet::new();
+        let mut catch_all_hit = false;
+
+        for arm in arms {
+            let arm_span = arm.pattern.span().clone();
+
+            if catch_all_hit {
+                diag.error(
+                    ErrorCode::UnreachablePattern,
+                    "Unreachable pattern: arm is preceded by an unconditional catch-all"
+                        .to_string(),
+                    Some(arm_span),
+                );
+                continue;
+            }
+
+            match &arm.pattern {
+                Pattern::Wildcard(_) => {
+                    if arm.guard.is_none() {
+                        catch_all_hit = true;
+                    }
+                }
+                Pattern::Identifier(name, _) if name == "_" => {
+                    if arm.guard.is_none() {
+                        catch_all_hit = true;
+                    }
+                }
+                Pattern::Identifier(name, _) => {
+                    let is_enum_variant = match &domain {
+                        Domain::Option => name == "None" || name == "Some",
+                        Domain::Result => name == "Ok" || name == "Err",
+                        Domain::Enum(vars) => vars.contains(name),
+                        _ => false,
+                    };
+
+                    if is_enum_variant {
+                        if covered_variants.contains(name) && arm.guard.is_none() {
+                            diag.error(
+                                ErrorCode::UnreachablePattern,
+                                format!(
+                                    "Unreachable pattern: variant '{}' is already covered",
+                                    name
+                                ),
+                                Some(arm_span.clone()),
+                            );
+                        }
+                        if arm.guard.is_none() {
+                            covered_variants.insert(name.clone());
+                        }
+                    } else if arm.guard.is_none() {
+                        catch_all_hit = true;
+                    }
+                }
+                Pattern::Literal(lit, _) => match lit {
+                    LiteralValue::None => {
+                        if covered_variants.contains("None") && arm.guard.is_none() {
+                            diag.error(
+                                ErrorCode::UnreachablePattern,
+                                "Unreachable pattern: 'None' is already covered".to_string(),
+                                Some(arm_span.clone()),
+                            );
+                        }
+                        if arm.guard.is_none() {
+                            covered_variants.insert("None".to_string());
+                        }
+                    }
+                    LiteralValue::Bool(b) => {
+                        let key = if *b { "true" } else { "false" };
+                        if covered_variants.contains(key) && arm.guard.is_none() {
+                            diag.error(
+                                ErrorCode::UnreachablePattern,
+                                format!("Unreachable pattern: '{}' is already covered", key),
+                                Some(arm_span.clone()),
+                            );
+                        }
+                        if arm.guard.is_none() {
+                            covered_variants.insert(key.to_string());
+                        }
+                    }
+                    _ => {}
+                },
+                Pattern::Variant { variant_name, .. } => {
+                    if covered_variants.contains(variant_name) && arm.guard.is_none() {
+                        diag.error(
+                            ErrorCode::UnreachablePattern,
+                            format!(
+                                "Unreachable pattern: variant '{}' is already covered",
+                                variant_name
+                            ),
+                            Some(arm_span.clone()),
+                        );
+                    }
+                    if arm.guard.is_none() {
+                        covered_variants.insert(variant_name.clone());
+                    }
+                }
+            }
+        }
+
+        if !catch_all_hit {
+            match &domain {
+                Domain::Option => {
+                    let mut missing = Vec::new();
+                    if !covered_variants.contains("Some") {
+                        missing.push("Some(_)");
+                    }
+                    if !covered_variants.contains("None") {
+                        missing.push("None");
+                    }
+                    if !missing.is_empty() {
+                        diag.error_with_help(
+                            ErrorCode::NonExhaustiveMatch,
+                            format!(
+                                "Non-exhaustive patterns in match: missing {}",
+                                missing.join(", ")
+                            ),
+                            Some(match_span.clone()),
+                            Some(format!("Add missing arm(s): {}", missing.join(", "))),
+                        );
+                    }
+                }
+                Domain::Result => {
+                    let mut missing = Vec::new();
+                    if !covered_variants.contains("Ok") {
+                        missing.push("Ok(_)");
+                    }
+                    if !covered_variants.contains("Err") {
+                        missing.push("Err(_)");
+                    }
+                    if !missing.is_empty() {
+                        diag.error_with_help(
+                            ErrorCode::NonExhaustiveMatch,
+                            format!(
+                                "Non-exhaustive patterns in match: missing {}",
+                                missing.join(", ")
+                            ),
+                            Some(match_span.clone()),
+                            Some(format!("Add missing arm(s): {}", missing.join(", "))),
+                        );
+                    }
+                }
+                Domain::Bool => {
+                    let mut missing = Vec::new();
+                    if !covered_variants.contains("true") {
+                        missing.push("true");
+                    }
+                    if !covered_variants.contains("false") {
+                        missing.push("false");
+                    }
+                    if !missing.is_empty() {
+                        diag.error_with_help(
+                            ErrorCode::NonExhaustiveMatch,
+                            format!(
+                                "Non-exhaustive patterns in match: missing {}",
+                                missing.join(", ")
+                            ),
+                            Some(match_span.clone()),
+                            Some(format!("Add missing arm(s): {}", missing.join(", "))),
+                        );
+                    }
+                }
+                Domain::Enum(vars) => {
+                    let missing: Vec<&str> = vars
+                        .iter()
+                        .filter(|v| !covered_variants.contains(v.as_str()))
+                        .map(|s| s.as_str())
+                        .collect();
+                    if !missing.is_empty() {
+                        diag.error_with_help(
+                            ErrorCode::NonExhaustiveMatch,
+                            format!(
+                                "Non-exhaustive patterns in match for enum: missing {}",
+                                missing.join(", ")
+                            ),
+                            Some(match_span.clone()),
+                            Some(format!("Add missing arm(s): {}", missing.join(", "))),
+                        );
+                    }
+                }
+                Domain::Infinite => {
+                    diag.error_with_help(
+                        ErrorCode::NonExhaustiveMatch,
+                        format!(
+                            "Non-exhaustive patterns in match for type '{}'. A wildcard '_' or variable pattern is required.",
+                            val_ty
+                        ),
+                        Some(match_span.clone()),
+                        Some("Add a wildcard '_' arm to cover all remaining cases".to_string()),
+                    );
+                }
+            }
+        }
+    }
+
     pub fn record_var_type(&mut self, name: &str, ty: DataraType) {
         if let Some(ref fn_name) = self.current_fn_name {
             self.fn_symbol_types
@@ -1385,7 +1832,18 @@ impl<'a> TypeChecker<'a> {
                     self.var_refinements.insert(name.clone(), tn.clone());
                     self.check_refinement(tn, init, span, diag);
                     let declared = self.resolve_type_node(tn);
-                    if !init_type.is_compatible(&declared) {
+                    let is_literal_numeric = matches!(
+                        init,
+                        Expr::Literal(LiteralValue::Float(_), _)
+                            | Expr::Literal(LiteralValue::Int(_), _)
+                    );
+                    let compatible = if let DataraType::Measure { base, .. } = &declared {
+                        (is_literal_numeric && init_type.is_compatible(base))
+                            || init_type.is_compatible(&declared)
+                    } else {
+                        init_type.is_compatible(&declared)
+                    };
+                    if !compatible {
                         let help_msg = Self::suggest_type_fix(&declared, &init_type);
                         diag.error_with_help(
                             ErrorCode::TypeMismatch,
@@ -1397,15 +1855,21 @@ impl<'a> TypeChecker<'a> {
                             help_msg,
                         );
                     }
+                    self.check_range_and_measure_assignment(
+                        &declared, &init_type, init, span, diag,
+                    );
                     declared
                 } else {
                     init_type
                 };
                 self.record_var_type(name, final_ty.clone());
-                if matches!(*init, Expr::ListLiteral(_, _))
-                    && let Some(e) = self.last_list_element.take()
-                {
-                    self.var_element_types.insert(name.clone(), e);
+                if let Expr::ListLiteral(elements, _) = init {
+                    self.var_array_lengths.insert(name.clone(), elements.len());
+                    if let Some(e) = self.last_list_element.take() {
+                        self.var_element_types.insert(name.clone(), e);
+                    }
+                } else if let Expr::ArrayRepeatLiteral { count, .. } = init {
+                    self.var_array_lengths.insert(name.clone(), *count);
                 }
                 self.symbol_mutability
                     .insert(name.clone(), MutabilityKind::Immutable);
@@ -1422,7 +1886,18 @@ impl<'a> TypeChecker<'a> {
                     self.var_refinements.insert(name.clone(), tn.clone());
                     self.check_refinement(tn, init, span, diag);
                     let declared = self.resolve_type_node(tn);
-                    if !init_type.is_compatible(&declared) {
+                    let is_literal_numeric = matches!(
+                        init,
+                        Expr::Literal(LiteralValue::Float(_), _)
+                            | Expr::Literal(LiteralValue::Int(_), _)
+                    );
+                    let compatible = if let DataraType::Measure { base, .. } = &declared {
+                        (is_literal_numeric && init_type.is_compatible(base))
+                            || init_type.is_compatible(&declared)
+                    } else {
+                        init_type.is_compatible(&declared)
+                    };
+                    if !compatible {
                         let help_msg = Self::suggest_type_fix(&declared, &init_type);
                         diag.error_with_help(
                             ErrorCode::TypeMismatch,
@@ -1434,15 +1909,21 @@ impl<'a> TypeChecker<'a> {
                             help_msg,
                         );
                     }
+                    self.check_range_and_measure_assignment(
+                        &declared, &init_type, init, span, diag,
+                    );
                     declared
                 } else {
                     init_type
                 };
                 self.record_var_type(name, final_ty.clone());
-                if matches!(*init, Expr::ListLiteral(_, _))
-                    && let Some(e) = self.last_list_element.take()
-                {
-                    self.var_element_types.insert(name.clone(), e);
+                if let Expr::ListLiteral(elements, _) = init {
+                    self.var_array_lengths.insert(name.clone(), elements.len());
+                    if let Some(e) = self.last_list_element.take() {
+                        self.var_element_types.insert(name.clone(), e);
+                    }
+                } else if let Expr::ArrayRepeatLiteral { count, .. } = init {
+                    self.var_array_lengths.insert(name.clone(), *count);
                 }
                 self.symbol_mutability
                     .insert(name.clone(), MutabilityKind::Immutable);
@@ -1459,7 +1940,18 @@ impl<'a> TypeChecker<'a> {
                     self.var_refinements.insert(name.clone(), tn.clone());
                     self.check_refinement(tn, init, span, diag);
                     let declared = self.resolve_type_node(tn);
-                    if !init_type.is_compatible(&declared) {
+                    let is_literal_numeric = matches!(
+                        init,
+                        Expr::Literal(LiteralValue::Float(_), _)
+                            | Expr::Literal(LiteralValue::Int(_), _)
+                    );
+                    let compatible = if let DataraType::Measure { base, .. } = &declared {
+                        (is_literal_numeric && init_type.is_compatible(base))
+                            || init_type.is_compatible(&declared)
+                    } else {
+                        init_type.is_compatible(&declared)
+                    };
+                    if !compatible {
                         let help_msg = Self::suggest_type_fix(&declared, &init_type);
                         diag.error_with_help(
                             ErrorCode::TypeMismatch,
@@ -1471,15 +1963,21 @@ impl<'a> TypeChecker<'a> {
                             help_msg,
                         );
                     }
+                    self.check_range_and_measure_assignment(
+                        &declared, &init_type, init, span, diag,
+                    );
                     declared
                 } else {
                     init_type
                 };
                 self.record_var_type(name, final_ty.clone());
-                if matches!(*init, Expr::ListLiteral(_, _))
-                    && let Some(e) = self.last_list_element.take()
-                {
-                    self.var_element_types.insert(name.clone(), e);
+                if let Expr::ListLiteral(elements, _) = init {
+                    self.var_array_lengths.insert(name.clone(), elements.len());
+                    if let Some(e) = self.last_list_element.take() {
+                        self.var_element_types.insert(name.clone(), e);
+                    }
+                } else if let Expr::ArrayRepeatLiteral { count, .. } = init {
+                    self.var_array_lengths.insert(name.clone(), *count);
                 }
                 self.symbol_mutability
                     .insert(name.clone(), MutabilityKind::MutableFixed);
@@ -1497,7 +1995,18 @@ impl<'a> TypeChecker<'a> {
                     self.var_refinements.insert(name.clone(), tn.clone());
                     self.check_refinement(tn, init, span, diag);
                     let declared = self.resolve_type_node(tn);
-                    if !init_type.is_compatible(&declared) {
+                    let is_literal_numeric = matches!(
+                        init,
+                        Expr::Literal(LiteralValue::Float(_), _)
+                            | Expr::Literal(LiteralValue::Int(_), _)
+                    );
+                    let compatible = if let DataraType::Measure { base, .. } = &declared {
+                        (is_literal_numeric && init_type.is_compatible(base))
+                            || init_type.is_compatible(&declared)
+                    } else {
+                        init_type.is_compatible(&declared)
+                    };
+                    if !compatible {
                         let help_msg = Self::suggest_type_fix(&declared, &init_type);
                         diag.error_with_help(
                             ErrorCode::TypeMismatch,
@@ -1509,6 +2018,9 @@ impl<'a> TypeChecker<'a> {
                             help_msg,
                         );
                     }
+                    self.check_range_and_measure_assignment(
+                        &declared, &init_type, init, span, diag,
+                    );
                     declared
                 } else if !*is_mut {
                     // Type promotion: immutable `val` promotes directly to its concrete scalar SSA register type
@@ -1517,10 +2029,13 @@ impl<'a> TypeChecker<'a> {
                     DataraType::Val
                 };
                 self.record_var_type(name, final_ty.clone());
-                if matches!(*init, Expr::ListLiteral(_, _))
-                    && let Some(e) = self.last_list_element.take()
-                {
-                    self.var_element_types.insert(name.clone(), e);
+                if let Expr::ListLiteral(elements, _) = init {
+                    self.var_array_lengths.insert(name.clone(), elements.len());
+                    if let Some(e) = self.last_list_element.take() {
+                        self.var_element_types.insert(name.clone(), e);
+                    }
+                } else if let Expr::ArrayRepeatLiteral { count, .. } = init {
+                    self.var_array_lengths.insert(name.clone(), *count);
                 }
                 self.symbol_mutability
                     .insert(name.clone(), MutabilityKind::Dynamic { is_mut: *is_mut });
@@ -1568,11 +2083,13 @@ impl<'a> TypeChecker<'a> {
                                 );
                             }
                             MutabilityKind::MutableFixed => {
-                                if let Some(existing) = self.symbol_types.get(name)
-                                    && !val_type.is_compatible(existing)
-                                {
-                                    let help_msg = Self::suggest_type_fix(existing, &val_type);
-                                    diag.error_with_help(
+                                if let Some(existing) = self.symbol_types.get(name).cloned() {
+                                    self.check_range_and_measure_assignment(
+                                        &existing, &val_type, value, span, diag,
+                                    );
+                                    if !val_type.is_compatible(&existing) {
+                                        let help_msg = Self::suggest_type_fix(&existing, &val_type);
+                                        diag.error_with_help(
                                             ErrorCode::TypeMismatch,
                                             format!(
                                                 "Type mismatch in assignment to mutable variable '{}': expected '{}', got '{}'",
@@ -1581,9 +2098,15 @@ impl<'a> TypeChecker<'a> {
                                             Some(span.clone()),
                                             help_msg,
                                         );
+                                    }
                                 }
                             }
                             MutabilityKind::Dynamic { is_mut: true } => {
+                                if let Some(existing) = self.symbol_types.get(name).cloned() {
+                                    self.check_range_and_measure_assignment(
+                                        &existing, &val_type, value, span, diag,
+                                    );
+                                }
                                 self.symbol_types.insert(name.clone(), val_type.clone());
                             }
                         }
@@ -1947,10 +2470,299 @@ impl<'a> TypeChecker<'a> {
                 DataraType::String
             }
             Expr::Binary {
-                op, left, right, ..
+                op,
+                left,
+                right,
+                span,
             } => {
                 let lt = self.check_expr(left, diag);
                 let rt = self.check_expr(right, diag);
+
+                // --- Units of Measure Dimensional Analysis ---
+                if let (
+                    DataraType::Measure { base: b1, unit: u1 },
+                    DataraType::Measure { base: b2, unit: u2 },
+                ) = (&lt, &rt)
+                {
+                    let base = if **b1 == DataraType::Float || **b2 == DataraType::Float {
+                        DataraType::Float
+                    } else {
+                        DataraType::Int
+                    };
+                    match op.as_str() {
+                        "+" | "-" => {
+                            if u1 != u2 {
+                                diag.error(
+                                    ErrorCode::DimensionMismatch,
+                                    format!(
+                                        "Cannot perform '{}' on incompatible units of measure '{}' and '{}'",
+                                        op, u1, u2
+                                    ),
+                                    Some(span.clone()),
+                                );
+                            }
+                            return DataraType::Measure {
+                                base: Box::new(base),
+                                unit: u1.clone(),
+                            };
+                        }
+                        "*" => {
+                            let unit = format!("{}*{}", u1, u2);
+                            return DataraType::Measure {
+                                base: Box::new(base),
+                                unit,
+                            };
+                        }
+                        "/" => {
+                            if u1 == u2 {
+                                return base;
+                            } else {
+                                let unit = format!("{}/{}", u1, u2);
+                                return DataraType::Measure {
+                                    base: Box::new(base),
+                                    unit,
+                                };
+                            }
+                        }
+                        "==" | "!=" | "<" | "<=" | ">" | ">=" => {
+                            if u1 != u2 {
+                                diag.error(
+                                    ErrorCode::DimensionMismatch,
+                                    format!(
+                                        "Cannot compare incompatible units of measure '{}' and '{}'",
+                                        u1, u2
+                                    ),
+                                    Some(span.clone()),
+                                );
+                            }
+                            return DataraType::Bool;
+                        }
+                        _ => {}
+                    }
+                } else if let DataraType::Measure { base, unit } = &lt {
+                    match op.as_str() {
+                        "*" => {
+                            let b = if **base == DataraType::Float || rt == DataraType::Float {
+                                DataraType::Float
+                            } else {
+                                DataraType::Int
+                            };
+                            return DataraType::Measure {
+                                base: Box::new(b),
+                                unit: unit.clone(),
+                            };
+                        }
+                        "/" => {
+                            let b = if **base == DataraType::Float || rt == DataraType::Float {
+                                DataraType::Float
+                            } else {
+                                DataraType::Int
+                            };
+                            return DataraType::Measure {
+                                base: Box::new(b),
+                                unit: unit.clone(),
+                            };
+                        }
+                        "+" | "-" => {
+                            diag.error(
+                                ErrorCode::DimensionMismatch,
+                                format!(
+                                    "Cannot perform '{}' between unit of measure '{}' and dimensionless quantity",
+                                    op, unit
+                                ),
+                                Some(span.clone()),
+                            );
+                            return DataraType::Measure {
+                                base: base.clone(),
+                                unit: unit.clone(),
+                            };
+                        }
+                        "==" | "!=" | "<" | "<=" | ">" | ">=" => {
+                            if matches!(
+                                &**right,
+                                Expr::Literal(LiteralValue::Int(_) | LiteralValue::Float(_), _)
+                            ) {
+                                return DataraType::Bool;
+                            }
+                            diag.error(
+                                ErrorCode::DimensionMismatch,
+                                format!(
+                                    "Cannot compare unit of measure '{}' with dimensionless quantity",
+                                    unit
+                                ),
+                                Some(span.clone()),
+                            );
+                            return DataraType::Bool;
+                        }
+                        _ => {}
+                    }
+                } else if let DataraType::Measure { base, unit } = &rt {
+                    match op.as_str() {
+                        "*" => {
+                            let b = if lt == DataraType::Float || **base == DataraType::Float {
+                                DataraType::Float
+                            } else {
+                                DataraType::Int
+                            };
+                            return DataraType::Measure {
+                                base: Box::new(b),
+                                unit: unit.clone(),
+                            };
+                        }
+                        "+" | "-" => {
+                            diag.error(
+                                ErrorCode::DimensionMismatch,
+                                format!(
+                                    "Cannot perform '{}' between dimensionless quantity and unit of measure '{}'",
+                                    op, unit
+                                ),
+                                Some(span.clone()),
+                            );
+                            return DataraType::Measure {
+                                base: base.clone(),
+                                unit: unit.clone(),
+                            };
+                        }
+                        "==" | "!=" | "<" | "<=" | ">" | ">=" => {
+                            if matches!(
+                                &**left,
+                                Expr::Literal(LiteralValue::Int(_) | LiteralValue::Float(_), _)
+                            ) {
+                                return DataraType::Bool;
+                            }
+                            diag.error(
+                                ErrorCode::DimensionMismatch,
+                                format!(
+                                    "Cannot compare dimensionless quantity with unit of measure '{}'",
+                                    unit
+                                ),
+                                Some(span.clone()),
+                            );
+                            return DataraType::Bool;
+                        }
+                        _ => {}
+                    }
+                }
+
+                // --- Range Interval Arithmetic ---
+                if let (
+                    DataraType::Range {
+                        base: b1,
+                        min: min1,
+                        max: max1,
+                    },
+                    DataraType::Range {
+                        base: b2,
+                        min: min2,
+                        max: max2,
+                    },
+                ) = (&lt, &rt)
+                {
+                    let base = if **b1 == DataraType::Float || **b2 == DataraType::Float {
+                        DataraType::Float
+                    } else {
+                        DataraType::Int
+                    };
+                    match op.as_str() {
+                        "+" => {
+                            return DataraType::Range {
+                                base: Box::new(base),
+                                min: min1.saturating_add(*min2),
+                                max: max1.saturating_add(*max2),
+                            };
+                        }
+                        "-" => {
+                            return DataraType::Range {
+                                base: Box::new(base),
+                                min: min1.saturating_sub(*max2),
+                                max: max1.saturating_sub(*min2),
+                            };
+                        }
+                        "*" => {
+                            let p1 = min1.saturating_mul(*min2);
+                            let p2 = min1.saturating_mul(*max2);
+                            let p3 = max1.saturating_mul(*min2);
+                            let p4 = max1.saturating_mul(*max2);
+                            let min = p1.min(p2).min(p3).min(p4);
+                            let max = p1.max(p2).max(p3).max(p4);
+                            return DataraType::Range {
+                                base: Box::new(base),
+                                min,
+                                max,
+                            };
+                        }
+                        "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||" => {
+                            return DataraType::Bool;
+                        }
+                        _ => {}
+                    }
+                } else if let DataraType::Range { base, min, max } = &lt {
+                    if let Expr::Literal(LiteralValue::Int(n), _) = &**right {
+                        let val = *n as i128;
+                        match op.as_str() {
+                            "+" => {
+                                return DataraType::Range {
+                                    base: base.clone(),
+                                    min: min.saturating_add(val),
+                                    max: max.saturating_add(val),
+                                };
+                            }
+                            "-" => {
+                                return DataraType::Range {
+                                    base: base.clone(),
+                                    min: min.saturating_sub(val),
+                                    max: max.saturating_sub(val),
+                                };
+                            }
+                            "*" => {
+                                let p1 = min.saturating_mul(val);
+                                let p2 = max.saturating_mul(val);
+                                return DataraType::Range {
+                                    base: base.clone(),
+                                    min: p1.min(p2),
+                                    max: p1.max(p2),
+                                };
+                            }
+                            "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||" => {
+                                return DataraType::Bool;
+                            }
+                            _ => {}
+                        }
+                    }
+                } else if let DataraType::Range { base, min, max } = &rt
+                    && let Expr::Literal(LiteralValue::Int(n), _) = &**left
+                {
+                    let val = *n as i128;
+                    match op.as_str() {
+                        "+" => {
+                            return DataraType::Range {
+                                base: base.clone(),
+                                min: val.saturating_add(*min),
+                                max: val.saturating_add(*max),
+                            };
+                        }
+                        "-" => {
+                            return DataraType::Range {
+                                base: base.clone(),
+                                min: val.saturating_sub(*max),
+                                max: val.saturating_sub(*min),
+                            };
+                        }
+                        "*" => {
+                            let p1 = val.saturating_mul(*min);
+                            let p2 = val.saturating_mul(*max);
+                            return DataraType::Range {
+                                base: base.clone(),
+                                min: p1.min(p2),
+                                max: p1.max(p2),
+                            };
+                        }
+                        "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||" => {
+                            return DataraType::Bool;
+                        }
+                        _ => {}
+                    }
+                }
 
                 match op.as_str() {
                     "+" if lt == DataraType::String || rt == DataraType::String => {
@@ -2322,8 +3134,9 @@ impl<'a> TypeChecker<'a> {
                 }
                 unified.unwrap_or(DataraType::Unit)
             }
-            Expr::Match { value, arms, .. } => {
+            Expr::Match { value, arms, span } => {
                 let val_ty = self.check_expr(value, diag);
+                self.check_match_exhaustiveness(&val_ty, arms, span, diag);
                 let mut unified: Option<DataraType> = None;
                 for arm in arms {
                     let mut bound = Vec::new();
@@ -2332,9 +3145,50 @@ impl<'a> TypeChecker<'a> {
                             let prev = self.symbol_types.insert(name.clone(), val_ty.clone());
                             bound.push((name.clone(), prev));
                         }
-                        Pattern::Variant { bindings, .. } => {
-                            for b in bindings {
-                                let prev = self.symbol_types.insert(b.clone(), val_ty.clone());
+                        Pattern::Variant {
+                            variant_name,
+                            bindings,
+                            ..
+                        } => {
+                            for (i, b) in bindings.iter().enumerate() {
+                                let bind_ty = match &val_ty {
+                                    DataraType::Option(inner)
+                                        if (variant_name == "Some") && i == 0 =>
+                                    {
+                                        (**inner).clone()
+                                    }
+                                    DataraType::Result(ok, _)
+                                        if (variant_name == "Ok") && i == 0 =>
+                                    {
+                                        (**ok).clone()
+                                    }
+                                    DataraType::Result(_, err)
+                                        if (variant_name == "Err") && i == 0 =>
+                                    {
+                                        (**err).clone()
+                                    }
+                                    DataraType::Class(cls) => {
+                                        if let Some(e) = self.resolver.enums.get(cls) {
+                                            if let Some(v) = e
+                                                .variants
+                                                .iter()
+                                                .find(|var| &var.name == variant_name)
+                                            {
+                                                if let Some(f_tn) = v.fields.get(i) {
+                                                    self.resolve_type_node(f_tn)
+                                                } else {
+                                                    val_ty.clone()
+                                                }
+                                            } else {
+                                                val_ty.clone()
+                                            }
+                                        } else {
+                                            val_ty.clone()
+                                        }
+                                    }
+                                    _ => val_ty.clone(),
+                                };
+                                let prev = self.symbol_types.insert(b.clone(), bind_ty);
                                 bound.push((b.clone(), prev));
                             }
                         }
@@ -2460,6 +3314,82 @@ impl<'a> TypeChecker<'a> {
             Expr::IndexAccess { object, index, .. } => {
                 let obj_ty = self.check_expr(object, diag);
                 let idx_ty = self.check_expr(index, diag);
+
+                // Static negative index check and Range bounds verification
+                let static_idx = match &**index {
+                    Expr::Literal(LiteralValue::Int(n), _) => Some(*n),
+                    Expr::Unary { op, expr, .. } if op == "-" => {
+                        if let Expr::Literal(LiteralValue::Int(n), _) = &**expr {
+                            Some(-*n)
+                        } else {
+                            Some(-1)
+                        }
+                    }
+                    _ => None,
+                };
+
+                if let Some(n) = static_idx {
+                    if n < 0 {
+                        diag.error_with_help(
+                            ErrorCode::RangeViolation,
+                            format!("Array index cannot be negative: {}", n),
+                            Some(index.span().clone()),
+                            Some("Array indices in Datara must be non-negative (>= 0)".to_string()),
+                        );
+                    }
+                } else if let DataraType::Range { min, .. } = &idx_ty
+                    && *min < 0
+                {
+                    diag.error_with_help(
+                        ErrorCode::RangeViolation,
+                        format!(
+                            "Array index range allows negative values (minimum is {})",
+                            min
+                        ),
+                        Some(index.span().clone()),
+                        Some(
+                            "Constrain index range to be non-negative: e.g. UInt or Int<0..>"
+                                .to_string(),
+                        ),
+                    );
+                }
+
+                if let Expr::Identifier(name, _) = &**object
+                    && let Some(arr_len) = self.var_array_lengths.get(name).copied()
+                {
+                    if let Some(n) = static_idx {
+                        if n >= 0 && (n as usize) >= arr_len {
+                            diag.error_with_help(
+                                ErrorCode::RangeViolation,
+                                format!(
+                                    "Index {} is out of bounds for array '{}' of length {}",
+                                    n, name, arr_len
+                                ),
+                                Some(index.span().clone()),
+                                Some(format!(
+                                    "Valid indices are 0..{}",
+                                    arr_len.saturating_sub(1)
+                                )),
+                            );
+                        }
+                    } else if let DataraType::Range { max, .. } = &idx_ty
+                        && *max >= arr_len as i128
+                    {
+                        diag.error_with_help(
+                            ErrorCode::RangeViolation,
+                            format!(
+                                "Index range maximum {} may exceed array '{}' bound of length {}",
+                                max, name, arr_len
+                            ),
+                            Some(index.span().clone()),
+                            Some(format!(
+                                "Constrain index range to 0..{}",
+                                arr_len.saturating_sub(1)
+                            )),
+                        );
+                    }
+                }
+
                 if idx_ty == DataraType::Class("Range".into()) {
                     obj_ty
                 } else if let Expr::Identifier(name, _) = &**object {

@@ -56,6 +56,8 @@ impl RealCraneliftBackend {
             "i128" | "u128" => clif_types::I128,
             "Float" | "Float64" | "f64" => clif_types::F64,
             "Float32" | "f32" | "f16" => clif_types::F32,
+            s if s.starts_with("Float<") => clif_types::F64,
+            s if s.starts_with("Int<") || s.starts_with("UInt<") => clif_types::I64,
             "dec64" | "dec128" => clif_types::I64,
             "Bool" => clif_types::I64,
             "String" | "Str" => clif_types::I64,

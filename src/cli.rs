@@ -56,6 +56,7 @@ pub fn run_cli() {
         );
         println!("Target Architecture: {} (Cranelift Backend)", triple);
         println!("Datara Language Specification 2026 Edition");
+        crate::update::notify_if_update_available();
         return;
     }
 
@@ -68,6 +69,11 @@ pub fn run_cli() {
     }
 
     match command.as_str() {
+        "check-update" | "self-update" => {
+            crate::update::run_check_update_command();
+            return;
+        }
+
         "setup-tools" | "install-tools" => {
             run_setup_tools();
         }
@@ -2339,6 +2345,8 @@ complete -c forgen -l all -d "Apply to all targets""#
             std::process::exit(1);
         }
     }
+
+    crate::update::notify_if_update_available();
 }
 
 fn run_watch_iteration(subcmd: &str, args: &[String]) {
@@ -2818,6 +2826,7 @@ Project Commands:
   export <c-header|shared> Export C99/C++ header (.h) or dynamic shared library (.dll/.so/.dylib)
   vendor [target]         Bundle dependencies into vendor/ for 100% offline air-gapped builds
   update, upgrade         Check and update dependency versions with Merkle verification
+  check-update            Check for newer releases of the forgen compiler toolchain
   completions <shell>     Generate terminal auto-completions (bash, zsh, fish, powershell)
   clean [--all|--pgo|--llvm] Remove target/ build outputs, temporary files, and .pgo caches
   lint, audit [target]    Rust-grade linter & security effect capability lattice audit

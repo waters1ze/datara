@@ -121,3 +121,32 @@ fn main() {
             .collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn test_update_notification_system() {
+    use forgen::update::{
+        UpdateCache, format_pip_notice, is_newer_version, load_cache, parse_version, save_cache,
+    };
+
+    assert_eq!(parse_version("0.1.0"), Some((0, 1, 0)));
+    assert_eq!(parse_version("v0.1.1"), Some((0, 1, 1)));
+    assert!(is_newer_version("0.1.1", "0.1.0"));
+    assert!(!is_newer_version("0.1.0", "0.1.1"));
+
+    let notice = format_pip_notice("0.1.0", "0.1.1");
+    assert!(notice.contains("A new release of forgen is available"));
+    assert!(notice.contains("0.1.0"));
+    assert!(notice.contains("0.1.1"));
+    assert!(notice.contains("To update, run:"));
+    assert!(notice.contains("cargo install forgen"));
+
+    let cache = UpdateCache {
+        last_checked_epoch_secs: 123456789,
+        latest_version: "0.1.1".to_string(),
+    };
+    save_cache(&cache);
+    let loaded = load_cache();
+    assert!(loaded.is_some());
+    let loaded = loaded.unwrap();
+    assert_eq!(loaded.latest_version, "0.1.1");
+}

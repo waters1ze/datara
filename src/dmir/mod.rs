@@ -681,6 +681,24 @@ impl<'a> Lowering<'a> {
                 tn.full_type_name()
             };
             format!("Maybe<{}>", inner)
+        } else if matches!(
+            tn.name.as_str(),
+            "Float"
+                | "Float64"
+                | "Float32"
+                | "Int"
+                | "Int64"
+                | "Int32"
+                | "Int16"
+                | "Int8"
+                | "UInt"
+                | "UInt64"
+                | "UInt32"
+                | "UInt16"
+                | "UInt8"
+                | "Byte"
+        ) {
+            tn.name.clone()
         } else {
             tn.full_type_name()
         }

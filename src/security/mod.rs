@@ -30,22 +30,36 @@ impl<'a> SecurityVerifier<'a> {
     }
 
     pub fn verify_program(&mut self, program: &Program, diag: &mut DiagnosticEngine) {
+        let mut class_invariants: HashMap<String, Vec<Expr>> = HashMap::new();
+        for decl in &program.declarations {
+            if let Decl::Class(c) = decl
+                && !c.invariants.is_empty()
+            {
+                class_invariants.insert(c.name.clone(), c.invariants.clone());
+            }
+        }
+
         for decl in &program.declarations {
             match decl {
                 Decl::Function(f) | Decl::Flow(f) | Decl::Task(f) => {
                     self.verify_fn_decl(f, diag);
                 }
                 Decl::Class(c) => {
+                    let invs = class_invariants.get(&c.name).cloned().unwrap_or_default();
                     for item in &c.body_items {
                         if let ClassItem::Method(m) = item {
-                            self.verify_method_decl(&c.name, m, diag);
+                            self.verify_method_decl(&c.name, m, &invs, diag);
                         }
                     }
                 }
                 Decl::Behavior(b) => {
+                    let invs = class_invariants
+                        .get(&b.target_type)
+                        .cloned()
+                        .unwrap_or_default();
                     for item in &b.body_items {
                         if let ClassItem::Method(m) = item {
-                            self.verify_method_decl(&b.target_type, m, diag);
+                            self.verify_method_decl(&b.target_type, m, &invs, diag);
                         }
                     }
                 }
@@ -99,11 +113,39 @@ impl<'a> SecurityVerifier<'a> {
             is_no_panic,
         };
 
+        self.verify_totality_and_termination(
+            &f.name,
+            &f.attributes,
+            &f.params,
+            &f.decreases,
+            &f.body,
+            diag,
+        );
+
         self.verify_stmt(&f.body, &mut ctx, diag);
     }
 
-    fn verify_method_decl(&mut self, target: &str, m: &MethodDecl, diag: &mut DiagnosticEngine) {
+    fn verify_method_decl(
+        &mut self,
+        target: &str,
+        m: &MethodDecl,
+        invariants: &[Expr],
+        diag: &mut DiagnosticEngine,
+    ) {
         let Some(body) = &m.body else { return };
+
+        self.verify_totality_and_termination(
+            &m.name,
+            &m.attributes,
+            &m.params,
+            &m.decreases,
+            body,
+            diag,
+        );
+
+        if !invariants.is_empty() {
+            self.verify_class_invariants(target, m, invariants, body, diag);
+        }
 
         let fn_name = format!("{}_{}", target, m.name);
         let mut symbols = HashMap::new();
@@ -153,6 +195,415 @@ impl<'a> SecurityVerifier<'a> {
         };
 
         self.verify_stmt(body, &mut ctx, diag);
+    }
+
+    fn verify_class_invariants(
+        &self,
+        class_name: &str,
+        m: &MethodDecl,
+        invariants: &[Expr],
+        body: &Stmt,
+        diag: &mut DiagnosticEngine,
+    ) {
+        let mut assignments = Vec::new();
+        Self::collect_assignments(body, &mut assignments);
+
+        for inv in invariants {
+            if let Expr::Binary {
+                op, left, right, ..
+            } = inv
+            {
+                let field_name = match &**left {
+                    Expr::Identifier(id, _) => Some(id.clone()),
+                    Expr::MemberAccess { member, .. } => Some(member.clone()),
+                    _ => None,
+                };
+
+                let Some(f_name) = field_name else {
+                    continue;
+                };
+
+                for (target_expr, val_expr, assign_span) in &assignments {
+                    let is_target_field = match target_expr {
+                        Expr::Identifier(id, _) => id == &f_name,
+                        Expr::MemberAccess { member, .. } => member == &f_name,
+                        _ => false,
+                    };
+
+                    if !is_target_field {
+                        continue;
+                    }
+
+                    // 1. Literal constant assignment check
+                    let val_int = match val_expr {
+                        Expr::Literal(LiteralValue::Int(n), _) => Some(*n),
+                        Expr::Unary { op: u_op, expr, .. } if u_op == "-" => {
+                            if let Expr::Literal(LiteralValue::Int(n), _) = &**expr {
+                                Some(-*n)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(n) = val_int {
+                        let violates = match op.as_str() {
+                            ">=" => match &**right {
+                                Expr::Literal(LiteralValue::Int(limit), _) => n < *limit,
+                                _ => n < 0,
+                            },
+                            ">" => match &**right {
+                                Expr::Literal(LiteralValue::Int(limit), _) => n <= *limit,
+                                _ => n <= 0,
+                            },
+                            "<=" => match &**right {
+                                Expr::Literal(LiteralValue::Int(limit), _) => n > *limit,
+                                _ => false,
+                            },
+                            "<" => match &**right {
+                                Expr::Literal(LiteralValue::Int(limit), _) => n >= *limit,
+                                _ => false,
+                            },
+                            _ => false,
+                        };
+
+                        if violates {
+                            diag.error_with_help(
+                                ErrorCode::InvariantViolation,
+                                format!(
+                                    "Class '{}' invariant violation: method '{}' assigns invalid constant {} to field '{}'",
+                                    class_name, m.name, n, f_name
+                                ),
+                                Some(assign_span.clone()),
+                                Some("Ensure assigned value satisfies class invariant".to_string()),
+                            );
+                        }
+                    }
+
+                    // 2. Subtraction check (e.g. self.field = self.field - amount)
+                    if (op == ">=" || op == ">")
+                        && let Expr::Binary { op: sub_op, .. } = val_expr
+                        && sub_op == "-"
+                    {
+                        let has_precondition = m.requires.iter().any(|req| {
+                            let mut reads = HashSet::new();
+                            collect_expr_reads(
+                                &req.condition,
+                                &HashSet::new(),
+                                &HashSet::new(),
+                                &mut reads,
+                            );
+                            reads.contains(&f_name)
+                                || reads.contains("self")
+                                || reads.contains("this")
+                        });
+
+                        if !has_precondition {
+                            diag.error_with_help(
+                                ErrorCode::InvariantViolation,
+                                format!(
+                                    "Class '{}' invariant violation: method '{}' decrements field '{}' without a contract precondition ensuring the invariant holds",
+                                    class_name, m.name, f_name
+                                ),
+                                Some(assign_span.clone()),
+                                Some(format!(
+                                    "Add 'require' clause to method '{}' to guarantee invariant preservation",
+                                    m.name
+                                )),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_assignments<'b>(stmt: &'b Stmt, out: &mut Vec<(&'b Expr, &'b Expr, SourceSpan)>) {
+        match stmt {
+            Stmt::Assign {
+                target,
+                value,
+                span,
+            } => {
+                out.push((target, value, span.clone()));
+            }
+            Stmt::Block(stmts, _) => {
+                for s in stmts {
+                    Self::collect_assignments(s, out);
+                }
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                Self::collect_assignments(then_branch, out);
+                if let Some(eb) = else_branch {
+                    Self::collect_assignments(eb, out);
+                }
+            }
+            Stmt::While { body, .. } | Stmt::Loop { body, .. } => {
+                Self::collect_assignments(body, out);
+            }
+            Stmt::For { body, .. } => {
+                Self::collect_assignments(body, out);
+            }
+            Stmt::Unsafe { body, .. } => {
+                Self::collect_assignments(body, out);
+            }
+            _ => {}
+        }
+    }
+
+    fn verify_totality_and_termination(
+        &self,
+        fn_name: &str,
+        attributes: &[Attribute],
+        params: &[Param],
+        decreases: &Option<Expr>,
+        body: &Stmt,
+        diag: &mut DiagnosticEngine,
+    ) {
+        let is_pure = attributes.iter().any(|a| a.name == "pure");
+        if !is_pure && decreases.is_none() {
+            return;
+        }
+
+        // 1. Verify loops terminate
+        Self::check_loops_termination(body, is_pure, diag);
+
+        // 2. Verify recursion termination metric
+        let mut recursive_calls = Vec::new();
+        Self::collect_recursive_calls(body, fn_name, &mut recursive_calls);
+
+        if !recursive_calls.is_empty() {
+            if decreases.is_none() && is_pure {
+                diag.error_with_help(
+                    ErrorCode::TerminationViolation,
+                    format!(
+                        "Recursive pure function '{}' requires a 'decreases <metric>' annotation to guarantee termination",
+                        fn_name
+                    ),
+                    Some(recursive_calls[0].1.clone()),
+                    Some("Specify a termination metric, e.g. 'decreases n'".to_string()),
+                );
+            } else if let Some(dec_expr) = decreases {
+                let metric_name = match dec_expr {
+                    Expr::Identifier(id, _) => Some(id.as_str()),
+                    _ => None,
+                };
+
+                if let Some(m_name) = metric_name
+                    && let Some(param_idx) = params.iter().position(|p| p.name == m_name)
+                {
+                    for (call_args, call_span) in &recursive_calls {
+                        if let Some(arg) = call_args.get(param_idx) {
+                            let decreases_ok = match arg {
+                                Expr::Binary {
+                                    op, left, right, ..
+                                } if op == "-" => {
+                                    if let Expr::Identifier(id, _) = &**left {
+                                        id == m_name
+                                            && match &**right {
+                                                Expr::Literal(LiteralValue::Int(k), _) => *k > 0,
+                                                _ => true,
+                                            }
+                                    } else {
+                                        false
+                                    }
+                                }
+                                _ => false,
+                            };
+
+                            if !decreases_ok {
+                                diag.error_with_help(
+                                        ErrorCode::TerminationViolation,
+                                        format!(
+                                            "Recursive call in function '{}' does not strictly decrease termination metric '{}'",
+                                            fn_name, m_name
+                                        ),
+                                        Some(call_span.clone()),
+                                        Some(format!(
+                                            "Pass a strictly decreasing metric, e.g. '{} - 1'",
+                                            m_name
+                                        )),
+                                    );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn check_loops_termination(stmt: &Stmt, is_pure: bool, diag: &mut DiagnosticEngine) {
+        match stmt {
+            Stmt::Loop { span, body } => {
+                if is_pure {
+                    diag.error_with_help(
+                        ErrorCode::TerminationViolation,
+                        "Unconditional 'loop' construct in pure function violates totality/termination guarantees".to_string(),
+                        Some(span.clone()),
+                        Some("Use a terminating for loop or while loop with a decreasing metric".to_string()),
+                    );
+                }
+                Self::check_loops_termination(body, is_pure, diag);
+            }
+            Stmt::While {
+                condition,
+                body,
+                span,
+            } => {
+                if is_pure && let Expr::Literal(LiteralValue::Bool(true), _) = condition {
+                    diag.error_with_help(
+                            ErrorCode::TerminationViolation,
+                            "Infinite while(true) loop in pure function violates totality/termination guarantees".to_string(),
+                            Some(span.clone()),
+                            Some("Ensure loop condition terminates".to_string()),
+                        );
+                }
+                Self::check_loops_termination(body, is_pure, diag);
+            }
+            Stmt::Block(stmts, _) => {
+                for s in stmts {
+                    Self::check_loops_termination(s, is_pure, diag);
+                }
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                Self::check_loops_termination(then_branch, is_pure, diag);
+                if let Some(eb) = else_branch {
+                    Self::check_loops_termination(eb, is_pure, diag);
+                }
+            }
+            Stmt::For { body, .. } => {
+                Self::check_loops_termination(body, is_pure, diag);
+            }
+            Stmt::Unsafe { body, .. } => {
+                Self::check_loops_termination(body, is_pure, diag);
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_recursive_calls<'b>(
+        stmt: &'b Stmt,
+        fn_name: &str,
+        out: &mut Vec<(&'b Vec<Expr>, SourceSpan)>,
+    ) {
+        match stmt {
+            Stmt::Block(stmts, _) => {
+                for s in stmts {
+                    Self::collect_recursive_calls(s, fn_name, out);
+                }
+            }
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                Self::collect_expr_calls(condition, fn_name, out);
+                Self::collect_recursive_calls(then_branch, fn_name, out);
+                if let Some(eb) = else_branch {
+                    Self::collect_recursive_calls(eb, fn_name, out);
+                }
+            }
+            Stmt::While {
+                condition, body, ..
+            } => {
+                Self::collect_expr_calls(condition, fn_name, out);
+                Self::collect_recursive_calls(body, fn_name, out);
+            }
+            Stmt::For { iterable, body, .. } => {
+                Self::collect_expr_calls(iterable, fn_name, out);
+                Self::collect_recursive_calls(body, fn_name, out);
+            }
+            Stmt::Loop { body, .. } => {
+                Self::collect_recursive_calls(body, fn_name, out);
+            }
+            Stmt::Return(Some(expr), _) => {
+                Self::collect_expr_calls(expr, fn_name, out);
+            }
+            Stmt::Expr(expr, _) | Stmt::Out(expr, _) => {
+                Self::collect_expr_calls(expr, fn_name, out);
+            }
+            Stmt::Let { init, .. }
+            | Stmt::Const { init, .. }
+            | Stmt::Mut { init, .. }
+            | Stmt::Val { init, .. } => {
+                Self::collect_expr_calls(init, fn_name, out);
+            }
+            Stmt::Assign { value, .. } => {
+                Self::collect_expr_calls(value, fn_name, out);
+            }
+            Stmt::Unsafe { body, .. } => {
+                Self::collect_recursive_calls(body, fn_name, out);
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_expr_calls<'b>(
+        expr: &'b Expr,
+        fn_name: &str,
+        out: &mut Vec<(&'b Vec<Expr>, SourceSpan)>,
+    ) {
+        match expr {
+            Expr::Call { callee, args, span } => {
+                let is_match = match &**callee {
+                    Expr::Identifier(id, _) => id == fn_name,
+                    Expr::MemberAccess { member, .. } => member == fn_name,
+                    _ => false,
+                };
+                if is_match {
+                    out.push((args, span.clone()));
+                }
+                for a in args {
+                    Self::collect_expr_calls(a, fn_name, out);
+                }
+            }
+            Expr::Binary { left, right, .. } => {
+                Self::collect_expr_calls(left, fn_name, out);
+                Self::collect_expr_calls(right, fn_name, out);
+            }
+            Expr::Unary { expr, .. } => {
+                Self::collect_expr_calls(expr, fn_name, out);
+            }
+            Expr::Match { value, arms, .. } => {
+                Self::collect_expr_calls(value, fn_name, out);
+                for arm in arms {
+                    if let Some(g) = &arm.guard {
+                        Self::collect_expr_calls(g, fn_name, out);
+                    }
+                    Self::collect_expr_calls(&arm.body, fn_name, out);
+                }
+            }
+            Expr::Decide { arms, else_arm, .. } => {
+                for arm in arms {
+                    Self::collect_expr_calls(&arm.condition, fn_name, out);
+                    Self::collect_expr_calls(&arm.body, fn_name, out);
+                }
+                if let Some(eb) = else_arm {
+                    Self::collect_expr_calls(eb, fn_name, out);
+                }
+            }
+            Expr::ListLiteral(items, _) => {
+                for item in items {
+                    Self::collect_expr_calls(item, fn_name, out);
+                }
+            }
+            Expr::Tuple(items, _) => {
+                for item in items {
+                    Self::collect_expr_calls(item, fn_name, out);
+                }
+            }
+            _ => {}
+        }
     }
 
     fn refinement_proves_non_zero(&self, tn: &TypeNode, var_name: &str) -> bool {
