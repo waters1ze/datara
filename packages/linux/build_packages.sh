@@ -43,6 +43,7 @@ if command -v dpkg-deb >/dev/null 2>&1; then
     cp -r packages/linux/deb/DEBIAN "$DEB_DIR/"
     chmod 755 "$DEB_DIR/DEBIAN/postinst"
     sed -i "s/^Version:.*/Version: ${VERSION}/" "$DEB_DIR/DEBIAN/control"
+    echo "" >> "$DEB_DIR/DEBIAN/control"
     dpkg-deb --build "$DEB_DIR" "$OUTPUT_DIR/datara_${VERSION}_amd64.deb"
     cp -f "$OUTPUT_DIR/datara_${VERSION}_amd64.deb" "$OUTPUT_DIR/datara_amd64.deb"
     echo "==> Created: $OUTPUT_DIR/datara_${VERSION}_amd64.deb"
