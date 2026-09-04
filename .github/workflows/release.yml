@@ -27,7 +27,7 @@ jobs:
           - os: macos-latest
             target: aarch64-apple-darwin
             archive_name: forgen-darwin-arm64.tar.gz
-          - os: macos-13
+          - os: macos-latest
             target: x86_64-apple-darwin
             archive_name: forgen-darwin-x64.tar.gz
 
@@ -91,12 +91,16 @@ jobs:
               $csc = "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe"
           }
           if (Test-Path $csc) {
-              $setupCsPath = "installer/SetupWizard.cs"
+              $setupCsPath = (Resolve-Path "installer\SetupWizard.cs").Path
               $setupCsContent = Get-Content $setupCsPath -Raw
               $setupCsContent = [regex]::Replace($setupCsContent, 'public const string AppVersion = "[^"]*";', "public const string AppVersion = `"$cleanVer`";")
               Set-Content -Path $setupCsPath -Value $setupCsContent -NoNewline
 
-              & $csc /nologo /target:winexe /win32icon:"assets/datara.ico" /resource:"dist/${{ matrix.archive_name }},payload.zip" /reference:System.dll,System.Windows.Forms.dll,System.Drawing.dll,System.IO.Compression.dll,System.IO.Compression.FileSystem.dll /out:"dist/Datara-Setup.exe" "$setupCsPath"
+              $icoPath = (Resolve-Path "assets\datara.ico").Path
+              $archivePath = (Resolve-Path "dist\${{ matrix.archive_name }}").Path
+              $outExe = Join-Path (Resolve-Path "dist").Path "Datara-Setup.exe"
+
+              & $csc /nologo /target:winexe "/win32icon:$icoPath" "/resource:$archivePath,payload.zip" /reference:System.dll,System.Windows.Forms.dll,System.Drawing.dll,System.IO.Compression.dll,System.IO.Compression.FileSystem.dll "/out:$outExe" "$setupCsPath"
               if (Test-Path "dist/Datara-Setup.exe") {
                   Copy-Item -Force "dist/Datara-Setup.exe" "dist/Datara-$ver-Setup.exe"
                   Get-FileHash -Algorithm SHA256 "dist/Datara-Setup.exe" | Out-File "dist/Datara-Setup.exe.sha256"
@@ -166,10 +170,13 @@ jobs:
 
       - name: Build Release Binaries for Packaging
         run: |
+          mkdir -p dist
           cargo build --release --bins
 
       - name: Package VS Code Extension (.vsix)
         run: |
+          mkdir -p dist
+          [ -f LICENSE ] && cp LICENSE editors/vscode/LICENSE || true
           cd editors/vscode
           npx @vscode/vsce package --no-dependencies -o "../../dist/datara-language-${{ env.PACKAGE_VERSION }}.vsix"
           cp "../../dist/datara-language-${{ env.PACKAGE_VERSION }}.vsix" "../../dist/datara-language.vsix"
