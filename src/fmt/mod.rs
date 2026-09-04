@@ -26,12 +26,6 @@ pub fn format_file(path: &Path, opts: &FormatOptions) -> Result<Vec<FormatDiff>,
 
     let (formatted, diffs) = format_source(&content, opts);
 
-    // If style or mut_fix is enabled, we can run the linter suggestions to apply repairs
-    if (opts.style || opts.mut_fix) && !diffs.is_empty() || (opts.style || opts.mut_fix) {
-        // Run lint pass if needed to apply automatic mutability or naming fixes
-        // (already integrated through CLI lint fix infrastructure)
-    }
-
     if !opts.check && !diffs.is_empty() {
         fs::write(path, &formatted)
             .map_err(|e| format!("Failed to write file '{}': {}", path.display(), e))?;

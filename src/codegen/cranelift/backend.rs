@@ -3307,9 +3307,14 @@ impl CodegenBackend for RealCraneliftBackend {
     }
 
     fn compile_to_executable(&self, source: &str, output_path: &Path) -> Result<PathBuf, String> {
-        let clif_path = output_path.with_extension("clif");
-        let _ = fs::write(&clif_path, source);
-        Ok(output_path.to_path_buf())
+        // The former implementation only wrote a `.clif` file and returned
+        // `Ok(output_path)` even though no executable was produced — callers
+        // believed a binary existed. Fail honestly instead.
+        let _ = source;
+        Err(format!(
+            "compile_to_executable is deprecated; build via compile_native with a DMIR Module (requested output: {})",
+            output_path.display()
+        ))
     }
 
     fn run_executable(

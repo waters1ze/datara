@@ -21,24 +21,23 @@ impl<T> TaskHandle<T> {
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
+/// A minimal fixed-size worker pool used by the runtime-bridging code.
+///
+/// The former API also exposed `run_parallel`, `par_map` and
+/// `evaluate_strategy`, which nothing in the compiler or runtime ever called;
+/// they have been removed.
 pub struct ParallelRuntime {
-    workers: Vec<Worker>,
+    threads: Vec<JoinHandle<()>>,
     sender: Option<mpsc::Sender<Job>>,
-}
-
-#[allow(dead_code)]
-struct Worker {
-    id: usize,
-    thread: Option<JoinHandle<()>>,
 }
 
 impl ParallelRuntime {
     pub fn new(num_threads: usize) -> Self {
         let (sender, receiver) = mpsc::channel::<Job>();
         let receiver = Arc::new(Mutex::new(receiver));
-        let mut workers = Vec::with_capacity(num_threads);
+        let mut threads = Vec::with_capacity(num_threads);
 
-        for id in 0..num_threads {
+        for _ in 0..num_threads {
             let rx = Arc::clone(&receiver);
             let thread = thread::spawn(move || {
                 loop {
@@ -54,16 +53,18 @@ impl ParallelRuntime {
                 }
             });
 
-            workers.push(Worker {
-                id,
-                thread: Some(thread),
-            });
+            threads.push(thread);
         }
 
         Self {
-            workers,
+            threads,
             sender: Some(sender),
         }
+    }
+
+    /// Number of worker threads backing this pool.
+    pub fn worker_count(&self) -> usize {
+        self.threads.len()
     }
 
     pub fn spawn<F, R>(&self, f: F) -> TaskHandle<R>
@@ -109,7 +110,7 @@ impl ParallelRuntime {
             return Vec::new();
         }
 
-        let num_workers = self.workers.len().max(1);
+        let num_workers = self.threads.len().max(1);
         let chunk_size = items.len().div_ceil(num_workers);
         let mut handles = Vec::new();
 
@@ -146,10 +147,8 @@ impl ParallelRuntime {
 impl Drop for ParallelRuntime {
     fn drop(&mut self) {
         drop(self.sender.take());
-        for worker in &mut self.workers {
-            if let Some(thread) = worker.thread.take() {
-                let _ = thread.join();
-            }
+        for thread in self.threads.drain(..) {
+            let _ = thread.join();
         }
     }
 }

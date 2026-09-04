@@ -59,6 +59,7 @@ int64_t     datara_rt_file_exists(const char* path);
 // System, Environment & Timing
 void        datara_rt_sleep(int64_t ms);
 int64_t     datara_rt_now_ms(void);
+int64_t     datara_rt_now_unix_ms(void);
 int64_t     datara_rt_now_precise_ms(void);
 int64_t     now_ms(void);
 const char* datara_rt_env_get(const char* key);

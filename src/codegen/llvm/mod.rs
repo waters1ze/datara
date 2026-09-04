@@ -1,7 +1,7 @@
 use crate::ast::Program;
 use crate::codegen::CodegenBackend;
 use crate::codegen::linker::{compile_with_clang, find_clang};
-use crate::codegen::target::{CallingConvention, TargetInfo};
+use crate::codegen::target::{Arch, CallingConvention, Os, TargetInfo};
 use crate::dmir::{BasicBlockId, Function, Inst, Module, Terminator, ValueId};
 use crate::types::TypeChecker;
 use std::collections::{HashMap, HashSet};
@@ -71,19 +71,45 @@ impl<'a> LlvmEmitter<'a> {
         );
 
         // Target Layout & Triple
-        match self.target.calling_convention {
-            CallingConvention::WindowsFastcall => {
-                ir.push_str("target datalayout = \"e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\n");
-                ir.push_str("target triple = \"x86_64-pc-windows-msvc\"\n\n");
-            }
-            CallingConvention::SystemV => {
-                ir.push_str("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\n");
-                ir.push_str("target triple = \"x86_64-unknown-linux-gnu\"\n\n");
-            }
-            CallingConvention::Aarch64Standard => {
+        match (&self.target.arch, &self.target.os) {
+            (Arch::Aarch64, Os::MacOS) => {
                 ir.push_str("target datalayout = \"e-m:o-i64:64-i128:128-n32:64-S128\"\n");
                 ir.push_str("target triple = \"arm64-apple-macosx\"\n\n");
             }
+            (Arch::Aarch64, Os::Linux) => {
+                ir.push_str(
+                    "target datalayout = \"e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128\"\n",
+                );
+                ir.push_str("target triple = \"aarch64-unknown-linux-gnu\"\n\n");
+            }
+            (Arch::Aarch64, Os::Windows) => {
+                ir.push_str(
+                    "target datalayout = \"e-m:w-p:64:64-i32:32-i64:64-i128:128-n32:64-S128\"\n",
+                );
+                ir.push_str("target triple = \"aarch64-pc-windows-msvc\"\n\n");
+            }
+            (Arch::X86_64, Os::Windows) => {
+                ir.push_str("target datalayout = \"e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\n");
+                ir.push_str("target triple = \"x86_64-pc-windows-msvc\"\n\n");
+            }
+            (Arch::X86_64, Os::MacOS) => {
+                ir.push_str("target datalayout = \"e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\n");
+                ir.push_str("target triple = \"x86_64-apple-macosx\"\n\n");
+            }
+            _ => match self.target.calling_convention {
+                CallingConvention::WindowsFastcall => {
+                    ir.push_str("target datalayout = \"e-m:w-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\n");
+                    ir.push_str("target triple = \"x86_64-pc-windows-msvc\"\n\n");
+                }
+                CallingConvention::Aarch64Standard => {
+                    ir.push_str("target datalayout = \"e-m:o-i64:64-i128:128-n32:64-S128\"\n");
+                    ir.push_str("target triple = \"arm64-apple-macosx\"\n\n");
+                }
+                CallingConvention::SystemV => {
+                    ir.push_str("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\n");
+                    ir.push_str("target triple = \"x86_64-unknown-linux-gnu\"\n\n");
+                }
+            },
         }
 
         // 1. Collect and emit string literals

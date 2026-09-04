@@ -25,21 +25,33 @@ pub struct ProjectLayout {
 impl ProjectLayout {
     /// Returns the target binary name derived from manifest target, package name, or entry file stem
     pub fn binary_name(&self) -> String {
-        if let Some(ref m) = self.manifest {
+        let raw = if let Some(ref m) = self.manifest {
             if let Some(ref t) = m.target
                 && let Some(ref bin) = t.bin_name
+                && !bin.trim().is_empty()
             {
-                return bin.clone();
+                bin.as_str()
+            } else if !m.package.name.trim().is_empty() {
+                m.package.name.as_str()
+            } else {
+                "app"
             }
-            if !m.package.name.is_empty() {
-                return m.package.name.clone();
-            }
-        }
-        self.entry_point
-            .file_stem()
+        } else {
+            self.entry_point
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("app")
+        };
+        let sanitized = Path::new(raw)
+            .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or("app")
-            .to_string()
+            .trim_matches(['.', ' ', '/', '\\']);
+        if sanitized.is_empty() {
+            "app".to_string()
+        } else {
+            sanitized.to_string()
+        }
     }
 }
 
@@ -99,6 +111,28 @@ impl ProjectDiscovery {
         } else {
             None
         };
+
+        // Manifest-provided names become output binary paths
+        // (`<root>/<name>.exe`), so a crafted `datara.toml` from a cloned
+        // project must not be able to write outside the project root.
+        if let Some(ref m) = manifest {
+            for name in [
+                m.package.name.as_str(),
+                m.target
+                    .as_ref()
+                    .and_then(|t| t.bin_name.as_deref())
+                    .unwrap_or(""),
+            ] {
+                if !name.is_empty()
+                    && (name.contains('/') || name.contains('\\') || name.contains(".."))
+                {
+                    return Err(format!(
+                        "Invalid name '{}' in datara.toml: path separators and '..' are not allowed",
+                        name
+                    ));
+                }
+            }
+        }
 
         let project_name = if let Some(ref m) = manifest {
             m.package.name.clone()

@@ -21,6 +21,10 @@ pub struct JsonRpcResponse {
 
 pub struct LspServer;
 
+/// Upper bound for a single JSON-RPC message (16 MiB). Anything larger is
+/// drained and rejected instead of being allocated up front.
+const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
+
 impl Default for LspServer {
     fn default() -> Self {
         Self::new()
@@ -30,6 +34,15 @@ impl Default for LspServer {
 impl LspServer {
     pub fn new() -> Self {
         Self
+    }
+
+    fn send_error<W: Write>(&self, message: &str, writer: &mut W) -> io::Result<()> {
+        let err = serde_json::json!({
+            "jsonrpc": "2.0",
+            "error": { "code": -32600, "message": message },
+            "id": Value::Null
+        });
+        self.send_payload(&err, writer)
     }
 
     pub fn run_stdio(&self) -> io::Result<()> {
@@ -63,6 +76,23 @@ impl LspServer {
                 None => continue,
             };
 
+            // Refuse absurd payload sizes instead of allocating them: the
+            // former code did `vec![0u8; len]` with an attacker-controlled
+            // length, so a single header could request gigabytes (OOM).
+            if len > MAX_MESSAGE_SIZE {
+                // Drain the payload in bounded chunks, then report the error
+                // so the client sees why its request was dropped.
+                let mut remaining = len;
+                let mut sink = [0u8; 64 * 1024];
+                while remaining > 0 {
+                    let take = remaining.min(sink.len());
+                    reader.read_exact(&mut sink[..take])?;
+                    remaining -= take;
+                }
+                let _ = self.send_error("Message too large", &mut writer);
+                continue;
+            }
+
             // Read payload
             let mut payload_buf = vec![0u8; len];
             reader.read_exact(&mut payload_buf)?;
@@ -81,6 +111,10 @@ impl LspServer {
     pub fn handle_request<W: Write>(&self, req: &JsonRpcRequest, writer: &mut W) -> io::Result<()> {
         match req.method.as_str() {
             "initialize" => {
+                // Only advertise capabilities that are actually implemented.
+                // The former list claimed hover & completion providers that
+                // do not exist, so IDE clients kept calling methods that
+                // always returned null.
                 let resp = serde_json::json!({
                     "capabilities": {
                         "textDocumentSync": 1,

@@ -112,7 +112,7 @@ void datara_rt_exit(int32_t code) {
 #define DATARA_TLS __thread
 #endif
 
-static DATARA_TLS char tls_int_bufs[32][32];
+static DATARA_TLS char tls_int_bufs[256][32];
 static DATARA_TLS uint32_t tls_int_idx = 0;
 
 static DATARA_TLS char* tls_scratch_ring = NULL;
@@ -258,7 +258,7 @@ static inline size_t fast_i64toa(int64_t val, char* buf) {
 }
 
 const char* datara_rt_int_to_str(int64_t v) {
-    char* buf = tls_int_bufs[tls_int_idx & 31];
+    char* buf = tls_int_bufs[tls_int_idx & 255];
     tls_int_idx++;
     size_t len = fast_i64toa(v, buf);
     buf[31] = (char)len;
@@ -872,6 +872,14 @@ int64_t now_ms(void) {
 int64_t datara_rt_now_ms(void) {
     return now_ms();
 }
+int64_t datara_rt_now_unix_ms(void) {
+    FILETIME ft;
+    GetSystemTimeAsFileTime(&ft);
+    ULARGE_INTEGER uli;
+    uli.LowPart = ft.dwLowDateTime;
+    uli.HighPart = ft.dwHighDateTime;
+    return (int64_t)((uli.QuadPart - 116444736000000000ULL) / 10000ULL);
+}
 int64_t datara_rt_now_precise_ms(void) {
     static LARGE_INTEGER freq = {0};
     if (freq.QuadPart == 0) {
@@ -890,6 +898,11 @@ int64_t now_ms(void) {
 }
 int64_t datara_rt_now_ms(void) {
     return now_ms();
+}
+int64_t datara_rt_now_unix_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 int64_t datara_rt_now_precise_ms(void) {
     struct timespec ts;
@@ -1140,30 +1153,31 @@ int64_t datara_rt_socket_accept(int64_t sock) {
 
 int64_t datara_rt_socket_connect(int64_t sock, const char* host, int64_t port) {
     if (sock < 0 || !host) return -1;
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-
-    unsigned long ip = inet_addr(host);
-    if (ip != INADDR_NONE) {
-        addr.sin_addr.s_addr = ip;
-    } else {
-        struct hostent* he = gethostbyname(host);
-        if (!he || !he->h_addr_list[0]) return -1;
-        memcpy(&addr.sin_addr, he->h_addr_list[0], sizeof(struct in_addr));
+    char port_str[16];
+    snprintf(port_str, sizeof(port_str), "%u", (unsigned int)port);
+    struct addrinfo hints, *res = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(host, port_str, &hints, &res) != 0 || !res) {
+        return -1;
     }
-
+    int connect_res = -1;
+    for (struct addrinfo* p = res; p != NULL; p = p->ai_next) {
 #ifdef _WIN32
-    if (connect((SOCKET)sock, (struct sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR) {
-        return -1;
-    }
+        if (connect((SOCKET)sock, p->ai_addr, (int)p->ai_addrlen) != SOCKET_ERROR) {
+            connect_res = 0;
+            break;
+        }
 #else
-    if (connect((int)sock, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
-        return -1;
-    }
+        if (connect((int)sock, p->ai_addr, p->ai_addrlen) == 0) {
+            connect_res = 0;
+            break;
+        }
 #endif
-    return 0;
+    }
+    freeaddrinfo(res);
+    return connect_res;
 }
 
 int64_t datara_rt_socket_send(int64_t sock, const char* data) {
@@ -1192,6 +1206,13 @@ const char* datara_rt_socket_recv(int64_t sock, int64_t max_bytes) {
         free(buf);
         return "";
     }
+    char* scratch = datara_scratch_alloc((size_t)n);
+    if (scratch) {
+        memcpy(scratch, buf, n);
+        scratch[n] = '\0';
+        free(buf);
+        return scratch;
+    }
     buf[n] = '\0';
     return buf;
 }
@@ -1206,7 +1227,7 @@ void datara_rt_socket_close(int64_t sock) {
 }
 
 const char* datara_rt_http_get(void) {
-    return "";
+    return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK";
 }
 
 // ---------------------------------------------------------------------------
@@ -1654,18 +1675,22 @@ int64_t datara_rt_num_workers(void) {
     return (int64_t)g_workers_count;
 }
 
+static DATARA_TLS int tls_in_parallel_region = 0;
+
 void datara_rt_parallel_for(int64_t start, int64_t end, void (*fn)(int64_t idx, void* ctx), void* ctx) {
     if (start >= end || !fn) return;
     datara_rt_ensure_threads();
 
     int64_t total = end - start;
     int num_w = g_workers_count;
-    if (num_w <= 1 || total <= 1) {
+    if (tls_in_parallel_region != 0 || num_w <= 1 || total <= 1) {
         for (int64_t i = start; i < end; i++) {
             fn(i, ctx);
         }
         return;
     }
+
+    tls_in_parallel_region = 1;
 
     if (num_w > total) num_w = (int)total;
     int64_t chunk_size = total / num_w;
@@ -1713,6 +1738,8 @@ void datara_rt_parallel_for(int64_t start, int64_t end, void (*fn)(int64_t idx, 
         pthread_mutex_unlock(&g_worker_mutexes[w]);
     }
 #endif
+
+    tls_in_parallel_region = 0;
 }
 
 void datara_rt_parallel_invoke(void (*fn1)(void* ctx1), void* ctx1, void (*fn2)(void* ctx2), void* ctx2) {

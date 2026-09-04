@@ -84,7 +84,21 @@ impl ProjectRunner {
                 continue;
             }
 
-            let exe = comp_res.exe_path.unwrap();
+            let exe = match comp_res.exe_path {
+                Some(p) => p,
+                None => {
+                    report.failed += 1;
+                    report.results.push(TestResultItem {
+                        name: test_name,
+                        path: test_file,
+                        passed: false,
+                        duration_ms,
+                        output: String::new(),
+                        error: Some("Compilation succeeded but produced no executable".to_string()),
+                    });
+                    continue;
+                }
+            };
             match compiler.codegen.run_executable(&exe, &[]) {
                 Ok((stdout, stderr, code, _)) => {
                     let passed =
@@ -137,7 +151,12 @@ impl ProjectRunner {
             if !res.success {
                 return Err(res.error.unwrap_or_else(|| "Compilation failed".into()));
             }
-            let exe = res.exe_path.unwrap();
+            let exe = match res.exe_path {
+                Some(p) => p,
+                None => {
+                    return Err("Compilation succeeded but produced no executable".to_string());
+                }
+            };
             let (_, _, code, run_ms) = compiler.codegen.run_executable(&exe, &[])?;
             let total_ms = start.elapsed().as_millis();
             println!(

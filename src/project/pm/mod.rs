@@ -524,7 +524,41 @@ behavior Matrix2x2 {
             }
             digest_input.push(';');
         }
-        format!("sha256:{:x}", md5::compute(digest_input.as_bytes()))
+        format!("sha256:{}", sha256::hexdigest(digest_input.as_bytes()))
+    }
+
+    /// Package names become path components (`packages/<name>`, CAS
+    /// `<store>/<name>/<version>`), so they must be plain identifiers: no path
+    /// separators, no `..`, no leading dot/dash.
+    pub fn is_valid_package_name(name: &str) -> bool {
+        if name.is_empty() || name.len() > 64 {
+            return false;
+        }
+        let first = name.chars().next().unwrap();
+        if !(first.is_ascii_alphanumeric() || first == '_') {
+            return false;
+        }
+        name.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+            && !name.contains("..")
+    }
+
+    /// Normalizes a package-internal file path and rejects anything that could
+    /// escape the package directory (zip-slip): absolute paths, `..`
+    /// components, backslashes, drive letters and NUL bytes.
+    fn sanitize_package_rel_path(rel: &str) -> Option<String> {
+        let normalized = rel.replace('\\', "/");
+        if normalized.is_empty()
+            || normalized.starts_with('/')
+            || normalized.contains('\0')
+            || normalized.contains(':')
+        {
+            return None;
+        }
+        if normalized.split('/').any(|part| part == "..") {
+            return None;
+        }
+        Some(normalized)
     }
 
     pub fn register(&mut self, mut pkg: HyperGridPackage) {
@@ -549,6 +583,12 @@ behavior Matrix2x2 {
     /// Installs a package into Content-Addressed Storage (CAS), links to target directory,
     /// and synchronizes datara.toml and datara.lock.
     pub fn install(&self, pkg: &HyperGridPackage, project_root: &Path) -> Result<PathBuf, String> {
+        if !Self::is_valid_package_name(&pkg.name) {
+            return Err(format!(
+                "Invalid package name '{}': must be a plain identifier (no path separators or '..')",
+                pkg.name
+            ));
+        }
         let cas_pkg_dir = self.store_path.join(&pkg.name).join(&pkg.version);
         fs::create_dir_all(&cas_pkg_dir)
             .map_err(|e| format!("Failed to create CAS directory: {}", e))?;
@@ -557,28 +597,43 @@ behavior Matrix2x2 {
         let meta_json = serde_json::to_string_pretty(pkg).unwrap_or_default();
         let _ = fs::write(cas_pkg_dir.join("package.json"), meta_json);
 
-        // Write package source files into CAS
+        // Write package source files into CAS. Every relative path is
+        // sanitized first: package metadata is untrusted input and a crafted
+        // path like `..\\..\\x` must never write outside the package
+        // directory (zip-slip).
         for (rel_path, content) in &pkg.files {
-            let file_path = cas_pkg_dir.join(rel_path);
+            let safe_rel = Self::sanitize_package_rel_path(rel_path).ok_or_else(|| {
+                format!(
+                    "Package '{}' contains an unsafe file path '{}'",
+                    pkg.name, rel_path
+                )
+            })?;
+            let file_path = cas_pkg_dir.join(&safe_rel);
             if let Some(parent) = file_path.parent() {
                 let _ = fs::create_dir_all(parent);
             }
             fs::write(&file_path, content)
-                .map_err(|e| format!("Failed to write file '{}' to CAS: {}", rel_path, e))?;
+                .map_err(|e| format!("Failed to write file '{}' to CAS: {}", safe_rel, e))?;
         }
 
-        // Link into project packages/ directory
+        // Link into project packages/ directory (same zip-slip guard).
         let proj_pkg_dir = project_root.join("packages").join(&pkg.name);
         fs::create_dir_all(&proj_pkg_dir)
             .map_err(|e| format!("Failed to create project package dir: {}", e))?;
 
         for (rel_path, content) in &pkg.files {
-            let target_file = proj_pkg_dir.join(rel_path);
+            let safe_rel = Self::sanitize_package_rel_path(rel_path).ok_or_else(|| {
+                format!(
+                    "Package '{}' contains an unsafe file path '{}'",
+                    pkg.name, rel_path
+                )
+            })?;
+            let target_file = proj_pkg_dir.join(&safe_rel);
             if let Some(parent) = target_file.parent() {
                 let _ = fs::create_dir_all(parent);
             }
             fs::write(&target_file, content)
-                .map_err(|e| format!("Failed to link package file '{}': {}", rel_path, e))?;
+                .map_err(|e| format!("Failed to link package file '{}': {}", safe_rel, e))?;
         }
 
         // Update datara.toml
@@ -600,6 +655,15 @@ behavior Matrix2x2 {
 
     /// Removes a package from project and updates manifest + lockfile.
     pub fn remove(&self, pkg_name: &str, project_root: &Path) -> Result<bool, String> {
+        // Path traversal guard: `pkg_name` arrives straight from the CLI and
+        // becomes a path component. `dpm remove ../..` used to recursively
+        // delete an arbitrary directory.
+        if !Self::is_valid_package_name(pkg_name) {
+            return Err(format!(
+                "Invalid package name '{}': refusing to remove (path traversal guard)",
+                pkg_name
+            ));
+        }
         let pkg_dir = project_root.join("packages").join(pkg_name);
         let mut removed = false;
         if pkg_dir.exists() {
@@ -607,19 +671,27 @@ behavior Matrix2x2 {
             removed = true;
         }
 
-        // Update datara.toml
+        // Update datara.toml: drop exact `[dependencies]` keys matching the
+        // package name (the former substring filter also swallowed unrelated
+        // keys whose names ended with the same suffix).
         let manifest_path = project_root.join("datara.toml");
         if manifest_path.exists()
             && let Ok(content) = fs::read_to_string(&manifest_path)
         {
-            let filtered: Vec<&str> = content
-                .lines()
-                .filter(|l| {
-                    !l.trim().starts_with(&format!("{} =", pkg_name))
-                        && !l.trim().starts_with(&format!("\"{}\" =", pkg_name))
-                })
+            let drop_lines: std::collections::HashSet<usize> = Self::dependency_key_lines(&content)
+                .into_iter()
+                .filter(|(_, key)| *key == pkg_name)
+                .map(|(idx, _)| idx)
                 .collect();
-            let _ = fs::write(&manifest_path, filtered.join("\n") + "\n");
+            if !drop_lines.is_empty() {
+                let kept: Vec<&str> = content
+                    .lines()
+                    .enumerate()
+                    .filter(|(idx, _)| !drop_lines.contains(idx))
+                    .map(|(_, line)| line)
+                    .collect();
+                let _ = fs::write(&manifest_path, kept.join("\n") + "\n");
+            }
         }
 
         // Update datara.lock
@@ -692,8 +764,11 @@ behavior Matrix2x2 {
             let _ = Self::collect_files_recursive(&pkg_dir, &pkg_dir, &mut files);
             let current_digest = Self::compute_digest(&files);
 
-            if current_digest == locked.digest || locked.digest.starts_with("sha256:7f8a9e01") {
-                // Verified or curated
+            // No exceptions: every locked package must match its recorded
+            // digest. The former `locked.digest.starts_with("sha256:7f8a9e01")`
+            // check silently approved any package whose lock entry carried
+            // that magic prefix — a built-in verification bypass.
+            if current_digest == locked.digest {
                 results.push(VerificationResult {
                     name: pkg_name.clone(),
                     version: locked.version.clone(),
@@ -712,11 +787,43 @@ behavior Matrix2x2 {
                 });
             }
         }
+
+        // Directories under packages/ that have no lock entry used to be
+        // invisible to `dpm verify`; report them so a tampered package cannot
+        // hide by simply not being written to datara.lock.
+        let packages_dir = project_root.join("packages");
+        if packages_dir.is_dir()
+            && let Ok(entries) = fs::read_dir(&packages_dir)
+        {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir()
+                    && let Some(name) = p.file_name().map(|n| n.to_string_lossy().to_string())
+                    && !lock.packages.contains_key(&name)
+                {
+                    results.push(VerificationResult {
+                        name,
+                        version: "unknown".into(),
+                        status: VerificationStatus::Untracked,
+                        message:
+                            "Directory exists in packages/ but has no datara.lock entry (run 'dpm install' or remove it)"
+                                .into(),
+                    });
+                }
+            }
+        }
+
         Ok(results)
     }
 
     /// Initializes a new project or library with datara.toml, entry point, and .gitignore.
     pub fn init_project(dir: &Path, name: &str, is_lib: bool) -> Result<(), String> {
+        if !Self::is_valid_package_name(name) {
+            return Err(format!(
+                "Invalid project name '{}': must be a plain identifier (no path separators or '..')",
+                name
+            ));
+        }
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
         let src_dir = dir.join("src");
         fs::create_dir_all(&src_dir).map_err(|e| e.to_string())?;
@@ -780,6 +887,31 @@ fn main() {
         Ok(())
     }
 
+    /// Collects `(line_index, key)` pairs for every `key = value` line inside
+    /// the `[dependencies]` section. Keys may be bare or quoted. This replaces
+    /// the former substring `contains()` checks that wrongly treated
+    /// `my_pkg =` as `pkg =` (a key ending with the same suffix).
+    fn dependency_key_lines(content: &str) -> Vec<(usize, String)> {
+        let mut result = Vec::new();
+        let mut in_deps = false;
+        for (idx, line) in content.lines().enumerate() {
+            let trimmed = line.trim();
+            if trimmed.starts_with('[') {
+                in_deps = trimmed == "[dependencies]";
+                continue;
+            }
+            if in_deps
+                && !trimmed.is_empty()
+                && !trimmed.starts_with('#')
+                && let Some(eq) = trimmed.find('=')
+            {
+                let key = trimmed[..eq].trim().trim_matches('"').to_string();
+                result.push((idx, key));
+            }
+        }
+        result
+    }
+
     fn update_manifest_dependency(project_root: &Path, pkg_name: &str, version: &str) {
         let manifest_path = project_root.join("datara.toml");
         if !manifest_path.exists() {
@@ -799,8 +931,9 @@ entry = "src/main.dtr"
         }
 
         if let Ok(content) = fs::read_to_string(&manifest_path)
-            && !content.contains(&format!("{} =", pkg_name))
-            && !content.contains(&format!("\"{}\" =", pkg_name))
+            && !Self::dependency_key_lines(&content)
+                .iter()
+                .any(|(_, key)| *key == pkg_name)
         {
             let mut lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
             if let Some(pos) = lines.iter().position(|l| l.trim() == "[dependencies]") {
@@ -914,6 +1047,8 @@ pub enum VerificationStatus {
     Valid,
     Mismatch,
     Missing,
+    /// Directory present in packages/ but absent from datara.lock.
+    Untracked,
 }
 
 #[derive(Debug, Clone)]
@@ -924,30 +1059,129 @@ pub struct VerificationResult {
     pub message: String,
 }
 
-// Fallback minimal md5 compute for digest if md5 crate is not in Cargo.toml
-mod md5 {
-    pub struct Digest([u8; 16]);
+// Minimal self-contained SHA-256 (FIPS 180-4) for package digests.
+//
+// This replaces the former `mod md5`, which was neither MD5 nor SHA-256: it
+// was a toy 64-bit multiplicative hash rendered as 32 hex digits (the second
+// half was the first half XORed with 0x5A) while lockfiles labelled the value
+// `sha256:`. Package integrity was therefore not actually protected. This
+// implementation is small, dependency-free and verified against the official
+// FIPS 180-4 test vectors below.
+mod sha256 {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
 
-    impl std::fmt::LowerHex for Digest {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-            for b in &self.0 {
-                write!(f, "{:02x}", b)?;
-            }
-            for b in &self.0 {
-                write!(f, "{:02x}", b ^ 0x5a)?;
-            }
-            Ok(())
+    #[allow(clippy::chunks_exact_to_as_chunks)]
+    pub fn digest(data: &[u8]) -> [u8; 32] {
+        let mut h: [u32; 8] = [
+            0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+            0x5be0cd19,
+        ];
+        let bitlen = (data.len() as u64).wrapping_mul(8);
+        let mut msg = data.to_vec();
+        msg.push(0x80);
+        while msg.len() % 64 != 56 {
+            msg.push(0);
         }
+        msg.extend_from_slice(&bitlen.to_be_bytes());
+
+        for chunk in msg.chunks_exact(64) {
+            let mut w = [0u32; 64];
+            for (i, word) in chunk.chunks_exact(4).enumerate() {
+                w[i] = u32::from_be_bytes([word[0], word[1], word[2], word[3]]);
+            }
+            for i in 16..64 {
+                let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+                let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+                w[i] = w[i - 16]
+                    .wrapping_add(s0)
+                    .wrapping_add(w[i - 7])
+                    .wrapping_add(s1);
+            }
+
+            let (mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut hh) =
+                (h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]);
+            for i in 0..64 {
+                let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+                let ch = (e & f) ^ ((!e) & g);
+                let temp1 = hh
+                    .wrapping_add(s1)
+                    .wrapping_add(ch)
+                    .wrapping_add(K[i])
+                    .wrapping_add(w[i]);
+                let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+                let maj = (a & b) ^ (a & c) ^ (b & c);
+                let temp2 = s0.wrapping_add(maj);
+                hh = g;
+                g = f;
+                f = e;
+                e = d.wrapping_add(temp1);
+                d = c;
+                c = b;
+                b = a;
+                a = temp1.wrapping_add(temp2);
+            }
+
+            h[0] = h[0].wrapping_add(a);
+            h[1] = h[1].wrapping_add(b);
+            h[2] = h[2].wrapping_add(c);
+            h[3] = h[3].wrapping_add(d);
+            h[4] = h[4].wrapping_add(e);
+            h[5] = h[5].wrapping_add(f);
+            h[6] = h[6].wrapping_add(g);
+            h[7] = h[7].wrapping_add(hh);
+        }
+
+        let mut out = [0u8; 32];
+        for (i, v) in h.iter().enumerate() {
+            out[i * 4..i * 4 + 4].copy_from_slice(&v.to_be_bytes());
+        }
+        out
     }
 
-    pub fn compute(data: &[u8]) -> Digest {
-        let mut d = [0u8; 16];
-        let mut h: u64 = 0x12345678_9abcdef0;
-        for (i, &b) in data.iter().enumerate() {
-            h = h.wrapping_mul(31).wrapping_add(b as u64);
-            d[i % 16] ^= (h & 0xff) as u8;
+    pub fn hexdigest(data: &[u8]) -> String {
+        digest(data).iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::hexdigest;
+
+        #[test]
+        fn fips_180_4_vectors() {
+            assert_eq!(
+                hexdigest(b""),
+                "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            );
+            assert_eq!(
+                hexdigest(b"abc"),
+                "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+            );
+            assert_eq!(
+                hexdigest(b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"),
+                "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1"
+            );
         }
-        Digest(d)
+
+        #[test]
+        fn one_million_a_vector() {
+            // SHA-256 of 1,000,000 'a' bytes = cdc76e5c... (FIPS long vector).
+            let data = vec![b'a'; 1_000_000];
+            assert_eq!(
+                hexdigest(&data),
+                "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+            );
+        }
     }
 }
 
@@ -1038,6 +1272,16 @@ pub fn run_dpm_cli_args(args: &[String]) {
             };
 
             println!(":: [DPM] Resolving package '{}'...", pkg_name);
+
+            // Package names become path components everywhere below
+            // (packages/<name>, CAS store); reject anything path-like.
+            if !HyperGridRegistry::is_valid_package_name(&pkg_name) {
+                eprintln!(
+                    "[ERR] Invalid package name '{}': must be a plain identifier without path separators or '..'",
+                    pkg_name
+                );
+                std::process::exit(1);
+            }
 
             if let Some(pkg) = registry.lookup(&pkg_name) {
                 println!(
@@ -1228,6 +1472,10 @@ pub fn run_dpm_cli_args(args: &[String]) {
                                 );
                                 all_valid = false;
                             }
+                            VerificationStatus::Untracked => {
+                                eprintln!("  [UNTRACKED] {} - {}", r.name, r.message);
+                                all_valid = false;
+                            }
                         }
                     }
                     if all_valid {
@@ -1267,7 +1515,7 @@ pub fn run_dpm_cli_args(args: &[String]) {
                 ":: [DPM] Checking and updating dependencies from HyperGrid and Git sources..."
             );
             let mut updated_count = 0;
-            for (dep_name, _) in &manifest.dependencies {
+            for dep_name in manifest.dependencies.keys() {
                 let pkg_dir = current_dir.join("packages").join(dep_name);
                 if pkg_dir.join(".git").exists() {
                     println!("[.....] Updating git dependency '{}'...", dep_name);

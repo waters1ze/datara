@@ -435,13 +435,16 @@ pub fn format_source(source: &str, opts: &FormatOptions) -> (String, Vec<FormatD
                     if opts.operators {
                         code_str = format_operators_in_code(&code_str);
                     }
+                    if opts.loops {
+                        // Loop/branch formatting is applied per code segment
+                        // only. The former code ran it over the whole rebuilt
+                        // line, so it could also "format" inside string
+                        // literals and comments.
+                        code_str = format_loops_in_code(&code_str);
+                    }
                     processed_line.push_str(&code_str);
                 }
             }
-        }
-
-        if opts.loops {
-            processed_line = format_loops_in_code(&processed_line);
         }
 
         // Apply indentation

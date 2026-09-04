@@ -7,6 +7,31 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+/// Serializes a value to pretty JSON for CLI output. Serialization of the
+/// compiler's own types cannot fail in practice, but a panic here would abort
+/// the CLI *after* a successful compilation, so fall back to a stub instead.
+fn to_pretty_json<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_string_pretty(value).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Same as [`to_pretty_json`] but produces a `serde_json::Value` for embedding
+/// into a larger JSON document.
+fn to_json_value<T: serde::Serialize>(value: &T) -> serde_json::Value {
+    serde_json::to_value(value).unwrap_or(serde_json::Value::Null)
+}
+
+/// Python keywords that must not be used as generated function names.
+fn keyword_set() -> std::collections::HashSet<&'static str> {
+    [
+        "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class",
+        "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global",
+        "if", "import", "in", "is", "lambda", "nonlocal", "not", "or", "pass", "raise", "return",
+        "try", "while", "with", "yield",
+    ]
+    .into_iter()
+    .collect()
+}
+
 pub fn run_cli() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
@@ -161,9 +186,13 @@ pub fn run_cli() {
                         if html.exists() {
                             println!("[Forgen UI] Detected Zero-JS HTML Page: {}", html.display());
                             #[cfg(target_os = "windows")]
-                            let _ = std::process::Command::new("cmd")
-                                .args(["/C", "start", "", &html.to_string_lossy()])
-                                .spawn();
+                            {
+                                // `cmd /C start` re-parses its arguments, so a
+                                // crafted path could smuggle shell metachars.
+                                // explorer.exe takes the path as a single,
+                                // uninterpreted argument.
+                                let _ = std::process::Command::new("explorer").arg(html).spawn();
+                            }
                             #[cfg(target_os = "macos")]
                             let _ = std::process::Command::new("open").arg(html).spawn();
                             #[cfg(target_os = "linux")]
@@ -230,7 +259,9 @@ pub fn run_cli() {
             let mut all_fresh = !inc_cache.fingerprints.is_empty();
             for sf in &layout.source_files {
                 if let Ok(content) = fs::read_to_string(sf) {
-                    if !inc_cache.is_module_fresh(sf, &content) {
+                    // Transitive check: a module is only fresh when its whole
+                    // recorded dependency closure is fresh as well.
+                    if !inc_cache.is_module_fresh_transitive(sf, &content) {
                         all_fresh = false;
                     }
                 } else {
@@ -453,14 +484,35 @@ pub fn run_cli() {
 
                     if is_python_target {
                         let py_path = exe_p.with_extension("py");
+                        // Paths and identifiers are embedded verbatim into
+                        // generated Python source; escape them so a path with
+                        // a quote or a foreign identifier cannot break or
+                        // inject into the generated module.
+                        let escape_py = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
                         let mut py_code = format!(
                             "# Auto-generated Datara Python Bridge for {}\nimport ctypes\nimport os\n\n_dll_path = os.path.abspath(r\"{}\")\n_lib = ctypes.CDLL(_dll_path)\n\n",
-                            bin_name,
-                            exe_p.display()
+                            escape_py(&bin_name),
+                            escape_py(&exe_p.display().to_string())
                         );
 
                         if let Some(ref dmir) = res.dmir_module {
                             for fn_name in dmir.functions.keys() {
+                                // Only valid Python identifiers are exported;
+                                // everything else would produce a syntax
+                                // error (or worse) in the generated module.
+                                let is_ident = !fn_name.is_empty()
+                                    && fn_name
+                                        .chars()
+                                        .next()
+                                        .map(|c| c.is_ascii_alphabetic() || c == '_')
+                                        .unwrap_or(false)
+                                    && fn_name
+                                        .chars()
+                                        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                                    && !keyword_set().contains(fn_name.as_str());
+                                if !is_ident {
+                                    continue;
+                                }
                                 py_code.push_str(&format!(
                                 "def {}(*args):\n    _fn = getattr(_lib, \"{}\")\n    _fn.restype = ctypes.c_int64\n    return _fn(*args)\n\n",
                                 fn_name, fn_name
@@ -547,10 +599,7 @@ pub fn run_cli() {
             if res.success {
                 let rep = res.optimization_report.unwrap_or_default();
                 if args.iter().any(|a| a == "--json") {
-                    println!(
-                        "{}",
-                        serde_json::to_string_pretty(&rep.adaptation_records).unwrap()
-                    );
+                    println!("{}", to_pretty_json(&rep.adaptation_records));
                     return;
                 }
 
@@ -593,7 +642,6 @@ pub fn run_cli() {
         "domain" => {
             let is_llvm = args.iter().any(|a| a == "--llvm");
             let compiler = ForgenCompiler::new("domain").with_llvm(is_llvm);
-            let start = Instant::now();
 
             let mut pgo_profile = None;
             let mut filter_args: Vec<String> = Vec::new();
@@ -625,8 +673,6 @@ pub fn run_cli() {
             } else {
                 compiler.compile_files(&layout.source_files, None)
             };
-            let _elapsed = start.elapsed().as_millis();
-
             if res.success {
                 if is_llvm {
                     println!(
@@ -638,11 +684,8 @@ pub fn run_cli() {
 
                 if args.iter().any(|a| a == "--json") {
                     let mut json_obj = serde_json::Map::new();
-                    json_obj.insert(
-                        "optimizationReport".into(),
-                        serde_json::to_value(&rep).unwrap(),
-                    );
-                    json_obj.insert("timings".into(), serde_json::to_value(&t).unwrap());
+                    json_obj.insert("optimizationReport".into(), to_json_value(&rep));
+                    json_obj.insert("timings".into(), to_json_value(&t));
                     json_obj.insert(
                         "outputBinary".into(),
                         serde_json::Value::String(
@@ -658,7 +701,7 @@ pub fn run_cli() {
                             serde_json::Value::String(p.to_string_lossy().to_string()),
                         );
                     }
-                    println!("{}", serde_json::to_string_pretty(&json_obj).unwrap());
+                    println!("{}", to_pretty_json(&json_obj));
                     return;
                 }
 
@@ -763,13 +806,10 @@ pub fn run_cli() {
                         serde_json::Value::String(target_symbol.clone()),
                     );
                     if let Some(node) = graph.inspect_symbol(target_symbol) {
-                        json_obj.insert("node".into(), serde_json::to_value(node).unwrap());
+                        json_obj.insert("node".into(), to_json_value(node));
                     }
-                    json_obj.insert(
-                        "decisions".into(),
-                        serde_json::to_value(&matching_decisions).unwrap(),
-                    );
-                    println!("{}", serde_json::to_string_pretty(&json_obj).unwrap());
+                    json_obj.insert("decisions".into(), to_json_value(&matching_decisions));
+                    println!("{}", to_pretty_json(&json_obj));
                     return;
                 }
 
@@ -847,35 +887,29 @@ pub fn run_cli() {
                 );
 
                 if let Some(node) = graph.inspect_symbol(target_symbol) {
-                    context_map.insert("kind".into(), serde_json::to_value(&node.kind).unwrap());
-                    context_map.insert(
-                        "effects".into(),
-                        serde_json::to_value(&node.effects).unwrap(),
-                    );
-                    context_map.insert(
-                        "ownership".into(),
-                        serde_json::to_value(&node.ownership).unwrap(),
-                    );
+                    context_map.insert("kind".into(), to_json_value(&node.kind));
+                    context_map.insert("effects".into(), to_json_value(&node.effects));
+                    context_map.insert("ownership".into(), to_json_value(&node.ownership));
                 }
 
                 context_map.insert(
                     "dependencies".into(),
-                    serde_json::to_value(graph.inspect_dependencies(target_symbol)).unwrap(),
+                    to_json_value(&graph.inspect_dependencies(target_symbol)),
                 );
                 context_map.insert(
                     "callers".into(),
-                    serde_json::to_value(graph.find_callers(target_symbol)).unwrap(),
+                    to_json_value(&graph.find_callers(target_symbol)),
                 );
                 context_map.insert(
                     "callees".into(),
-                    serde_json::to_value(graph.find_callees(target_symbol)).unwrap(),
+                    to_json_value(&graph.find_callees(target_symbol)),
                 );
                 context_map.insert(
                     "optimizationDecisions".into(),
-                    serde_json::to_value(matching_decisions).unwrap(),
+                    to_json_value(&matching_decisions),
                 );
 
-                println!("{}", serde_json::to_string_pretty(&context_map).unwrap());
+                println!("{}", to_pretty_json(&context_map));
             } else {
                 eprintln!("Compilation failed: {}", res.error.unwrap_or_default());
                 std::process::exit(1);
@@ -1007,7 +1041,7 @@ pub fn run_cli() {
                     "symbol" => {
                         let sym_name = target_symbol.unwrap_or("main");
                         if let Some(node) = graph.inspect_symbol(sym_name) {
-                            println!("{}", serde_json::to_string_pretty(node).unwrap());
+                            println!("{}", to_pretty_json(node));
                         } else {
                             println!("Symbol '{}' not found in semantic graph", sym_name);
                         }
@@ -1015,18 +1049,18 @@ pub fn run_cli() {
                     "effects" => {
                         if let Some(sym_name) = target_symbol {
                             if let Some(eff) = graph.inspect_effects(sym_name) {
-                                println!("{}", serde_json::to_string_pretty(&eff).unwrap());
+                                println!("{}", to_pretty_json(&eff));
                             } else {
                                 println!("Symbol '{}' not found", sym_name);
                             }
                         } else {
-                            println!("{}", serde_json::to_string_pretty(&graph).unwrap());
+                            println!("{}", to_pretty_json(&graph));
                         }
                     }
                     "optimize" => {
                         let sym_name = target_symbol.unwrap_or("main");
                         if let Some(opt) = graph.inspect_optimization(sym_name) {
-                            println!("{}", serde_json::to_string_pretty(&opt).unwrap());
+                            println!("{}", to_pretty_json(&opt));
                         } else {
                             println!("Symbol '{}' not found in semantic graph", sym_name);
                         }
@@ -1034,16 +1068,16 @@ pub fn run_cli() {
                     "dependencies" => {
                         let sym_name = target_symbol.unwrap_or("main");
                         let deps = graph.inspect_dependencies(sym_name);
-                        println!("{}", serde_json::to_string_pretty(&deps).unwrap());
+                        println!("{}", to_pretty_json(&deps));
                     }
                     "ast" => {
                         if let Some(prog) = res.program {
-                            println!("{}", serde_json::to_string_pretty(&prog).unwrap());
+                            println!("{}", to_pretty_json(&prog));
                         }
                     }
                     "dmir" => {
                         if let Some(dmir) = res.dmir_module {
-                            println!("{}", serde_json::to_string_pretty(&dmir).unwrap());
+                            println!("{}", to_pretty_json(&dmir));
                         }
                     }
                     "codegen" => {
@@ -1052,7 +1086,7 @@ pub fn run_cli() {
                                 crate::codegen::cranelift::CraneliftBackend::for_host();
                             let inspection = cranelift_backend.inspect_module(dmir);
                             if args.iter().any(|a| a == "--json") {
-                                println!("{}", serde_json::to_string_pretty(&inspection).unwrap());
+                                println!("{}", to_pretty_json(&inspection));
                             } else {
                                 println!(
                                     "============================================================"
@@ -1118,7 +1152,7 @@ pub fn run_cli() {
                         }
                     }
                     _ => {
-                        println!("{}", serde_json::to_string_pretty(&graph).unwrap());
+                        println!("{}", to_pretty_json(&graph));
                     }
                 }
             } else {

@@ -2,7 +2,6 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// Generates a C99/C++ compatible header file (.h) from Datara source
 pub fn export_c_header(source_path: &Path, output_header: &Path) -> Result<PathBuf, String> {
@@ -131,17 +130,42 @@ fn map_datara_type_to_c(dtr_type: &str) -> &'static str {
 }
 
 /// Compiles source into a native shared library (.dll / .so / .dylib)
+///
+/// The former implementation invoked `forgen build --llvm` (which produces an
+/// *executable*) and then returned the requested library path — a file that
+/// was never created. Compilation now happens in-process: DMIR → LLVM IR →
+/// `clang -shared` linked against the Datara runtime.
 pub fn export_shared_library(source_path: &Path, output_lib: &Path) -> Result<PathBuf, String> {
-    let current_exe = std::env::current_exe().unwrap_or_else(|_| "forgen".into());
-    let mut cmd = Command::new(&current_exe);
-    cmd.arg("build").arg(source_path).arg("--llvm");
-
-    let status = cmd
-        .status()
-        .map_err(|e| format!("Failed to invoke forgen build: {}", e))?;
-    if !status.success() {
-        return Err("Export failed during standalone compilation.".to_string());
+    let compiler = crate::driver::ForgenCompiler::new("release").with_llvm(true);
+    let res = compiler.compile_file(source_path, None);
+    if !res.success {
+        return Err(res.error.unwrap_or_else(|| "Compilation failed".into()));
     }
+    let llvm_ir = res
+        .llvm_source
+        .ok_or_else(|| "LLVM IR was not generated for the shared-library export".to_string())?;
+
+    let ll_path = output_lib.with_extension("ll");
+    fs::write(&ll_path, llvm_ir)
+        .map_err(|e| format!("Failed to write LLVM IR '{}': {}", ll_path.display(), e))?;
+
+    // Locate the Datara runtime: prefer the C source next to the compiler
+    // checkout, then the compiled archive (installed layouts).
+    let rt_candidates = [
+        PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/src/runtime/datara_runtime.c"
+        )),
+        crate::runtime::runtime_lib_path(),
+    ];
+    let rt_path = rt_candidates.into_iter().find(|p| p.exists());
+
+    crate::codegen::linker::compile_shared_with_clang(
+        &ll_path,
+        rt_path.as_deref(),
+        output_lib,
+        "3",
+    )?;
 
     Ok(output_lib.to_path_buf())
 }

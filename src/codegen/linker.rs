@@ -560,3 +560,59 @@ pub fn compile_with_clang(
 
     Err("Neither Clang nor LLC found on system toolchain".to_string())
 }
+
+/// Compile an LLVM IR file (.ll) into a shared library (.dll / .so / .dylib).
+///
+/// Used by `forgen export --shared`; the former implementation only ran
+/// `forgen build --llvm` (producing an executable) and returned a library
+/// path that was never created.
+pub fn compile_shared_with_clang(
+    ll_path: &Path,
+    runtime_lib_path: Option<&Path>,
+    output_lib: &Path,
+    opt_level: &str,
+) -> Result<(), String> {
+    let clang = find_clang().ok_or_else(|| {
+        "Clang is required to build a shared library but was not found".to_string()
+    })?;
+    let opt_flag = match opt_level {
+        "0" | "debug" => "-O0",
+        "1" => "-O1",
+        "2" => "-O2",
+        _ => "-O3",
+    };
+
+    let mut cmd = Command::new(&clang);
+    cmd.arg(opt_flag).arg("-shared");
+    if cfg!(windows) && find_lld().is_some() {
+        cmd.arg("-fuse-ld=lld");
+    }
+    cmd.arg(ll_path);
+    if let Some(rt) = runtime_lib_path
+        && rt.exists()
+    {
+        // Either the runtime C source or its compiled archive works: clang
+        // treats both as regular inputs.
+        cmd.arg(rt);
+    }
+    cmd.arg("-o").arg(output_lib);
+    if cfg!(windows) {
+        cmd.arg("-lws2_32");
+        cmd.arg("-luser32");
+        cmd.arg("-lkernel32");
+    } else {
+        cmd.arg("-lm");
+        cmd.arg("-lpthread");
+    }
+
+    let res = cmd
+        .output()
+        .map_err(|e| format!("Failed to run clang: {}", e))?;
+    if !res.status.success() {
+        return Err(format!(
+            "Clang shared-library compilation failed:\n{}",
+            String::from_utf8_lossy(&res.stderr)
+        ));
+    }
+    Ok(())
+}

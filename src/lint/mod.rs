@@ -58,19 +58,44 @@ pub fn apply_fixes(source: &str, diags: &[LintDiagnostic]) -> String {
     });
 
     for diag in fixable {
-        if let Some(_fix) = &diag.fix {
-            let line_idx = diag.span.start_line.saturating_sub(1);
-            if line_idx < lines.len() {
-                let line = &lines[line_idx];
-                // If it's mut -> let replacement
-                if diag.code == "perf::unnecessary_mut"
-                    && let Some(mut_pos) = line.find("mut ")
-                {
-                    let mut new_line = line.clone();
-                    new_line.replace_range(mut_pos..mut_pos + 4, "let ");
-                    lines[line_idx] = new_line;
-                }
+        if diag.code != "perf::unnecessary_mut" {
+            continue;
+        }
+        let line_idx = diag.span.start_line.saturating_sub(1);
+        if line_idx >= lines.len() {
+            continue;
+        }
+        let line = &lines[line_idx];
+        // The diagnostic span points at the declaration. Replace the exact
+        // `mut ` (or `let mut `) token at that column instead of the first
+        // occurrence anywhere in the line — the former `line.find("mut ")`
+        // corrupted identifiers/comments that merely contained "mut "
+        // (e.g. `mutate_thing` or `// mut x`).
+        let col = diag.span.start_col.saturating_sub(1);
+        let chars: Vec<char> = line.chars().collect();
+        let at = |offset: usize, expected: &str| -> bool {
+            let exp: Vec<char> = expected.chars().collect();
+            if col + offset + exp.len() > chars.len() {
+                return false;
             }
+            chars[col + offset..col + offset + exp.len()] == expected.chars().collect::<Vec<char>>()
+        };
+        let mut new_line = line.clone();
+        let replaced = if at(0, "let mut ") {
+            let start = chars[..col].iter().map(|c| c.len_utf8()).sum::<usize>();
+            let end = start + "let mut ".len();
+            new_line.replace_range(start..end, "let ");
+            true
+        } else if at(0, "mut ") {
+            let start = chars[..col].iter().map(|c| c.len_utf8()).sum::<usize>();
+            let end = start + "mut ".len();
+            new_line.replace_range(start..end, "let ");
+            true
+        } else {
+            false
+        };
+        if replaced {
+            lines[line_idx] = new_line;
         }
     }
 

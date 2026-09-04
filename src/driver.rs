@@ -640,21 +640,38 @@ impl ForgenCompiler {
             .cranelift
             .emit_clif(&dmir_module, &program, &type_checker);
 
-        let llvm_emitter = crate::codegen::llvm::LlvmEmitter::new(&self.cranelift.target);
-        let llvm_code = llvm_emitter.emit_module(&dmir_module, &program, &type_checker);
-
+        // LLVM IR is only emitted when the LLVM pipeline is actually used;
+        // the former code generated the full IR on every build and threw it
+        // away for Cranelift-only builds.
+        let llvm_code = if self.use_llvm {
+            let llvm_emitter = crate::codegen::llvm::LlvmEmitter::new(&self.cranelift.target);
+            let code = llvm_emitter.emit_module(&dmir_module, &program, &type_checker);
+            let ll_path = target_exe.with_extension("ll");
+            let _ = std::fs::write(&ll_path, &code);
+            Some(code)
+        } else {
+            None
+        };
         let ll_path = target_exe.with_extension("ll");
-        if self.use_llvm {
-            let _ = std::fs::write(&ll_path, &llvm_code);
-        }
 
         let compile_res = if self.use_llvm {
             if crate::codegen::linker::find_clang().is_some()
                 || crate::codegen::linker::find_llc().is_some()
             {
-                let rt_path = PathBuf::from("src/runtime/datara_runtime.c");
-                let rt_opt = if rt_path.exists() {
-                    Some(rt_path.as_path())
+                // Locate the Datara runtime independent of the current
+                // working directory. The former hardcoded relative path
+                // ("src/runtime/datara_runtime.c") only worked when the
+                // compiler was launched from the repository root; installed
+                // toolchains silently fell back to "no runtime".
+                let rt_source = PathBuf::from(concat!(
+                    env!("CARGO_MANIFEST_DIR"),
+                    "/src/runtime/datara_runtime.c"
+                ));
+                let rt_archive = crate::runtime::runtime_lib_path();
+                let rt_opt = if rt_source.exists() {
+                    Some(rt_source.as_path())
+                } else if rt_archive.exists() {
+                    Some(rt_archive.as_path())
                 } else {
                     None
                 };
@@ -711,7 +728,7 @@ impl ForgenCompiler {
                 optimization_report: Some(optimizer.report),
                 diagnostics: diag.format_all(),
                 clif_source: Some(clif_code),
-                llvm_source: Some(llvm_code),
+                llvm_source: llvm_code,
                 timings,
             },
             Err(e) => CompilationResult {
@@ -724,7 +741,7 @@ impl ForgenCompiler {
                 optimization_report: Some(optimizer.report),
                 diagnostics: diag.format_all(),
                 clif_source: Some(clif_code),
-                llvm_source: Some(llvm_code),
+                llvm_source: llvm_code,
                 timings,
             },
         }
@@ -819,7 +836,9 @@ impl ForgenCompiler {
         if !res.success {
             return Err(res.error.unwrap_or_else(|| "Compilation failed".into()));
         }
-        let exe = res.exe_path.unwrap();
+        let exe = res
+            .exe_path
+            .ok_or_else(|| "Compilation succeeded but produced no executable".to_string())?;
         self.codegen.run_executable(&exe, args)
     }
 

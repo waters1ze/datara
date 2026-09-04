@@ -59,10 +59,18 @@ impl Default for ReplSession {
 
 impl ReplSession {
     pub fn new() -> Self {
+        // A random suffix (pid + high-resolution timestamp) makes the session
+        // binary path unguessable: the former `datara_repl_{pid}.exe` inside
+        // the shared temp directory had a predictable TOCTOU window between
+        // compilation and execution.
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
         let exe_name = if cfg!(windows) {
-            format!("datara_repl_{}.exe", std::process::id())
+            format!("datara_repl_{}_{:x}.exe", std::process::id(), nanos)
         } else {
-            format!("datara_repl_{}", std::process::id())
+            format!("datara_repl_{}_{:x}", std::process::id(), nanos)
         };
         let session_exe = std::env::temp_dir().join(exe_name);
         Self {

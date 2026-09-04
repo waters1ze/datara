@@ -1432,15 +1432,30 @@ dpm list
 #        println("Generated ID: " + id)
 #    }
 
-# 5. Verify integrity against datara.lock
+# 5. Verify integrity against datara.lock (FIPS 180-4 SHA-256 cryptographic verification)
 dpm verify
 # :: [DPM] Verifying package integrity against datara.lock...
-#   [OK] redis (v1.4.0) - Digest verified (sha256:7f8a9e01...)
-#   [OK] uuid (v1.1.0) - Digest verified (sha256:f0e1d2c3...)
+#   [OK] redis (v1.4.0) - Digest verified (sha256:ba7816bf...)
+#   [OK] uuid (v1.1.0) - Digest verified (sha256:248d6a61...)
 # [DONE] All 2 packages verified successfully!
 
 # 6. Run the application
 dpm run
+```
+
+---
+
+### `forgen export` (C/C++ Interop & Shared Libraries)
+
+Export Datara sources into native C99 headers and standalone shared libraries for seamless embedding into external C, C++, Python, or Go programs:
+```bash
+# 1. Generate C99/C++ header (.h) declarations from Datara source
+forgen export c-header src/main.dtr
+# [Forgen export] Generated C99/C++ header: target/include/main.h
+
+# 2. Compile into an in-process native shared library (.dll / .so / .dylib)
+forgen export shared src/main.dtr
+# [Forgen export] Compiled native shared library: target/lib/main.dll
 ```
 
 ---
