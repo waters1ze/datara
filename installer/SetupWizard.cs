@@ -34,6 +34,8 @@ namespace DataraInstaller
         private Button btnBrowse;
 
         private CheckBox chkPath;
+        private CheckBox chkShortcuts;
+        private CheckBox chkBuildTools;
         private CheckBox chkAssoc;
         private CheckBox chkVSCode;
         private CheckBox chkStdlib;
@@ -66,7 +68,7 @@ namespace DataraInstaller
         private void InitializeComponent()
         {
             this.Text = "Datara Language & Forgen Compiler Setup v" + AppVersion;
-            this.Size = new Size(680, 520);
+            this.Size = new Size(680, 560);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -175,8 +177,8 @@ namespace DataraInstaller
 
             // 3. Config Panel
             configPanel = new Panel {
-                Location = new Point(24, 98),
-                Size = new Size(632, 310),
+                Location = new Point(24, 94),
+                Size = new Size(632, 350),
                 BackColor = Color.Transparent
             };
 
@@ -197,7 +199,7 @@ namespace DataraInstaller
 
             installDirLabel = new Label {
                 Text = "Installation Folder:",
-                Location = new Point(2, 60),
+                Location = new Point(2, 58),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 9.5f, FontStyle.Bold),
                 ForeColor = Color.FromArgb(203, 213, 225)
@@ -206,7 +208,7 @@ namespace DataraInstaller
             string defaultDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\Datara");
             txtInstallDir = new TextBox {
                 Text = defaultDir,
-                Location = new Point(4, 84),
+                Location = new Point(4, 82),
                 Size = new Size(516, 28),
                 BackColor = Color.FromArgb(30, 41, 59),
                 ForeColor = Color.FromArgb(248, 250, 252),
@@ -215,7 +217,7 @@ namespace DataraInstaller
 
             btnBrowse = new Button {
                 Text = "Browse...",
-                Location = new Point(528, 82),
+                Location = new Point(528, 80),
                 Size = new Size(98, 28),
                 FlatStyle = FlatStyle.Flat,
                 ForeColor = Color.White,
@@ -233,41 +235,57 @@ namespace DataraInstaller
             };
 
             Panel optBox = new Panel {
-                Location = new Point(4, 126),
-                Size = new Size(622, 160),
+                Location = new Point(4, 118),
+                Size = new Size(622, 204),
                 BackColor = Color.FromArgb(30, 41, 59)
             };
 
             chkPath = new CheckBox {
                 Text = "Add Datara (forgen & datara) to PATH environment variable (Recommended)",
-                Location = new Point(16, 16),
+                Location = new Point(16, 12),
+                AutoSize = true,
+                Checked = true,
+                ForeColor = Color.FromArgb(241, 245, 249)
+            };
+            chkShortcuts = new CheckBox {
+                Text = "Create Start Menu and Desktop shortcuts for Datara Interactive Console",
+                Location = new Point(16, 42),
+                AutoSize = true,
+                Checked = true,
+                ForeColor = Color.FromArgb(241, 245, 249)
+            };
+            chkBuildTools = new CheckBox {
+                Text = "Automatically configure C/C++ Build Tools / Linker if missing (Node.js style)",
+                Location = new Point(16, 72),
                 AutoSize = true,
                 Checked = true,
                 ForeColor = Color.FromArgb(241, 245, 249)
             };
             chkAssoc = new CheckBox {
                 Text = "Associate .dtr files with Datara and show official icon in Windows Explorer",
-                Location = new Point(16, 48),
+                Location = new Point(16, 102),
                 AutoSize = true,
                 Checked = true,
                 ForeColor = Color.FromArgb(241, 245, 249)
             };
             chkVSCode = new CheckBox {
                 Text = "Install Datara Syntax Extension for VS Code / Cursor / VSCodium",
-                Location = new Point(16, 80),
+                Location = new Point(16, 132),
                 AutoSize = true,
                 Checked = true,
                 ForeColor = Color.FromArgb(241, 245, 249)
             };
             chkStdlib = new CheckBox {
                 Text = "Install complete Standard Library (14 modules: math, text, io, net, etc.)",
-                Location = new Point(16, 112),
+                Location = new Point(16, 162),
                 AutoSize = true,
                 Checked = true,
                 ForeColor = Color.FromArgb(241, 245, 249)
             };
 
             optBox.Controls.Add(chkPath);
+            optBox.Controls.Add(chkShortcuts);
+            optBox.Controls.Add(chkBuildTools);
             optBox.Controls.Add(chkAssoc);
             optBox.Controls.Add(chkVSCode);
             optBox.Controls.Add(chkStdlib);
@@ -349,11 +367,13 @@ namespace DataraInstaller
                 Font = new Font("Consolas", 10f)
             };
             tipBox.AppendText("Quick Start Commands:\n\n");
-            tipBox.AppendText("  forgen --version     # Check compiler version and native target\n");
-            tipBox.AppendText("  dpm init my_app      # Initialize a project with Datara Package Manager\n");
-            tipBox.AppendText("  dpm add redis        # Add packages with SHA-256 Merkle verification\n");
-            tipBox.AppendText("  forgen run main.dtr  # Compile & run Datara source code\n\n");
-            tipBox.AppendText("All .dtr files are now associated with the official Datara icon.");
+            tipBox.AppendText("  datara               # Launch Interactive REPL Console (Node.js style)\n");
+            tipBox.AppendText("  forgen run main.dtr  # Compile & run Datara source code\n");
+            tipBox.AppendText("  forgen build         # Build standalone native .exe\n");
+            tipBox.AppendText("  dpm init my_app      # Initialize a project with Datara Package Manager\n\n");
+            tipBox.AppendText("Desktop & Start Menu Shortcuts Created:\n");
+            tipBox.AppendText("  • Datara (Interactive Console)\n");
+            tipBox.AppendText("  • Datara Command Prompt\n");
 
             successPanel.Controls.Add(successTitle);
             successPanel.Controls.Add(successSubtitle);
@@ -371,6 +391,8 @@ namespace DataraInstaller
         {
             string installDir = txtInstallDir.Text.Trim();
             bool doPath = chkPath.Checked;
+            bool doShortcuts = chkShortcuts.Checked;
+            bool doBuildTools = chkBuildTools.Checked;
             bool doAssoc = chkAssoc.Checked;
             bool doVSCode = chkVSCode.Checked;
             bool doStdlib = chkStdlib.Checked;
@@ -382,7 +404,7 @@ namespace DataraInstaller
 
             await Task.Run(() => {
                 try {
-                    UpdateProgress(20, "Extracting compiler toolchain and assets...");
+                    UpdateProgress(15, "Extracting compiler toolchain and assets...");
                     Directory.CreateDirectory(installDir);
 
                     // Extract embedded payload.zip
@@ -406,7 +428,7 @@ namespace DataraInstaller
 
                     // Step 2: Register PATH
                     if (doPath) {
-                        UpdateProgress(50, "Configuring PATH and environment variables...");
+                        UpdateProgress(40, "Configuring PATH and environment variables...");
                         string binDir = Path.Combine(installDir, "bin");
                         string userPath = Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User) ?? "";
                         if (!userPath.Contains(binDir)) {
@@ -416,20 +438,32 @@ namespace DataraInstaller
                         Environment.SetEnvironmentVariable("DATARA_HOME", installDir, EnvironmentVariableTarget.User);
                     }
 
-                    // Step 3: Register File Associations (.dtr)
+                    // Step 3: Create Shortcuts
+                    if (doShortcuts) {
+                        UpdateProgress(55, "Creating Start Menu & Desktop shortcuts for Datara Console...");
+                        CreateShortcuts(installDir);
+                    }
+
+                    // Step 4: Register File Associations (.dtr)
                     if (doAssoc) {
                         UpdateProgress(70, "Associating .dtr files with official Datara icon...");
                         RegisterFileAssociation(installDir);
                     }
 
-                    // Step 4: Register in Windows Installed Apps
-                    UpdateProgress(85, "Creating Windows Uninstall registration...");
+                    // Step 5: Register in Windows Installed Apps
+                    UpdateProgress(80, "Creating Windows Uninstall registration...");
                     RegisterUninstall(installDir);
 
-                    // Step 5: Install VS Code Extension
+                    // Step 6: Install VS Code Extension
                     if (doVSCode) {
-                        UpdateProgress(95, "Installing VS Code syntax highlighting...");
+                        UpdateProgress(90, "Installing VS Code syntax highlighting...");
                         InstallVSCodeExtension(installDir);
+                    }
+
+                    // Step 7: Check and trigger Build Tools installer if missing (Node.js style)
+                    if (doBuildTools && !HasLinkerInstalled()) {
+                        UpdateProgress(95, "Launching C/C++ Build Tools setup window (Node.js style)...");
+                        LaunchBuildToolsSetup(installDir);
                     }
 
                     UpdateProgress(100, "Installation complete!");
@@ -534,6 +568,127 @@ namespace DataraInstaller
                     foreach (string file in Directory.GetFiles(vscodeExtSrc, "*.*", SearchOption.AllDirectories)) {
                         File.Copy(file, file.Replace(vscodeExtSrc, vscodeExtDst), true);
                     }
+                }
+            } catch { }
+        }
+
+        private void CreateShortcuts(string installDir)
+        {
+            try {
+                string binDir = Path.Combine(installDir, "bin");
+                string dataraExe = Path.Combine(binDir, "datara.exe");
+                if (!File.Exists(dataraExe)) {
+                    dataraExe = Path.Combine(binDir, "forgen.exe");
+                }
+                string icoPath = Path.Combine(installDir, @"assets\datara.ico");
+
+                string startMenuDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Datara");
+                Directory.CreateDirectory(startMenuDir);
+
+                string desktopDir = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                string userHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+                // Use PowerShell to create Windows shortcuts (.lnk) via WScript.Shell
+                string psCmd = string.Format(
+                    "$ws = New-Object -ComObject WScript.Shell; " +
+                    "$s1 = $ws.CreateShortcut('{0}\\Datara (Interactive Console).lnk'); " +
+                    "$s1.TargetPath = '{1}'; $s1.WorkingDirectory = '{2}'; $s1.IconLocation = '{3},0'; $s1.Description = 'Datara Interactive Programming Console (REPL)'; $s1.Save(); " +
+                    "$s2 = $ws.CreateShortcut('{0}\\Datara Command Prompt.lnk'); " +
+                    "$s2.TargetPath = 'cmd.exe'; $s2.Arguments = '/K \"\"title Datara Developer Console & prompt $P$G & set PATH={4};%PATH%\"\"'; $s2.WorkingDirectory = '{2}'; $s2.IconLocation = '{3},0'; $s2.Description = 'Command Prompt configured with Datara environment'; $s2.Save(); " +
+                    "$s3 = $ws.CreateShortcut('{5}\\Datara.lnk'); " +
+                    "$s3.TargetPath = '{1}'; $s3.WorkingDirectory = '{2}'; $s3.IconLocation = '{3},0'; $s3.Description = 'Datara Interactive Programming Console'; $s3.Save();",
+                    startMenuDir.Replace("'", "''"),
+                    dataraExe.Replace("'", "''"),
+                    userHome.Replace("'", "''"),
+                    icoPath.Replace("'", "''"),
+                    binDir.Replace("'", "''"),
+                    desktopDir.Replace("'", "''")
+                );
+
+                var psi = new System.Diagnostics.ProcessStartInfo {
+                    FileName = "powershell.exe",
+                    Arguments = "-NoProfile -ExecutionPolicy Bypass -Command \"" + psCmd + "\"",
+                    CreateNoWindow = true,
+                    UseShellExecute = false
+                };
+                using (var proc = System.Diagnostics.Process.Start(psi)) {
+                    proc.WaitForExit(6000);
+                }
+            } catch { }
+        }
+
+        private bool HasLinkerInstalled()
+        {
+            try {
+                // 1. Check vswhere for Visual Studio / Build Tools
+                string pf = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+                if (string.IsNullOrEmpty(pf)) pf = @"C:\Program Files (x86)";
+                string vswhere = Path.Combine(pf, @"Microsoft Visual Studio\Installer\vswhere.exe");
+                if (File.Exists(vswhere)) {
+                    var psi = new System.Diagnostics.ProcessStartInfo {
+                        FileName = vswhere,
+                        Arguments = "-latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath",
+                        RedirectStandardOutput = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    using (var proc = System.Diagnostics.Process.Start(psi)) {
+                        string vsPath = proc.StandardOutput.ReadToEnd().Trim();
+                        proc.WaitForExit(4000);
+                        if (!string.IsNullOrEmpty(vsPath) && Directory.Exists(Path.Combine(vsPath, @"VC\Tools\MSVC"))) {
+                            return true;
+                        }
+                    }
+                }
+
+                // 2. Check LLVM
+                if (File.Exists(@"C:\Program Files\LLVM\bin\lld-link.exe") || File.Exists(@"C:\Program Files (x86)\LLVM\bin\lld-link.exe")) {
+                    return true;
+                }
+
+                // 3. Check PATH for link.exe (ignoring Git's coreutils link.exe)
+                string path = Environment.GetEnvironmentVariable("PATH") ?? "";
+                foreach (string dir in path.Split(';')) {
+                    string trimmed = dir.Trim();
+                    if (string.IsNullOrEmpty(trimmed)) continue;
+                    string lower = trimmed.ToLowerInvariant();
+                    if (lower.Contains(@"git\usr\bin") || lower.Contains(@"git/usr/bin")) continue;
+                    if (File.Exists(Path.Combine(trimmed, "link.exe")) || File.Exists(Path.Combine(trimmed, "lld-link.exe")) || File.Exists(Path.Combine(trimmed, "gcc.exe"))) {
+                        return true;
+                    }
+                }
+            } catch { }
+            return false;
+        }
+
+        private void LaunchBuildToolsSetup(string installDir)
+        {
+            try {
+                string batPath = Path.Combine(installDir, @"scripts\install_build_tools.bat");
+                if (!File.Exists(batPath)) batPath = Path.Combine(installDir, "install_build_tools.bat");
+
+                if (File.Exists(batPath)) {
+                    var psi = new System.Diagnostics.ProcessStartInfo {
+                        FileName = "cmd.exe",
+                        Arguments = "/c \"" + batPath + "\"",
+                        UseShellExecute = true,
+                        WorkingDirectory = installDir
+                    };
+                    System.Diagnostics.Process.Start(psi);
+                } else {
+                    string ps1Path = Path.Combine(installDir, @"scripts\install_build_tools.ps1");
+                    if (!File.Exists(ps1Path)) ps1Path = Path.Combine(installDir, "install_build_tools.ps1");
+
+                    string args = File.Exists(ps1Path)
+                        ? "-NoProfile -ExecutionPolicy Bypass -File \"" + ps1Path + "\""
+                        : "-NoProfile -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $s = (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/waters1ze/datara/main/scripts/install_build_tools.ps1'); Invoke-Expression $s\"";
+
+                    var psi = new System.Diagnostics.ProcessStartInfo {
+                        FileName = "powershell.exe",
+                        Arguments = args,
+                        UseShellExecute = true
+                    };
+                    System.Diagnostics.Process.Start(psi);
                 }
             } catch { }
         }

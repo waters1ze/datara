@@ -35,6 +35,8 @@ pub struct LinkerSpec {
     pub lib_paths: Vec<PathBuf>,
     /// Platform libraries every Datara program needs.
     pub system_libs: Vec<String>,
+    /// Whether a verified linker binary is present on the host system.
+    pub is_available: bool,
 }
 
 /// Compare directory names as dotted-numeric versions, newest first.
@@ -183,9 +185,23 @@ fn discover_msvc() -> LinkerSpec {
 
     // Inside a developer prompt `link.exe` is on PATH and LIB is already set,
     // so an empty lib_paths list is fine there.
-    let program = program
-        .or_else(|| which("link.exe"))
-        .unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "link.exe" } else { "link" }));
+    let program = program.or_else(|| which("link.exe")).or_else(find_lld_link);
+
+    if program.is_none()
+        && let Some(gcc) = find_gcc()
+    {
+        return LinkerSpec {
+            program: gcc,
+            flavor: LinkerFlavor::Unix,
+            lib_paths: Vec::new(),
+            system_libs: vec!["kernel32".into(), "user32".into(), "ws2_32".into()],
+            is_available: true,
+        };
+    }
+
+    let is_available = program.is_some();
+    let program =
+        program.unwrap_or_else(|| PathBuf::from(if cfg!(windows) { "link.exe" } else { "link" }));
 
     LinkerSpec {
         program,
@@ -200,6 +216,7 @@ fn discover_msvc() -> LinkerSpec {
             "user32.lib".into(),
             "ws2_32.lib".into(),
         ],
+        is_available,
     }
 }
 
@@ -210,8 +227,7 @@ fn discover_unix() -> LinkerSpec {
         .filter(|p| p.exists())
         .or_else(|| which("cc"))
         .or_else(|| which("clang"))
-        .or_else(|| which("gcc"))
-        .unwrap_or_else(|| PathBuf::from("cc"));
+        .or_else(|| which("gcc"));
 
     let mut system_libs = vec!["m".to_string()];
     if cfg!(target_os = "linux") {
@@ -219,41 +235,203 @@ fn discover_unix() -> LinkerSpec {
         system_libs.push("dl".to_string());
     }
 
+    let is_available = program.is_some();
+    let program = program.unwrap_or_else(|| PathBuf::from("cc"));
+
     LinkerSpec {
         program,
         flavor: LinkerFlavor::Unix,
         lib_paths: Vec::new(),
         system_libs,
+        is_available,
     }
 }
 
 fn which(program: &str) -> Option<PathBuf> {
     let separator = if cfg!(windows) { ';' } else { ':' };
-    env::var_os("PATH")
-        .and_then(|paths| {
-            env::split_paths(&paths)
-                .map(|dir| dir.join(program))
-                .find(|p| p.exists())
-        })
-        .or_else(|| {
-            // Keep the separator referenced so the branch above reads clearly.
-            let _ = separator;
+    let _ = separator;
+    env::var_os("PATH").and_then(|paths| {
+        env::split_paths(&paths)
+            .map(|dir| dir.join(program))
+            .filter(|p| {
+                if cfg!(windows) && program.eq_ignore_ascii_case("link.exe") {
+                    let path_str = p.to_string_lossy().to_lowercase();
+                    // Reject Git's GNU coreutils link.exe which is NOT the MSVC linker
+                    if path_str.contains(r"\git\usr\bin") || path_str.contains("/git/usr/bin") {
+                        return false;
+                    }
+                }
+                true
+            })
+            .find(|p| p.exists())
+    })
+}
+
+/// Locate LLVM lld-link on Windows
+pub fn find_lld_link() -> Option<PathBuf> {
+    which(if cfg!(windows) {
+        "lld-link.exe"
+    } else {
+        "lld-link"
+    })
+    .or_else(|| {
+        if cfg!(windows) {
+            let mut candidates = vec![
+                PathBuf::from(r"C:\Program Files\LLVM\bin\lld-link.exe"),
+                PathBuf::from(r"C:\Program Files (x86)\LLVM\bin\lld-link.exe"),
+            ];
+            if let Ok(local_app) = env::var("LOCALAPPDATA") {
+                candidates
+                    .push(PathBuf::from(local_app).join(r"Programs\Datara\tools\lld-link.exe"));
+            }
+            if let Ok(datara_home) = env::var("DATARA_HOME") {
+                candidates.push(PathBuf::from(datara_home).join(r"tools\lld-link.exe"));
+            }
+            if let Some(root) = vs_install_root() {
+                candidates.push(root.join(r"VC\Tools\Llvm\x64\bin\lld-link.exe"));
+                candidates.push(root.join(r"VC\Tools\Llvm\bin\lld-link.exe"));
+            }
+            candidates.into_iter().find(|p| p.exists())
+        } else {
             None
-        })
+        }
+    })
+}
+
+/// Locate GCC / MinGW on Windows
+pub fn find_gcc() -> Option<PathBuf> {
+    which(if cfg!(windows) { "gcc.exe" } else { "gcc" }).or_else(|| {
+        if cfg!(windows) {
+            let candidates = [
+                PathBuf::from(r"C:\msys64\ucrt64\bin\gcc.exe"),
+                PathBuf::from(r"C:\msys64\mingw64\bin\gcc.exe"),
+                PathBuf::from(r"C:\mingw64\bin\gcc.exe"),
+                PathBuf::from(r"C:\MinGW\bin\gcc.exe"),
+            ];
+            candidates.into_iter().find(|p| p.exists())
+        } else {
+            None
+        }
+    })
+}
+
+pub fn discover_fresh() -> LinkerSpec {
+    if cfg!(target_env = "msvc") {
+        discover_msvc()
+    } else {
+        discover_unix()
+    }
 }
 
 /// Discover the linker for the current host (cached across compiler invocations).
 pub fn discover() -> LinkerSpec {
-    static CACHED_SPEC: OnceLock<LinkerSpec> = OnceLock::new();
-    CACHED_SPEC
-        .get_or_init(|| {
-            if cfg!(target_env = "msvc") {
-                discover_msvc()
-            } else {
-                discover_unix()
+    static CACHED: OnceLock<Mutex<Option<LinkerSpec>>> = OnceLock::new();
+    let lock_cell = CACHED.get_or_init(|| Mutex::new(None));
+    let mut guard = lock_cell.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(spec) = &*guard
+        && spec.is_available
+    {
+        return spec.clone();
+    }
+    let spec = discover_fresh();
+    *guard = Some(spec.clone());
+    spec
+}
+
+pub fn invalidate_cache() {
+    static CACHED: OnceLock<Mutex<Option<LinkerSpec>>> = OnceLock::new();
+    let lock_cell = CACHED.get_or_init(|| Mutex::new(None));
+    let mut guard = lock_cell.lock().unwrap_or_else(|e| e.into_inner());
+    *guard = None;
+}
+
+/// Ensure a linker is available. If missing, attempts auto-installation on Windows (if permitted/interactive)
+/// or returns a descriptive error message guiding the user.
+pub fn ensure_linker() -> Result<LinkerSpec, String> {
+    let spec = discover();
+    if spec.is_available {
+        return Ok(spec);
+    }
+
+    // Try auto-install if requested via env var
+    if cfg!(windows) {
+        let auto_install = env::var("FORGEN_AUTO_INSTALL")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+        if auto_install {
+            println!("[Forgen] Auto-installing C/C++ build tools / linker (Node.js style)...");
+            if run_windows_build_tools_installer() {
+                invalidate_cache();
+                let fresh = discover();
+                if fresh.is_available {
+                    return Ok(fresh);
+                }
             }
-        })
-        .clone()
+        }
+    }
+
+    Err(missing_linker_error())
+}
+
+pub fn missing_linker_error() -> String {
+    if cfg!(windows) {
+        "================================================================================\n\
+         DATARA TOOLCHAIN ERROR: C/C++ Linker Not Found\n\
+         ================================================================================\n\
+         Datara requires a C/C++ linker (MSVC link.exe, LLVM lld-link, or MinGW GCC)\n\
+         to compile and link native Windows (.exe) executables.\n\n\
+         To automatically download and configure Microsoft C++ Build Tools (Node.js style):\n\
+           Run: forgen setup-tools\n\
+           Or:  scripts\\install_build_tools.bat\n\n\
+         Alternatively, install them manually via winget:\n\
+           winget install Microsoft.VisualStudio.2022.BuildTools\n\
+           winget install LLVM.LLVM\n\
+         ================================================================================"
+            .to_string()
+    } else {
+        "Datara requires a C/C++ linker (cc, clang, or gcc) to compile native executables.\n\
+         Please install a C toolchain:\n\
+           Ubuntu/Debian: sudo apt-get install build-essential\n\
+           Fedora/RHEL:   sudo dnf groupinstall \"Development Tools\"\n\
+           macOS:         xcode-select --install"
+            .to_string()
+    }
+}
+
+pub fn run_windows_build_tools_installer() -> bool {
+    let mut script_candidates = Vec::new();
+    if let Ok(exe) = env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        script_candidates.push(parent.join(r"scripts\install_build_tools.ps1"));
+        script_candidates.push(parent.join(r"install_build_tools.ps1"));
+        if let Some(grandparent) = parent.parent() {
+            script_candidates.push(grandparent.join(r"scripts\install_build_tools.ps1"));
+        }
+    }
+    if let Ok(home) = env::var("DATARA_HOME") {
+        script_candidates.push(PathBuf::from(home).join(r"scripts\install_build_tools.ps1"));
+    }
+    script_candidates.push(PathBuf::from(r"scripts\install_build_tools.ps1"));
+
+    let script = script_candidates.into_iter().find(|p| p.exists());
+
+    let mut cmd = Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass"]);
+    if let Some(script_path) = script {
+        cmd.arg("-File").arg(script_path);
+    } else {
+        cmd.arg("-Command").arg(
+            "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; \
+             $s = (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/waters1ze/datara/main/scripts/install_build_tools.ps1'); \
+             Invoke-Expression $s"
+        );
+    }
+
+    match cmd.status() {
+        Ok(status) => status.success(),
+        Err(_) => false,
+    }
 }
 
 /// Build the argument list that links `object` and the runtime into `output`.
@@ -458,7 +636,7 @@ pub fn compile_with_llc(
     }
     let _ = std::fs::remove_file(&bc_path);
 
-    let spec = discover();
+    let spec = ensure_linker()?;
     let runtime_lib = crate::runtime::runtime_lib_path();
     if !runtime_lib.exists() {
         return Err(format!(

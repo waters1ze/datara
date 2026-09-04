@@ -222,6 +222,54 @@ public class ShellNotifierTerm {
     } catch { }
 }
 
+# 4b. Copy Build Tools Scripts & Create Shortcuts
+$ScriptsDst = Join-Path $InstallDir "scripts"
+New-Item -ItemType Directory -Force -Path $ScriptsDst | Out-Null
+$btCandidates = @(
+    (Join-Path $ScriptDir "scripts\install_build_tools.ps1"),
+    (Join-Path $ScriptDir "install_build_tools.ps1"),
+    (Join-Path $ScriptDir "scripts\install_build_tools.bat"),
+    (Join-Path $ScriptDir "install_build_tools.bat")
+)
+foreach ($bt in $btCandidates) {
+    if (Test-Path $bt) { Copy-Item -Path $bt -Destination $ScriptsDst -Force }
+}
+
+try {
+    $ws = New-Object -ComObject WScript.Shell
+    $programsDir = [Environment]::GetFolderPath([Environment+SpecialFolder]::Programs)
+    $startMenuDir = Join-Path $programsDir "Datara"
+    New-Item -ItemType Directory -Force -Path $startMenuDir | Out-Null
+    $desktopDir = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
+    $dataraBin = Join-Path $BinDir "datara.exe"
+
+    # 1. Start Menu Interactive Console
+    $s1 = $ws.CreateShortcut((Join-Path $startMenuDir "Datara (Interactive Console).lnk"))
+    $s1.TargetPath = $dataraBin
+    $s1.WorkingDirectory = $env:USERPROFILE
+    if ($RegisteredIcon) { $s1.IconLocation = "$RegisteredIcon,0" }
+    $s1.Description = "Datara Interactive Programming Console (REPL)"
+    $s1.Save()
+
+    # 2. Start Menu Command Prompt
+    $s2 = $ws.CreateShortcut((Join-Path $startMenuDir "Datara Command Prompt.lnk"))
+    $s2.TargetPath = "cmd.exe"
+    $s2.Arguments = "/K `"title Datara Developer Console & prompt `$P`$G & set PATH=$BinDir;%PATH%`""
+    $s2.WorkingDirectory = $env:USERPROFILE
+    if ($RegisteredIcon) { $s2.IconLocation = "$RegisteredIcon,0" }
+    $s2.Description = "Command Prompt configured with Datara environment"
+    $s2.Save()
+
+    # 3. Desktop Shortcut
+    $s3 = $ws.CreateShortcut((Join-Path $desktopDir "Datara.lnk"))
+    $s3.TargetPath = $dataraBin
+    $s3.WorkingDirectory = $env:USERPROFILE
+    if ($RegisteredIcon) { $s3.IconLocation = "$RegisteredIcon,0" }
+    $s3.Description = "Datara Interactive Programming Console"
+    $s3.Save()
+    Write-Host "  -> Created Start Menu and Desktop shortcuts for Datara Console." -ForegroundColor Green
+} catch { }
+
 # 5. Configure PATH Environment Variable
 Write-Host "[5/5] Configuring environment variables..." -ForegroundColor Yellow
 $UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
@@ -238,16 +286,53 @@ if ($UserPath -notlike "*$BinDir*") {
 $env:DATARA_HOME = $InstallDir
 Write-Host "  -> Configured DATARA_HOME = $InstallDir" -ForegroundColor Green
 
-# Verification
+# Verification & Toolchain Check
 Write-Host "`n================================================================================" -ForegroundColor Green
-Write-Host " Verification and Environment Check:" -ForegroundColor Green
+Write-Host " Verification and Toolchain Status:" -ForegroundColor Green
 Write-Host "================================================================================" -ForegroundColor Green
 $ExePath = Join-Path $BinDir "forgen.exe"
 if (Test-Path $ExePath) {
     & $ExePath --version
 }
+
+# Linker detection
+$hasLinker = $false
+$allLinks = Get-Command link.exe -All -ErrorAction SilentlyContinue
+foreach ($l in $allLinks) {
+    $src = $l.Source.ToLower()
+    if (-not ($src.Contains("git\usr\bin") -or $src.Contains("git/usr/bin"))) {
+        $hasLinker = $true
+        break
+    }
+}
+if (-not $hasLinker) {
+    if ((Get-Command lld-link.exe -ErrorAction SilentlyContinue) -or (Test-Path "C:\Program Files\LLVM\bin\lld-link.exe") -or (Get-Command gcc.exe -ErrorAction SilentlyContinue)) {
+        $hasLinker = $true
+    }
+}
+if (-not $hasLinker) {
+    $pf86 = ${env:ProgramFiles(x86)}
+    if (-not $pf86) { $pf86 = "C:\Program Files (x86)" }
+    $vswhere = Join-Path $pf86 "Microsoft Visual Studio\Installer\vswhere.exe"
+    if (Test-Path $vswhere) {
+        $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+        if ($vs -and (Test-Path (Join-Path $vs "VC\Tools\MSVC"))) { $hasLinker = $true }
+    }
+}
+
+if ($hasLinker) {
+    Write-Host "`n[OK] C/C++ native linker is detected and ready." -ForegroundColor Green
+} else {
+    Write-Host "`n[!] Notice: No C/C++ linker detected on this system." -ForegroundColor Yellow
+    Write-Host "    Datara requires a linker to compile native Windows (.exe) executables." -ForegroundColor Gray
+    Write-Host "    To automatically download and install build tools (Node.js style), run:" -ForegroundColor White
+    Write-Host "      forgen setup-tools" -ForegroundColor Cyan
+    Write-Host "    or run: $InstallDir\scripts\install_build_tools.bat`n" -ForegroundColor Gray
+}
+
 Write-Host "DATARA_HOME: $InstallDir" -ForegroundColor Gray
 Write-Host "`nDatara and Forgen installed successfully!" -ForegroundColor Cyan
-Write-Host "To start immediately, restart your terminal or run:" -ForegroundColor White
-Write-Host "  forgen repl" -ForegroundColor Yellow
+Write-Host "To start immediately, launch Datara from your Desktop / Start Menu or run:" -ForegroundColor White
+Write-Host "  datara        (Interactive REPL Console)" -ForegroundColor Yellow
+Write-Host "  forgen repl   (Interactive REPL Console)" -ForegroundColor Yellow
 Write-Host "  forgen run main.dtr`n" -ForegroundColor Yellow

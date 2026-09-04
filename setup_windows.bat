@@ -21,9 +21,10 @@ if %ERRORLEVEL% EQU 0 (
     echo ================================================================================
     echo  Setup completed successfully!
     echo ================================================================================
-    echo  You can now open a new Command Prompt or PowerShell and run:
-    echo    forgen --help
-    echo    forgen repl
+    echo  You can now launch Datara from your Desktop / Start Menu or run:
+    echo    datara                 (Interactive REPL Console)
+    echo    forgen setup-tools     (C/C++ Build Tools & Linker)
+    echo    forgen run main.dtr    (Compile & run code)
     echo.
 ) else (
     echo.

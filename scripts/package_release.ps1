@@ -89,6 +89,10 @@ if (Test-Path "$ProjectRoot\install.ps1") { Copy-Item -Force "$ProjectRoot\insta
 if (Test-Path "$ProjectRoot\setup_windows.bat") { Copy-Item -Force "$ProjectRoot\setup_windows.bat" "$WinStaging\setup_windows.bat" }
 if (Test-Path "$ProjectRoot\scripts\install.ps1") { Copy-Item -Force "$ProjectRoot\scripts\install.ps1" "$WinStaging\scripts_install.ps1" }
 if (Test-Path "$ProjectRoot\scripts\install.sh") { Copy-Item -Force "$ProjectRoot\scripts\install.sh" "$WinStaging\install.sh" }
+New-Item -ItemType Directory -Force -Path "$WinStaging\scripts" | Out-Null
+if (Test-Path "$ProjectRoot\scripts\install_build_tools.ps1") { Copy-Item -Force "$ProjectRoot\scripts\install_build_tools.ps1" "$WinStaging\scripts\install_build_tools.ps1" }
+if (Test-Path "$ProjectRoot\scripts\install_build_tools.bat") { Copy-Item -Force "$ProjectRoot\scripts\install_build_tools.bat" "$WinStaging\scripts\install_build_tools.bat" }
+if (Test-Path "$ProjectRoot\installer\install_build_tools.bat") { Copy-Item -Force "$ProjectRoot\installer\install_build_tools.bat" "$WinStaging\install_build_tools.bat" }
 
 # Metadata & Licenses
 Copy-Item -Force "$ProjectRoot\README.md" "$WinStaging\README.md"

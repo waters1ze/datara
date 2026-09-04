@@ -442,6 +442,36 @@ impl ReplSession {
         let stdin = io::stdin();
         let mut stdout = io::stdout();
 
+        // Check if linker is present upfront to guide users on clean Windows OS
+        if let Err(msg) = crate::codegen::linker::ensure_linker() {
+            eprintln!("\n{}\n", msg);
+            if cfg!(windows) {
+                print!(
+                    "Would you like to automatically configure Microsoft C++ Build Tools now? [Y/n]: "
+                );
+                let _ = stdout.flush();
+                let mut resp = String::new();
+                if stdin.lock().read_line(&mut resp).is_ok() {
+                    let r = resp.trim().to_lowercase();
+                    if r.is_empty() || r == "y" || r == "yes" {
+                        println!(
+                            "\nLaunching Microsoft C++ Build Tools installer window (Node.js style)..."
+                        );
+                        if crate::codegen::linker::run_windows_build_tools_installer() {
+                            crate::codegen::linker::invalidate_cache();
+                            println!(
+                                "[Success] C/C++ build tools installed! REPL is ready for native compilation.\n"
+                            );
+                        } else {
+                            println!(
+                                "[Notice] Setup window closed. You can also run 'forgen setup-tools'.\n"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
         loop {
             if session.brace_depth > 0 {
                 print!(".. ");

@@ -68,6 +68,10 @@ pub fn run_cli() {
     }
 
     match command.as_str() {
+        "setup-tools" | "install-tools" => {
+            run_setup_tools();
+        }
+
         "init" | "new" => {
             let is_lib = args.iter().any(|a| a == "--lib");
             let project_name = args
@@ -2676,6 +2680,52 @@ fn explain_code(code: &str) {
     }
 }
 
+fn run_setup_tools() {
+    println!("================================================================================");
+    println!(" Datara Toolchain — Native C/C++ Build Tools & Linker Setup");
+    println!("================================================================================");
+    let spec = crate::codegen::linker::discover();
+    if spec.is_available {
+        println!("\n[OK] Linker is already configured and ready:");
+        println!("     {}", spec.program.display());
+        println!("\nDatara can build native .exe executables immediately.");
+        return;
+    }
+
+    if cfg!(windows) {
+        println!("\n[!] No C/C++ linker detected on this system.");
+        println!("    Datara requires a C/C++ linker to produce native executables (.exe).");
+        println!("    Launching official Microsoft C++ Build Tools installer (Node.js style)...\n");
+
+        if crate::codegen::linker::run_windows_build_tools_installer() {
+            crate::codegen::linker::invalidate_cache();
+            println!("\n[SUCCESS] Setup process completed. Verifying toolchain...");
+            let fresh = crate::codegen::linker::discover();
+            if fresh.is_available {
+                println!(
+                    "[OK] Successfully verified linker at: {}",
+                    fresh.program.display()
+                );
+            } else {
+                println!(
+                    "[Notice] Installation was initiated. If environment variables were updated,"
+                );
+                println!("         please restart your terminal to activate the new toolchain.");
+            }
+        } else {
+            eprintln!("\n[ERROR] Failed to run automated setup.");
+            eprintln!("You can install Microsoft C++ Build Tools manually:");
+            eprintln!("  winget install Microsoft.VisualStudio.2022.BuildTools");
+            std::process::exit(1);
+        }
+    } else {
+        println!("\nOn Unix/Linux/macOS, please install your system's C compiler:");
+        println!("  Debian/Ubuntu: sudo apt-get install build-essential");
+        println!("  Fedora/RHEL:   sudo dnf groupinstall \"Development Tools\"");
+        println!("  macOS:         xcode-select --install");
+    }
+}
+
 fn print_help() {
     println!(
         r#"
@@ -2685,6 +2735,7 @@ Project Commands:
   init [name] [--lib]     Initialize a new Level 3 Datara application or library with datara.toml
   new <name> [--lib]      Create a new Datara application or library in a subdirectory
   repl                    Interactive zero-latency JIT console with live evaluation
+  setup-tools             Check and automatically install C/C++ Build Tools / Linker (Node.js style)
   doc [target] [--open]   Generate autonomous Single-File SPA HTML API documentation
   export <c-header|shared> Export C99/C++ header (.h) or dynamic shared library (.dll/.so/.dylib)
   vendor [target]         Bundle dependencies into vendor/ for 100% offline air-gapped builds

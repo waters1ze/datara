@@ -3241,7 +3241,7 @@ impl RealCraneliftBackend {
         // `vswhere` (falling back to `PATH`), and the runtime archive path is
         // baked in by `build.rs` from `OUT_DIR`, so it is correct in any
         // checkout and can never be a stale artifact.
-        let spec = crate::codegen::linker::discover();
+        let spec = crate::codegen::linker::ensure_linker()?;
         let runtime_lib = crate::runtime::runtime_lib_path();
         if !runtime_lib.exists() {
             return Err(format!(

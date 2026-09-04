@@ -32,7 +32,7 @@ $defaultInstallDir = Join-Path $env:LOCALAPPDATA "Programs\Datara"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Datara Language &amp; Forgen Compiler Setup v$Version"
-        Height="540" Width="680"
+        Height="570" Width="680"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         Background="#0F172A"
@@ -87,6 +87,8 @@ $defaultInstallDir = Join-Path $env:LOCALAPPDATA "Programs\Datara"
                 <Border Background="#1E293B" CornerRadius="8" Padding="16,12,16,12" BorderBrush="#334155" BorderThickness="1">
                     <StackPanel>
                         <CheckBox x:Name="ChkPath" IsChecked="True" Content="Add Datara (forgen &amp; datara) to PATH environment variable (Recommended)"/>
+                        <CheckBox x:Name="ChkShortcuts" IsChecked="True" Content="Create Start Menu &amp; Desktop shortcuts for Datara Interactive Console"/>
+                        <CheckBox x:Name="ChkBuildTools" IsChecked="True" Content="Automatically configure C/C++ Build Tools / Linker if missing (Node.js style)"/>
                         <CheckBox x:Name="ChkAssoc" IsChecked="True" Content="Associate .dtr files with Datara and official icon in Windows Explorer"/>
                         <CheckBox x:Name="ChkVSCode" IsChecked="True" Content="Install Datara Language Extension for VS Code / Cursor / VSCodium"/>
                         <CheckBox x:Name="ChkStdlib" IsChecked="True" Content="Install complete Standard Library (14 modules: math, text, io, net, etc.)"/>
@@ -113,12 +115,13 @@ $defaultInstallDir = Join-Path $env:LOCALAPPDATA "Programs\Datara"
                 <Border Background="#1E293B" CornerRadius="8" Padding="16" BorderBrush="#334155" BorderThickness="1" Margin="0,0,0,16">
                     <StackPanel>
                         <TextBlock Text="Quick Start Commands:" FontWeight="SemiBold" Foreground="#38BDF8" Margin="0,0,0,6"/>
-                        <TextBlock Text="• forgen --version" FontFamily="Consolas" Foreground="#F8FAFC" Margin="0,2,0,2"/>
-                        <TextBlock Text="• forgen repl" FontFamily="Consolas" Foreground="#F8FAFC" Margin="0,2,0,2"/>
-                        <TextBlock Text="• forgen run main.dtr" FontFamily="Consolas" Foreground="#F8FAFC" Margin="0,2,0,2"/>
+                        <TextBlock Text="• datara               (Interactive REPL Console)" FontFamily="Consolas" Foreground="#F8FAFC" Margin="0,2,0,2"/>
+                        <TextBlock Text="• forgen setup-tools   (C/C++ Build Tools &amp; Linker)" FontFamily="Consolas" Foreground="#F8FAFC" Margin="0,2,0,2"/>
+                        <TextBlock Text="• forgen run main.dtr  (Compile &amp; run Datara code)" FontFamily="Consolas" Foreground="#F8FAFC" Margin="0,2,0,2"/>
+                        <TextBlock Text="• forgen build         (Build standalone native .exe)" FontFamily="Consolas" Foreground="#F8FAFC" Margin="0,2,0,2"/>
                     </StackPanel>
                 </Border>
-                <TextBlock Text="All .dtr files are now associated with the official Datara icon in Windows Explorer." FontSize="12" Foreground="#94A3B8"/>
+                <TextBlock Text="Shortcuts created in Start Menu and Desktop. .dtr files associated with official icon." FontSize="12" Foreground="#94A3B8"/>
             </StackPanel>
         </Grid>
 
@@ -156,10 +159,12 @@ $btnFinish    = $window.FindName("BtnFinish")
 $lblStatus    = $window.FindName("LblStatus")
 $prgBar       = $window.FindName("PrgBar")
 
-$chkPath      = $window.FindName("ChkPath")
-$chkAssoc     = $window.FindName("ChkAssoc")
-$chkVSCode    = $window.FindName("ChkVSCode")
-$chkStdlib    = $window.FindName("ChkStdlib")
+$chkPath       = $window.FindName("ChkPath")
+$chkShortcuts  = $window.FindName("ChkShortcuts")
+$chkBuildTools = $window.FindName("ChkBuildTools")
+$chkAssoc      = $window.FindName("ChkAssoc")
+$chkVSCode     = $window.FindName("ChkVSCode")
+$chkStdlib     = $window.FindName("ChkStdlib")
 
 $txtInstallDir.Text = $defaultInstallDir
 
@@ -188,11 +193,13 @@ $btnFinish.Add_Click({ $window.Close() })
 
 # Execute Install Routine
 $btnInstall.Add_Click({
-    $installDir = $txtInstallDir.Text
-    $doPath   = $chkPath.IsChecked
-    $doAssoc  = $chkAssoc.IsChecked
-    $doVSCode = $chkVSCode.IsChecked
-    $doStdlib = $chkStdlib.IsChecked
+    $installDir   = $txtInstallDir.Text
+    $doPath       = $chkPath.IsChecked
+    $doShortcuts  = $chkShortcuts.IsChecked
+    $doBuildTools = $chkBuildTools.IsChecked
+    $doAssoc      = $chkAssoc.IsChecked
+    $doVSCode     = $chkVSCode.IsChecked
+    $doStdlib     = $chkStdlib.IsChecked
 
     # Switch to progress view
     $configPanel.Visibility = [System.Windows.Visibility]::Collapsed
@@ -212,11 +219,13 @@ $btnInstall.Add_Click({
     $binDir = Join-Path $installDir "bin"
     $stdlibDst = Join-Path $installDir "stdlib"
     $assetsDst = Join-Path $installDir "assets"
+    $scriptsDst = Join-Path $installDir "scripts"
     New-Item -ItemType Directory -Force -Path $binDir | Out-Null
     New-Item -ItemType Directory -Force -Path $assetsDst | Out-Null
+    New-Item -ItemType Directory -Force -Path $scriptsDst | Out-Null
 
     # Step 2: Copy Binaries
-    & $action 35 "Installing Forgen compiler and Datara runtime..."
+    & $action 35 "Installing Forgen compiler, Datara REPL, and tools..."
     $binCandidates = @(
         (Join-Path $repoRoot "target\release"),
         (Join-Path $repoRoot "dist\staging\bin"),
@@ -235,7 +244,18 @@ $btnInstall.Add_Click({
 
     if (Test-Path (Join-Path $binSrc "forgen.exe")) {
         Copy-Item -Path (Join-Path $binSrc "forgen.exe") -Destination (Join-Path $binDir "forgen.exe") -Force
-        Copy-Item -Path (Join-Path $binSrc "forgen.exe") -Destination (Join-Path $binDir "datara.exe") -Force
+        
+        $dataraSrc = Join-Path $binSrc "datara.exe"
+        if (Test-Path $dataraSrc) {
+            Copy-Item -Path $dataraSrc -Destination (Join-Path $binDir "datara.exe") -Force
+        } else {
+            Copy-Item -Path (Join-Path $binSrc "forgen.exe") -Destination (Join-Path $binDir "datara.exe") -Force
+        }
+
+        $dpmSrc = Join-Path $binSrc "dpm.exe"
+        if (Test-Path $dpmSrc) {
+            Copy-Item -Path $dpmSrc -Destination (Join-Path $binDir "dpm.exe") -Force
+        }
     }
 
     # Copy Icon & Assets
@@ -244,6 +264,17 @@ $btnInstall.Add_Click({
     }
     if (Test-Path $logoPath) {
         Copy-Item -Path $logoPath -Destination (Join-Path $assetsDst "datara-logo.png") -Force
+    }
+
+    # Copy Build Tools Scripts
+    $btScriptCandidates = @(
+        (Join-Path $repoRoot "scripts\install_build_tools.ps1"),
+        (Join-Path $repoRoot "scripts\install_build_tools.bat")
+    )
+    foreach ($bts in $btScriptCandidates) {
+        if (Test-Path $bts) {
+            Copy-Item -Path $bts -Destination $scriptsDst -Force
+        }
     }
 
     # Step 3: Copy Standard Library
@@ -255,18 +286,57 @@ $btnInstall.Add_Click({
         }
     }
 
-    # Step 4: Register File Associations
+    # Step 4: Shortcuts (Desktop & Start Menu)
+    if ($doShortcuts) {
+        & $action 68 "Creating Start Menu & Desktop shortcuts for Datara Console..."
+        try {
+            $ws = New-Object -ComObject WScript.Shell
+            $programsDir = [Environment]::GetFolderPath([Environment+SpecialFolder]::Programs)
+            $startMenuDir = Join-Path $programsDir "Datara"
+            New-Item -ItemType Directory -Force -Path $startMenuDir | Out-Null
+            $desktopDir = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
+            $dataraBin = Join-Path $binDir "datara.exe"
+            $icoFile = Join-Path $assetsDst "datara.ico"
+
+            # 1. Start Menu Interactive Console
+            $s1 = $ws.CreateShortcut((Join-Path $startMenuDir "Datara (Interactive Console).lnk"))
+            $s1.TargetPath = $dataraBin
+            $s1.WorkingDirectory = $env:USERPROFILE
+            $s1.IconLocation = "$icoFile,0"
+            $s1.Description = "Datara Interactive Programming Console (REPL)"
+            $s1.Save()
+
+            # 2. Start Menu Command Prompt
+            $s2 = $ws.CreateShortcut((Join-Path $startMenuDir "Datara Command Prompt.lnk"))
+            $s2.TargetPath = "cmd.exe"
+            $s2.Arguments = "/K `"title Datara Developer Console & prompt `$P`$G & set PATH=$binDir;%PATH%`""
+            $s2.WorkingDirectory = $env:USERPROFILE
+            $s2.IconLocation = "$icoFile,0"
+            $s2.Description = "Command Prompt configured with Datara environment"
+            $s2.Save()
+
+            # 3. Desktop Shortcut
+            $s3 = $ws.CreateShortcut((Join-Path $desktopDir "Datara.lnk"))
+            $s3.TargetPath = $dataraBin
+            $s3.WorkingDirectory = $env:USERPROFILE
+            $s3.IconLocation = "$icoFile,0"
+            $s3.Description = "Datara Interactive Programming Console"
+            $s3.Save()
+        } catch {}
+    }
+
+    # Step 5: Register File Associations
     if ($doAssoc) {
-        & $action 75 "Registering .dtr file association and official Windows icon..."
+        & $action 78 "Registering .dtr file association and official Windows icon..."
         $assocScript = Join-Path $repoRoot "scripts\register_file_associations.ps1"
         if (Test-Path $assocScript) {
             & $assocScript -InstallDir $installDir
         }
     }
 
-    # Step 5: Add to User PATH
+    # Step 6: Add to User PATH
     if ($doPath) {
-        & $action 88 "Configuring system PATH environment variable..."
+        & $action 86 "Configuring system PATH environment variable..."
         $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
         if ($userPath -notlike "*$binDir*") {
             $newPath = "$binDir;$userPath"
@@ -275,12 +345,52 @@ $btnInstall.Add_Click({
         }
     }
 
-    # Step 6: Install VS Code Extension
+    # Step 7: Install VS Code Extension
     if ($doVSCode) {
-        & $action 95 "Configuring VS Code syntax extension..."
+        & $action 92 "Configuring VS Code syntax extension..."
         $vsScript = Join-Path $repoRoot "scripts\install_vscode_extension.bat"
         if (Test-Path $vsScript) {
             Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$vsScript`"" -WindowStyle Hidden -Wait
+        }
+    }
+
+    # Step 8: Node.js style Build Tools / Linker configuration if missing
+    if ($doBuildTools) {
+        $hasLinker = $false
+        $allLinks = Get-Command link.exe -All -ErrorAction SilentlyContinue
+        foreach ($l in $allLinks) {
+            $src = $l.Source.ToLower()
+            if (-not ($src.Contains("git\usr\bin") -or $src.Contains("git/usr/bin"))) {
+                $hasLinker = $true
+                break
+            }
+        }
+        if (-not $hasLinker) {
+            if ((Get-Command lld-link.exe -ErrorAction SilentlyContinue) -or (Test-Path "C:\Program Files\LLVM\bin\lld-link.exe") -or (Get-Command gcc.exe -ErrorAction SilentlyContinue)) {
+                $hasLinker = $true
+            }
+        }
+        if (-not $hasLinker) {
+            $pf86 = ${env:ProgramFiles(x86)}
+            if (-not $pf86) { $pf86 = "C:\Program Files (x86)" }
+            $vswhere = Join-Path $pf86 "Microsoft Visual Studio\Installer\vswhere.exe"
+            if (Test-Path $vswhere) {
+                $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+                if ($vs -and (Test-Path (Join-Path $vs "VC\Tools\MSVC"))) { $hasLinker = $true }
+            }
+        }
+
+        if (-not $hasLinker) {
+            & $action 96 "Launching C/C++ Build Tools setup window (Node.js style)..."
+            $btBat = Join-Path $scriptsDst "install_build_tools.bat"
+            if (Test-Path $btBat) {
+                Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$btBat`""
+            } else {
+                $btPs = Join-Path $scriptsDst "install_build_tools.ps1"
+                if (Test-Path $btPs) {
+                    Start-Process -FilePath "powershell.exe" -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$btPs`""
+                }
+            }
         }
     }
 
