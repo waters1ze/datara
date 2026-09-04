@@ -491,6 +491,7 @@ impl ForgenCompiler {
         self.compile_ast_internal(program, file, output_path, diag, total_start, timings)
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn lower_ast_to_dmir(
         &self,
         program: Program,
@@ -1037,13 +1038,22 @@ impl ForgenCompiler {
         layout: &crate::project::ProjectLayout,
         args: &[String],
     ) -> Result<(String, String, i32, u128), String> {
+        self.run_project_captured(layout, args, true)
+    }
+
+    pub fn run_project_captured(
+        &self,
+        layout: &crate::project::ProjectLayout,
+        args: &[String],
+        capture: bool,
+    ) -> Result<(String, String, i32, u128), String> {
         if !self.use_llvm {
             let dmir_mod = if layout.source_files.len() == 1 {
                 self.compile_file_to_dmir(&layout.source_files[0])?
             } else {
                 self.compile_files_to_dmir(&layout.source_files)?
             };
-            return self.cranelift.run_jit(&dmir_mod, args, true);
+            return self.cranelift.run_jit(&dmir_mod, args, capture);
         }
         let res = if layout.source_files.len() == 1 {
             self.compile_file(&layout.source_files[0], None)

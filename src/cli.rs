@@ -252,9 +252,11 @@ pub fn run_cli() {
 
             // Cranelift in-memory JIT execution: zero disk artifacts, sub-millisecond launch
             if !is_llvm {
-                match compiler.run_project(&layout, &run_args) {
+                match compiler.run_project_captured(&layout, &run_args, false) {
                     Ok((stdout, stderr, code, _)) => {
-                        print!("{}", stdout);
+                        if !stdout.is_empty() {
+                            print!("{}", stdout);
+                        }
                         if !stderr.is_empty() {
                             eprint!("{}", stderr);
                         }

@@ -389,6 +389,11 @@ pub fn create_jit_module(isa: Arc<dyn TargetIsa>) -> Result<JITModule, String> {
     Ok(JITModule::new(builder))
 }
 
+/// Executes JIT compiled entry point in process memory.
+///
+/// # Safety
+///
+/// `code_ptr` must point to valid executable machine code adhering to `extern "C" fn(i32, *const *const c_char) -> i32`.
 pub unsafe fn run_jit_entry(
     code_ptr: *const u8,
     args: &[String],
