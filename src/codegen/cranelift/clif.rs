@@ -51,6 +51,7 @@ impl<'a> ClifEmitter<'a> {
             CallingConvention::WindowsFastcall => "windows_fastcall",
             CallingConvention::SystemV => "system_v",
             CallingConvention::Aarch64Standard => "aarch64_standard",
+            CallingConvention::WasmStandard => "wasm_standard",
         };
 
         ModuleCodegenInspection {
@@ -136,6 +137,7 @@ impl<'a> ClifEmitter<'a> {
             CallingConvention::WindowsFastcall => "windows_fastcall",
             CallingConvention::SystemV => "system_v",
             CallingConvention::Aarch64Standard => "system_v",
+            CallingConvention::WasmStandard => "wasm_standard",
         };
 
         // Function signature

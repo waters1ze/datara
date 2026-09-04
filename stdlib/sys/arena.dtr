@@ -1,0 +1,24 @@
+module sys.arena
+
+class StackArena {
+    capacity: Int
+    used: Int
+}
+
+behavior StackArena {
+    @no_alloc
+    fn stack(size: Int) -> StackArena {
+        return StackArena {
+            capacity: size,
+            used: 0
+        }
+    }
+
+    @no_alloc
+    fn reset(self: StackArena) -> StackArena {
+        return StackArena {
+            capacity: self.capacity,
+            used: 0
+        }
+    }
+}

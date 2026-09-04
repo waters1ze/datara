@@ -21,8 +21,32 @@ impl<'a> Parser<'a> {
 
     pub fn parse_program(&mut self) -> Program {
         let mut declarations = Vec::new();
+        let mut file_attributes = Vec::new();
         while !self.is_at_end() {
-            if let Some(decl) = self.parse_declaration() {
+            let attrs = self.parse_attributes();
+
+            // Module directive support: module foo.bar;
+            if let TokenType::Identifier(id) = &self.peek().token_type
+                && id == "module"
+            {
+                self.advance();
+                while !self.is_at_end()
+                    && !self.check(&TokenType::Semicolon)
+                    && self.peek().span.start_line == self.previous().span.start_line
+                {
+                    self.advance();
+                }
+                self.match_token(&TokenType::Semicolon);
+                file_attributes.extend(attrs);
+                continue;
+            }
+
+            if self.is_at_end() {
+                file_attributes.extend(attrs);
+                break;
+            }
+
+            if let Some(decl) = self.parse_declaration_with_attrs(attrs) {
                 declarations.push(decl);
             } else {
                 self.synchronize();
@@ -30,11 +54,66 @@ impl<'a> Parser<'a> {
         }
         Program {
             declarations,
+            attributes: file_attributes,
             file: self.file.clone(),
         }
     }
 
-    fn parse_declaration(&mut self) -> Option<Decl> {
+    fn parse_attributes(&mut self) -> Vec<Attribute> {
+        let mut attrs = Vec::new();
+        while self.match_token(&TokenType::At) {
+            let start_span = self.previous().span.clone();
+            if let Some(name) = self.consume_ident_or_keyword("Expected attribute name after '@'") {
+                let mut args = Vec::new();
+                if self.match_token(&TokenType::LParen) {
+                    while !self.check(&TokenType::RParen) && !self.is_at_end() {
+                        if let Some(key) =
+                            self.consume_ident_or_keyword("Expected attribute argument key")
+                        {
+                            if self.match_token(&TokenType::Colon) {
+                                let val = self.consume_attribute_value();
+                                args.push((key, val));
+                            } else {
+                                args.push(("value".to_string(), key));
+                            }
+                        } else {
+                            args.push(("value".to_string(), self.consume_attribute_value()));
+                        }
+                        if !self.match_token(&TokenType::Comma) {
+                            break;
+                        }
+                    }
+                    let _ =
+                        self.consume(&TokenType::RParen, "Expected ')' after attribute arguments");
+                }
+                let span = SourceSpan::new(
+                    start_span.start_line,
+                    start_span.start_col,
+                    self.previous().span.end_line,
+                    self.previous().span.end_col,
+                    self.file.clone(),
+                );
+                attrs.push(Attribute { name, args, span });
+            }
+        }
+        attrs
+    }
+
+    fn consume_attribute_value(&mut self) -> String {
+        if self.is_at_end() {
+            return String::new();
+        }
+        let token = self.advance();
+        match &token.token_type {
+            TokenType::StringLiteral(s) => s.clone(),
+            TokenType::IntLiteral(n) => n.to_string(),
+            TokenType::FloatLiteral(f) => f.to_string(),
+            TokenType::Identifier(id) => id.clone(),
+            _ => token.lexeme.clone(),
+        }
+    }
+
+    fn parse_declaration_with_attrs(&mut self, attrs: Vec<Attribute>) -> Option<Decl> {
         let is_export = self.match_token(&TokenType::Export);
 
         if self.match_token(&TokenType::Use)
@@ -43,8 +122,11 @@ impl<'a> Parser<'a> {
         {
             return self.parse_use_decl().map(Decl::Use);
         }
+        if self.match_token(&TokenType::Register) {
+            return self.parse_register_decl(attrs).map(Decl::Register);
+        }
         if self.match_token(&TokenType::Class) || self.match_token(&TokenType::Entity) {
-            return self.parse_class_decl(is_export).map(Decl::Class);
+            return self.parse_class_decl(is_export, attrs).map(Decl::Class);
         }
         if self.match_token(&TokenType::Enum) {
             return self.parse_enum_decl(is_export).map(Decl::Enum);
@@ -59,7 +141,9 @@ impl<'a> Parser<'a> {
             return self.parse_role_decl(is_export).map(Decl::Role);
         }
         if self.match_token(&TokenType::Fn) || self.match_token(&TokenType::Function) {
-            return self.parse_function_decl(is_export).map(Decl::Function);
+            return self
+                .parse_function_decl(is_export, attrs)
+                .map(Decl::Function);
         }
         if self.match_token(&TokenType::Flow) {
             self.error(
@@ -68,10 +152,10 @@ impl<'a> Parser<'a> {
             return None;
         }
         if self.match_token(&TokenType::Process) {
-            return self.parse_function_decl(is_export).map(Decl::Flow);
+            return self.parse_function_decl(is_export, attrs).map(Decl::Flow);
         }
         if self.match_token(&TokenType::Task) {
-            return self.parse_function_decl(is_export).map(Decl::Task);
+            return self.parse_function_decl(is_export, attrs).map(Decl::Task);
         }
         if self.match_token(&TokenType::Packet) {
             return self.parse_packet_decl().map(Decl::Packet);
@@ -84,9 +168,86 @@ impl<'a> Parser<'a> {
         }
 
         self.error(
-            "Expected top-level declaration (class, entity, behavior, fn, process, component, role, packet, extern, type, use)",
+            "Expected top-level declaration (class, entity, behavior, fn, register, process, component, role, packet, extern, type, use)",
         );
         None
+    }
+
+    fn parse_register_decl(&mut self, attributes: Vec<Attribute>) -> Option<RegisterDecl> {
+        let start_span = self.previous().span.clone();
+        let name = self.consume_ident("Expected register name after 'register'")?;
+        let tok = self.consume_ident_or_keyword("Expected 'at' after register name")?;
+        if tok != "at" {
+            self.error("Expected 'at' after register name");
+            return None;
+        }
+
+        let base_address = match &self.peek().token_type {
+            TokenType::IntLiteral(n) => {
+                let val = *n as u64;
+                self.advance();
+                val
+            }
+            _ => {
+                self.error("Expected base address integer/hex literal after 'at'");
+                return None;
+            }
+        };
+
+        self.consume(
+            &TokenType::LBrace,
+            "Expected '{' to begin register definition",
+        )?;
+        let mut fields = Vec::new();
+        while !self.check(&TokenType::RBrace) && !self.is_at_end() {
+            let f_span = self.peek().span.clone();
+            let f_name = self.consume_ident("Expected register field name")?;
+            self.consume(&TokenType::Colon, "Expected ':' after register field name")?;
+            let f_type = self.parse_type()?;
+            let tok = self.consume_ident_or_keyword("Expected 'at' after register field type")?;
+            if tok != "at" {
+                self.error("Expected 'at' after register field type");
+                return None;
+            }
+            let offset = match &self.peek().token_type {
+                TokenType::IntLiteral(n) => {
+                    let val = *n as u64;
+                    self.advance();
+                    val
+                }
+                _ => {
+                    self.error("Expected register field offset integer/hex literal after 'at'");
+                    return None;
+                }
+            };
+            self.match_token(&TokenType::Comma);
+            fields.push(RegisterField {
+                name: f_name,
+                type_node: f_type,
+                offset,
+                span: SourceSpan::new(
+                    f_span.start_line,
+                    f_span.start_col,
+                    self.previous().span.end_line,
+                    self.previous().span.end_col,
+                    self.file.clone(),
+                ),
+            });
+        }
+        self.consume(&TokenType::RBrace, "Expected '}' after register fields")?;
+        Some(RegisterDecl {
+            name,
+            base_address,
+            fields,
+            attributes,
+            span: SourceSpan::new(
+                start_span.start_line,
+                start_span.start_col,
+                self.previous().span.end_line,
+                self.previous().span.end_col,
+                self.file.clone(),
+            ),
+        })
     }
 
     fn parse_type_decl(&mut self, is_export: bool) -> Option<TypeDecl> {
@@ -202,7 +363,11 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_class_decl(&mut self, is_export: bool) -> Option<ClassDecl> {
+    fn parse_class_decl(
+        &mut self,
+        is_export: bool,
+        attributes: Vec<Attribute>,
+    ) -> Option<ClassDecl> {
         let start_span = self.previous().span.clone();
         let name = self.consume_ident("Expected class name")?;
 
@@ -247,6 +412,7 @@ impl<'a> Parser<'a> {
         let end_token = self.consume(&TokenType::RBrace, "Expected '}' after class body")?;
         Some(ClassDecl {
             name,
+            attributes,
             generic_params,
             base_type,
             compositions,
@@ -425,6 +591,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_class_item(&mut self) -> Option<ClassItem> {
+        let attrs = self.parse_attributes();
         if self.match_token(&TokenType::Using) {
             let name = self.consume_ident("Expected class name after 'using'")?;
             return Some(ClassItem::Using(name, self.previous().span.clone()));
@@ -471,6 +638,7 @@ impl<'a> Parser<'a> {
 
             Some(ClassItem::Method(MethodDecl {
                 name,
+                attributes: attrs,
                 generic_params: Vec::new(),
                 params,
                 return_type,
@@ -487,14 +655,44 @@ impl<'a> Parser<'a> {
             self.consume(&TokenType::Colon, "Expected ':' after field name")?;
             let type_node = self.parse_type();
 
+            let mut bit_field = None;
+            if self.match_token(&TokenType::In) {
+                if self.match_token(&TokenType::Bit) {
+                    if let TokenType::IntLiteral(bit_idx) = self.peek().token_type {
+                        self.advance();
+                        bit_field = Some(BitFieldRange::Single(bit_idx as usize));
+                    } else {
+                        self.error("Expected bit index integer after 'in bit'");
+                    }
+                } else if self.match_token(&TokenType::Bits) {
+                    if let TokenType::IntLiteral(start) = self.peek().token_type {
+                        self.advance();
+                        self.consume(&TokenType::DotDotEq, "Expected '..=' in bit range")?;
+                        if let TokenType::IntLiteral(end) = self.peek().token_type {
+                            self.advance();
+                            bit_field = Some(BitFieldRange::Range {
+                                start: start as usize,
+                                end: end as usize,
+                            });
+                        } else {
+                            self.error("Expected end bit index integer after '..='");
+                        }
+                    } else {
+                        self.error("Expected start bit index integer after 'in bits'");
+                    }
+                }
+            }
+
             let mut default_value = None;
             if self.match_token(&TokenType::Equal) {
                 default_value = self.parse_expression();
             }
+            self.match_token(&TokenType::Comma);
 
             Some(ClassItem::Field(FieldDecl {
                 name,
                 type_node,
+                bit_field,
                 default_value,
                 is_mut,
                 span: self.previous().span.clone(),
@@ -502,7 +700,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_function_decl(&mut self, is_export: bool) -> Option<FunctionDecl> {
+    fn parse_function_decl(
+        &mut self,
+        is_export: bool,
+        attributes: Vec<Attribute>,
+    ) -> Option<FunctionDecl> {
         let start_span = self.previous().span.clone();
         let name = self.consume_ident("Expected function name")?;
 
@@ -549,6 +751,7 @@ impl<'a> Parser<'a> {
 
         Some(FunctionDecl {
             name,
+            attributes,
             generic_params,
             generic_constraints,
             params,
@@ -659,8 +862,21 @@ impl<'a> Parser<'a> {
                 }
 
                 let name = self.consume_ident("Expected parameter name")?;
-                self.consume(&TokenType::Colon, "Expected ':' after parameter name")?;
-                let type_node = self.parse_type();
+                let type_node = if (name == "self" || name == "&self" || name == "mut self")
+                    && !self.check(&TokenType::Colon)
+                {
+                    Some(TypeNode {
+                        name: "Self".to_string(),
+                        generic_args: Vec::new(),
+                        is_option: false,
+                        error_type: None,
+                        refinement: None,
+                        span: self.previous().span.clone(),
+                    })
+                } else {
+                    self.consume(&TokenType::Colon, "Expected ':' after parameter name")?;
+                    self.parse_type()
+                };
 
                 params.push(Param {
                     name,
@@ -705,22 +921,30 @@ impl<'a> Parser<'a> {
         }
 
         let mut refinement = None;
-        if self.match_token(&TokenType::In) {
-            let range_expr = self.parse_range()?;
-            if let Expr::Range {
-                start,
-                end,
-                inclusive,
-                ..
-            } = range_expr
-            {
-                refinement = Some(Refinement::Range {
+        if self.check(&TokenType::In) {
+            let is_bitfield = self.current + 1 < self.tokens.len()
+                && matches!(
+                    self.tokens[self.current + 1].token_type,
+                    TokenType::Bit | TokenType::Bits
+                );
+            if !is_bitfield {
+                self.advance();
+                let range_expr = self.parse_range()?;
+                if let Expr::Range {
                     start,
                     end,
                     inclusive,
-                });
-            } else {
-                self.error("Expected range after 'in' in type refinement");
+                    ..
+                } = range_expr
+                {
+                    refinement = Some(Refinement::Range {
+                        start,
+                        end,
+                        inclusive,
+                    });
+                } else {
+                    self.error("Expected range after 'in' in type refinement");
+                }
             }
         } else if self.match_token(&TokenType::Where) {
             let predicate_expr = self.parse_expression()?;
@@ -1194,6 +1418,52 @@ impl<'a> Parser<'a> {
             return Some(Stmt::Unsafe {
                 justification,
                 body,
+                span: SourceSpan::new(
+                    start_span.start_line,
+                    start_span.start_col,
+                    self.previous().span.end_line,
+                    self.previous().span.end_col,
+                    self.file.clone(),
+                ),
+            });
+        }
+
+        if self.match_token(&TokenType::Asm) {
+            self.consume(&TokenType::LBrace, "Expected '{' after 'asm!'")?;
+            let mut instructions = Vec::new();
+            let mut options = Vec::new();
+            while !self.check(&TokenType::RBrace) && !self.is_at_end() {
+                if let TokenType::StringLiteral(s) = &self.peek().token_type {
+                    instructions.push(s.clone());
+                    self.advance();
+                    self.match_token(&TokenType::Comma);
+                } else if let TokenType::Identifier(id) = &self.peek().token_type {
+                    if id == "options" {
+                        self.advance();
+                        self.consume(&TokenType::Colon, "Expected ':' after 'options'")?;
+                        self.consume(&TokenType::LBracket, "Expected '[' after 'options:'")?;
+                        while !self.check(&TokenType::RBracket) && !self.is_at_end() {
+                            if let Some(opt) = self.consume_ident_or_keyword("Expected option name")
+                            {
+                                options.push(opt);
+                            }
+                            if !self.match_token(&TokenType::Comma) {
+                                break;
+                            }
+                        }
+                        self.consume(&TokenType::RBracket, "Expected ']' after options list")?;
+                        self.match_token(&TokenType::Comma);
+                    } else {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+            self.consume(&TokenType::RBrace, "Expected '}' to close 'asm!' block")?;
+            return Some(Stmt::Asm {
+                instructions,
+                options,
                 span: SourceSpan::new(
                     start_span.start_line,
                     start_span.start_col,

@@ -50,6 +50,10 @@ pub enum ErrorCode {
     ProofCarryingCodeViolation,
     UncheckedFFIViolation,
     DataRaceViolation,
+
+    // Real-Time & Safety Verification Gate Errors (E0950-E0951)
+    AllocationViolation,
+    PanicViolation,
 }
 
 impl ErrorCode {
@@ -96,6 +100,8 @@ impl ErrorCode {
             ErrorCode::ProofCarryingCodeViolation => "E0941",
             ErrorCode::UncheckedFFIViolation => "E0942",
             ErrorCode::DataRaceViolation => "E0943",
+            ErrorCode::AllocationViolation => "E0950",
+            ErrorCode::PanicViolation => "E0951",
         }
     }
 
@@ -161,6 +167,12 @@ impl ErrorCode {
                 ErrorCode::DataRaceViolation => {
                     "Нарушение параллелизма: потенциальная гонка данных переменной"
                 }
+                ErrorCode::AllocationViolation => {
+                    "Нарушение режима реального времени: динамическое выделение памяти в контексте '@no_alloc'"
+                }
+                ErrorCode::PanicViolation => {
+                    "Нарушение режима реального времени: недоказанный путь паники в контексте '@no_panic'"
+                }
             }
         } else {
             match self {
@@ -222,6 +234,12 @@ impl ErrorCode {
                 }
                 ErrorCode::DataRaceViolation => {
                     "Concurrency Violation: Potential data race across threads"
+                }
+                ErrorCode::AllocationViolation => {
+                    "Real-Time Violation: Dynamic memory allocation in '@no_alloc' context"
+                }
+                ErrorCode::PanicViolation => {
+                    "Real-Time Violation: Unproven panic path in '@no_panic' context"
                 }
             }
         }

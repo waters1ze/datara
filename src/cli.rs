@@ -472,21 +472,77 @@ pub fn run_cli() {
 
             let start = Instant::now();
             let bin_name = layout.binary_name();
+            let is_wasm_target = args
+                .iter()
+                .any(|a| a == "--wasm" || a == "--target=wasm32" || a == "wasm32")
+                || args
+                    .windows(2)
+                    .any(|w| w[0] == "--target" && w[1] == "wasm32")
+                || args
+                    .windows(2)
+                    .any(|w| (w[0] == "-o" || w[0] == "--out") && w[1].ends_with(".wasm"));
             let is_python_target = args.iter().any(|a| a == "--python");
             let output_exe = if let Some(pos) = args.iter().position(|a| a == "-o" || a == "--out")
             {
                 if let Some(val) = args.get(pos + 1) {
                     PathBuf::from(val)
+                } else if is_wasm_target {
+                    layout.root.join(format!("{}.wasm", bin_name))
                 } else if is_python_target {
                     layout.root.join(format!("{}.dll", bin_name))
                 } else {
                     layout.root.join(format!("{}.exe", bin_name))
                 }
+            } else if is_wasm_target {
+                layout.root.join(format!("{}.wasm", bin_name))
             } else if is_python_target {
                 layout.root.join(format!("{}.dll", bin_name))
             } else {
                 layout.root.join(format!("{}.exe", bin_name))
             };
+
+            if is_wasm_target {
+                let dmir_res = if layout.source_files.len() == 1 {
+                    compiler.compile_file_to_dmir(&layout.source_files[0])
+                } else {
+                    compiler.compile_files_to_dmir(&layout.source_files)
+                };
+                match dmir_res {
+                    Ok(dmir_mod) => {
+                        match crate::codegen::wasm::WasmEmitter::emit_wasm_binary(
+                            &dmir_mod,
+                            &output_exe,
+                        ) {
+                            Ok(wasm_path) => {
+                                let elapsed = start.elapsed().as_millis();
+                                println!(
+                                    "[Forgen WASM] WebAssembly compilation succeeded in {}ms",
+                                    elapsed
+                                );
+                                println!("[Forgen WASM] Target Architecture: wasm32-unknown-wasi");
+                                println!("[Forgen WASM] Output: {}", wasm_path.display());
+                                println!(
+                                    "[Forgen WASM] WAT:    {}",
+                                    wasm_path.with_extension("wat").display()
+                                );
+                                println!(
+                                    "[Forgen WASM] JS:     {}",
+                                    wasm_path.with_extension("js").display()
+                                );
+                                return;
+                            }
+                            Err(e) => {
+                                eprintln!("[Forgen WASM] Codegen error: {}", e);
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[Forgen WASM] Compilation error:\n{}", e);
+                        std::process::exit(1);
+                    }
+                }
+            }
 
             let res = if layout.source_files.len() == 1 {
                 compiler.compile_file(&layout.source_files[0], Some(&output_exe))

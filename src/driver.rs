@@ -303,6 +303,7 @@ impl ForgenCompiler {
         let mut timings = CompilationTimings::default();
         let mut diag = DiagnosticEngine::new(&self.locale);
         let mut combined_declarations = Vec::new();
+        let mut combined_attributes = Vec::new();
 
         if paths.is_empty() {
             return CompilationResult {
@@ -383,12 +384,14 @@ impl ForgenCompiler {
             }
 
             combined_declarations.extend(prog.declarations);
+            combined_attributes.extend(prog.attributes);
         }
         timings.parse_ms = parse_start.elapsed().as_millis();
 
         let main_file = paths[0].to_str().unwrap_or("main.dtr");
         let mut combined_program = Program {
             declarations: combined_declarations,
+            attributes: combined_attributes,
             file: main_file.to_string(),
         };
 
@@ -1004,6 +1007,7 @@ impl ForgenCompiler {
         let timings = CompilationTimings::default();
         let mut diag = DiagnosticEngine::new(&self.locale);
         let mut combined_declarations = Vec::new();
+        let mut combined_attributes = Vec::new();
 
         if paths.is_empty() {
             return Err("No source files provided for compilation".to_string());
@@ -1027,11 +1031,13 @@ impl ForgenCompiler {
             }
 
             combined_declarations.extend(prog.declarations);
+            combined_attributes.extend(prog.attributes);
         }
 
         let main_file = paths[0].to_str().unwrap_or("main.dtr");
         let mut combined_program = Program {
             declarations: combined_declarations,
+            attributes: combined_attributes,
             file: main_file.to_string(),
         };
 
@@ -1147,6 +1153,7 @@ impl ForgenCompiler {
         let mut timings = CompilationTimings::default();
         let mut diag = DiagnosticEngine::new(&self.locale);
         let mut combined_declarations = Vec::new();
+        let mut combined_attributes = Vec::new();
 
         if paths.is_empty() {
             return CompilationResult {
@@ -1227,12 +1234,14 @@ impl ForgenCompiler {
             }
 
             combined_declarations.extend(prog.declarations);
+            combined_attributes.extend(prog.attributes);
         }
         timings.parse_ms = parse_start.elapsed().as_millis();
 
         let main_file = paths[0].to_str().unwrap_or("main.dtr");
         let mut combined_program = Program {
             declarations: combined_declarations,
+            attributes: combined_attributes,
             file: main_file.to_string(),
         };
 
@@ -1327,14 +1336,28 @@ impl ForgenCompiler {
     /// `stdlib.io.fs.Fs` -> `stdlib/io/fs.dtr`.
     /// If no on-disk stdlib is available, automatically falls back to the embedded standard library.
     fn stdlib_module_path(&self, u: &UseDecl, stdlib_dir: Option<&Path>) -> Option<PathBuf> {
-        if u.path.first().map(|s| s.as_str()) != Some("stdlib") {
+        let is_explicit_stdlib = u.path.first().map(|s| s.as_str()) == Some("stdlib");
+        let first_seg = u.path.first().map(|s| s.as_str()).unwrap_or("");
+        let is_known_stdlib_root = crate::stdlib::ALL_EMBEDDED_MODULES
+            .iter()
+            .any(|m| m.starts_with(first_seg));
+
+        if !is_explicit_stdlib && !is_known_stdlib_root {
             return None;
         }
-        let base_rel: &[String] = if u.path.len() >= 4 {
-            &u.path[1..u.path.len() - 1]
+
+        let base_rel: &[String] = if is_explicit_stdlib {
+            if u.path.len() >= 4 {
+                &u.path[1..u.path.len() - 1]
+            } else {
+                &u.path[1..]
+            }
+        } else if u.path.len() >= 3 {
+            &u.path[0..u.path.len() - 1]
         } else {
-            &u.path[1..]
+            &u.path[..]
         };
+
         if base_rel.is_empty() {
             return None;
         }
@@ -1551,6 +1574,29 @@ impl ForgenCompiler {
     /// Locate a JavaScript or TypeScript package across local node_modules,
     /// global npm roots, or via the node resolver.
     fn find_js_ts_package(&self, pkg_name: &str) -> Option<String> {
+        // 0. Standard built-in Node.js modules
+        const BUILTIN_NODE_MODULES: &[&str] = &[
+            "fs",
+            "path",
+            "http",
+            "https",
+            "crypto",
+            "os",
+            "util",
+            "events",
+            "buffer",
+            "stream",
+            "url",
+            "assert",
+            "child_process",
+            "net",
+            "dns",
+            "tls",
+        ];
+        if BUILTIN_NODE_MODULES.contains(&pkg_name) {
+            return Some(format!("node:{}", pkg_name));
+        }
+
         // 1. Local node_modules
         let local_path = PathBuf::from(format!("node_modules/{}", pkg_name));
         if local_path.exists() {
@@ -1745,11 +1791,9 @@ impl ForgenCompiler {
                         continue;
                     }
 
-                    let path = if first_seg == Some("stdlib") {
-                        self.stdlib_module_path(u, stdlib_dir.as_deref())
-                    } else {
-                        self.local_module_path(u, &base_dirs)
-                    };
+                    let path = self
+                        .stdlib_module_path(u, stdlib_dir.as_deref())
+                        .or_else(|| self.local_module_path(u, &base_dirs));
 
                     let path = match path {
                         Some(p) => Some(p),

@@ -1917,6 +1917,7 @@ impl<'a> TypeChecker<'a> {
                 self.check_stmt(body, diag);
                 DataraType::Unit
             }
+            Stmt::Asm { .. } => DataraType::Unit,
         }
     }
 

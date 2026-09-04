@@ -302,6 +302,7 @@ impl<'a> OwnershipTracker<'a> {
             Stmt::Unsafe { body, .. } => {
                 self.check_stmt(body, diag, false);
             }
+            Stmt::Asm { .. } => {}
         }
     }
 

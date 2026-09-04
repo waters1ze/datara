@@ -67,6 +67,11 @@ pub enum TokenType {
     Where,
     Require,
     Ensure,
+    Register,
+    Asm,
+    Bit,
+    Bits,
+    At,
 
     // Literals & Identifiers
     Identifier(String),

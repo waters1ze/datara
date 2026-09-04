@@ -6,6 +6,7 @@ pub enum Arch {
     X86_64,
     Aarch64,
     RiscV64,
+    Wasm32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -13,6 +14,8 @@ pub enum Os {
     Windows,
     Linux,
     MacOS,
+    Unknown,
+    Wasi,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,6 +23,7 @@ pub enum Abi {
     Msvc,
     Gnu,
     SysV,
+    Wasm,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,6 +31,7 @@ pub enum CallingConvention {
     WindowsFastcall,
     SystemV,
     Aarch64Standard,
+    WasmStandard,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -208,6 +213,7 @@ impl TargetInfo {
             Os::Windows => Abi::Msvc,
             Os::MacOS => Abi::SysV,
             Os::Linux => Abi::Gnu,
+            Os::Unknown | Os::Wasi => Abi::Wasm,
         };
         Self {
             arch: Arch::Aarch64,
@@ -218,6 +224,22 @@ impl TargetInfo {
             vector_support: vec![VectorExtension::Neon],
             atomic_support: true,
             calling_convention: CallingConvention::Aarch64Standard,
+            cpu_features: features,
+        }
+    }
+
+    pub fn wasm32() -> Self {
+        let mut features = HashSet::new();
+        features.insert("simd128".to_string());
+        Self {
+            arch: Arch::Wasm32,
+            os: Os::Unknown,
+            abi: Abi::Wasm,
+            pointer_width: 32,
+            endianness: Endianness::Little,
+            vector_support: Vec::new(),
+            atomic_support: true,
+            calling_convention: CallingConvention::WasmStandard,
             cpu_features: features,
         }
     }
@@ -279,10 +301,14 @@ impl TargetInfo {
     }
 
     pub fn triple_string(&self) -> String {
+        if self.arch == Arch::Wasm32 {
+            return "wasm32-unknown-unknown".to_string();
+        }
         let arch_str = match self.arch {
             Arch::X86_64 => "x86_64",
             Arch::Aarch64 => "aarch64",
             Arch::RiscV64 => "riscv64",
+            Arch::Wasm32 => "wasm32",
         };
         match self.os {
             Os::Windows => {
@@ -300,6 +326,7 @@ impl TargetInfo {
                 format!("{}-unknown-linux-{}", arch_str, abi_str)
             }
             Os::MacOS => format!("{}-apple-darwin", arch_str),
+            Os::Unknown | Os::Wasi => format!("{}-unknown-unknown", arch_str),
         }
     }
 

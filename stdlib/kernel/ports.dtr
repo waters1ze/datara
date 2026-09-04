@@ -1,0 +1,56 @@
+@kernel_mode
+module kernel.arch.x86_64.ports
+
+class Port8 {
+    port: UInt16
+}
+
+behavior Port8 {
+    fn new(port: UInt16) -> Port8 {
+        return Port8 { port: port }
+    }
+
+    @naked
+    fn inb(self: Port8) -> UInt8 {
+        asm! {
+            "in al, dx",
+            options: [nostack]
+        }
+        return 0
+    }
+
+    @naked
+    fn outb(self: Port8, val: UInt8) -> Void {
+        asm! {
+            "out dx, al",
+            options: [nostack]
+        }
+    }
+}
+
+class Port16 {
+    port: UInt16
+}
+
+behavior Port16 {
+    fn new(port: UInt16) -> Port16 {
+        return Port16 { port: port }
+    }
+
+    @naked
+    fn inw(self: Port16) -> UInt16 {
+        asm! {
+            "in ax, dx",
+            options: [nostack]
+        }
+        return 0
+    }
+
+    @naked
+    fn outw(self: Port16, val: UInt16) -> Void {
+        asm! {
+            "out dx, ax",
+            options: [nostack]
+        }
+    }
+}

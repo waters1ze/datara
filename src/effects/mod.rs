@@ -257,6 +257,9 @@ impl EffectAnalyzer {
                 effects.add(Effect::Unsafe);
                 self.analyze_stmt(body, effects, local_vars);
             }
+            Stmt::Asm { .. } => {
+                effects.add(Effect::Unsafe);
+            }
         }
     }
 

@@ -239,6 +239,40 @@ impl Resolver {
             match decl {
                 Decl::Use(u) => {
                     use_decls.push(u.clone());
+                    let first_seg = u.path.first().map(|s| s.as_str());
+                    if matches!(
+                        first_seg,
+                        Some("python" | "rust" | "c" | "cpp" | "cxx" | "npm" | "js" | "ts")
+                    ) {
+                        let alias = u
+                            .alias
+                            .clone()
+                            .unwrap_or_else(|| u.path.last().cloned().unwrap_or_default());
+                        if !alias.is_empty() && !self.scopes[0].symbols.contains_key(&alias) {
+                            let sym = Symbol {
+                                name: alias.clone(),
+                                kind: SymbolKind::Variable,
+                                is_mut: false,
+                                is_export: true,
+                                span: u.span.clone(),
+                                fields: HashMap::new(),
+                                methods: HashMap::new(),
+                                base_type: None,
+                                compositions: Vec::new(),
+                                generic_params: Vec::new(),
+                                type_node: Some(TypeNode {
+                                    name: "Val".to_string(),
+                                    generic_args: Vec::new(),
+                                    is_option: false,
+                                    error_type: None,
+                                    refinement: None,
+                                    span: u.span.clone(),
+                                }),
+                                return_type: None,
+                            };
+                            self.scopes[0].define(alias, sym);
+                        }
+                    }
                 }
                 Decl::Class(c) => {
                     if self.classes.contains_key(&c.name) {
@@ -603,6 +637,51 @@ impl Resolver {
                     self.classes.insert(td.name.clone(), sym.clone());
                     self.scopes[0].define(td.name.clone(), sym);
                 }
+
+                Decl::Register(reg) => {
+                    let mut sym = Symbol {
+                        name: reg.name.clone(),
+                        kind: SymbolKind::Variable,
+                        is_mut: true,
+                        is_export: true,
+                        span: reg.span.clone(),
+                        fields: HashMap::new(),
+                        methods: HashMap::new(),
+                        base_type: None,
+                        compositions: Vec::new(),
+                        generic_params: Vec::new(),
+                        type_node: Some(TypeNode {
+                            name: reg.name.clone(),
+                            generic_args: Vec::new(),
+                            is_option: false,
+                            error_type: None,
+                            refinement: None,
+                            span: reg.span.clone(),
+                        }),
+                        return_type: None,
+                    };
+                    for field in &reg.fields {
+                        sym.fields.insert(
+                            field.name.clone(),
+                            Symbol {
+                                name: field.name.clone(),
+                                kind: SymbolKind::Field,
+                                is_mut: true,
+                                is_export: true,
+                                span: field.span.clone(),
+                                fields: HashMap::new(),
+                                methods: HashMap::new(),
+                                base_type: None,
+                                compositions: Vec::new(),
+                                generic_params: Vec::new(),
+                                type_node: Some(field.type_node.clone()),
+                                return_type: None,
+                            },
+                        );
+                    }
+                    self.classes.insert(reg.name.clone(), sym.clone());
+                    self.scopes[0].define(reg.name.clone(), sym);
+                }
             }
         }
 
@@ -939,6 +1018,7 @@ impl Resolver {
             Stmt::Unsafe { body, .. } => {
                 self.resolve_stmt(body, diag);
             }
+            Stmt::Asm { .. } => {}
         }
     }
 

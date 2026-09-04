@@ -1850,6 +1850,7 @@ impl<'a> Lowering<'a> {
                 (body_end, ret_val)
             }
             Stmt::Unsafe { body, .. } => self.lower_stmt_cfg(body, cur_block),
+            Stmt::Asm { .. } => (cur_block, None),
         }
     }
 

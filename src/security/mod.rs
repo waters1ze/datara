@@ -17,6 +17,8 @@ struct FnContext {
     proven_non_zero: HashSet<String>,
     unsafe_justification: Option<String>,
     outer_vars: HashSet<String>,
+    is_no_alloc: bool,
+    is_no_panic: bool,
 }
 
 impl<'a> SecurityVerifier<'a> {
@@ -83,6 +85,9 @@ impl<'a> SecurityVerifier<'a> {
             }
         }
 
+        let is_no_alloc = f.attributes.iter().any(|a| a.name == "no_alloc");
+        let is_no_panic = f.attributes.iter().any(|a| a.name == "no_panic");
+
         let mut ctx = FnContext {
             fn_name: f.name.clone(),
             requires,
@@ -90,6 +95,8 @@ impl<'a> SecurityVerifier<'a> {
             proven_non_zero,
             unsafe_justification: None,
             outer_vars,
+            is_no_alloc,
+            is_no_panic,
         };
 
         self.verify_stmt(&f.body, &mut ctx, diag);
@@ -131,6 +138,9 @@ impl<'a> SecurityVerifier<'a> {
             }
         }
 
+        let is_no_alloc = m.attributes.iter().any(|a| a.name == "no_alloc");
+        let is_no_panic = m.attributes.iter().any(|a| a.name == "no_panic");
+
         let mut ctx = FnContext {
             fn_name,
             requires,
@@ -138,6 +148,8 @@ impl<'a> SecurityVerifier<'a> {
             proven_non_zero,
             unsafe_justification: None,
             outer_vars,
+            is_no_alloc,
+            is_no_panic,
         };
 
         self.verify_stmt(body, &mut ctx, diag);
@@ -414,6 +426,7 @@ impl<'a> SecurityVerifier<'a> {
                 catch_ctx.outer_vars.insert(err_var.clone());
                 self.verify_stmt(catch_block, &mut catch_ctx, diag);
             }
+            Stmt::Asm { .. } => {}
         }
     }
 
@@ -747,7 +760,11 @@ impl<'a> SecurityVerifier<'a> {
                     diag,
                 );
             }
-            Stmt::Expr(_, _) | Stmt::Return(_, _) | Stmt::Out(_, _) | Stmt::Err(_, _) => {}
+            Stmt::Expr(_, _)
+            | Stmt::Return(_, _)
+            | Stmt::Out(_, _)
+            | Stmt::Err(_, _)
+            | Stmt::Asm { .. } => {}
         }
     }
 
@@ -776,6 +793,24 @@ impl<'a> SecurityVerifier<'a> {
                 if op == "/" || op == "%" {
                     self.verify_division_gate(right, span, ctx, diag);
                 }
+
+                if ctx.is_no_alloc && op == "+" {
+                    let is_str = matches!(
+                        (&**left, &**right),
+                        (Expr::Literal(LiteralValue::String(_), _), _)
+                            | (_, Expr::Literal(LiteralValue::String(_), _))
+                    );
+                    if is_str {
+                        diag.error(
+                            ErrorCode::AllocationViolation,
+                            format!(
+                                "[E0950] Allocation Violation: String concatenation allocates on the heap in '@no_alloc' function '{}'",
+                                ctx.fn_name
+                            ),
+                            Some(span.clone()),
+                        );
+                    }
+                }
             }
             Expr::Call { callee, args, span } => {
                 self.verify_expr(callee, ctx, diag);
@@ -784,6 +819,38 @@ impl<'a> SecurityVerifier<'a> {
                 }
 
                 if let Expr::Identifier(callee_name, callee_span) = &**callee {
+                    if ctx.is_no_panic && callee_name == "panic" {
+                        diag.error(
+                            ErrorCode::PanicViolation,
+                            format!(
+                                "[E0951] Panic Violation: Explicit 'panic' call is forbidden in '@no_panic' function '{}'",
+                                ctx.fn_name
+                            ),
+                            Some(callee_span.clone()),
+                        );
+                    }
+
+                    if ctx.is_no_alloc
+                        && matches!(
+                            callee_name.as_str(),
+                            "http_get"
+                                | "http_post"
+                                | "db_query"
+                                | "read_file"
+                                | "write_file"
+                                | "format"
+                        )
+                    {
+                        diag.error(
+                            ErrorCode::AllocationViolation,
+                            format!(
+                                "[E0950] Allocation Violation: Dynamic allocator call '{}' is forbidden in '@no_alloc' function '{}'",
+                                callee_name, ctx.fn_name
+                            ),
+                            Some(callee_span.clone()),
+                        );
+                    }
+
                     // Gate 3: Unchecked FFI Gate
                     if self.resolver.extern_functions.contains_key(callee_name) {
                         let justified = match &ctx.unsafe_justification {
@@ -835,26 +902,77 @@ impl<'a> SecurityVerifier<'a> {
             Expr::Unary { expr, .. } => {
                 self.verify_expr(expr, ctx, diag);
             }
-            Expr::IndexAccess { object, index, .. } => {
+            Expr::IndexAccess {
+                object,
+                index,
+                span,
+            } => {
                 self.verify_expr(object, ctx, diag);
                 self.verify_expr(index, ctx, diag);
+                if ctx.is_no_panic {
+                    diag.error(
+                        ErrorCode::PanicViolation,
+                        format!(
+                            "[E0951] Panic Violation: Unchecked index access may panic out of bounds in '@no_panic' function '{}'",
+                            ctx.fn_name
+                        ),
+                        Some(span.clone()),
+                    );
+                }
             }
             Expr::Range { start, end, .. } => {
                 self.verify_expr(start, ctx, diag);
                 self.verify_expr(end, ctx, diag);
             }
-            Expr::Tuple(exprs, _) | Expr::ListLiteral(exprs, _) => {
+            Expr::Tuple(exprs, _) => {
                 for e in exprs {
                     self.verify_expr(e, ctx, diag);
                 }
             }
-            Expr::MapLiteral(entries, _) => {
+            Expr::ListLiteral(exprs, span) => {
+                if ctx.is_no_alloc {
+                    diag.error(
+                        ErrorCode::AllocationViolation,
+                        format!(
+                            "[E0950] Allocation Violation: Dynamic collection literal allocates on the heap in '@no_alloc' function '{}'",
+                            ctx.fn_name
+                        ),
+                        Some(span.clone()),
+                    );
+                }
+                for e in exprs {
+                    self.verify_expr(e, ctx, diag);
+                }
+            }
+            Expr::MapLiteral(entries, span) => {
+                if ctx.is_no_alloc {
+                    diag.error(
+                        ErrorCode::AllocationViolation,
+                        format!(
+                            "[E0950] Allocation Violation: Dynamic map literal allocates on the heap in '@no_alloc' function '{}'",
+                            ctx.fn_name
+                        ),
+                        Some(span.clone()),
+                    );
+                }
                 for (k, v) in entries {
                     self.verify_expr(k, ctx, diag);
                     self.verify_expr(v, ctx, diag);
                 }
             }
-            Expr::InterpolatedString { expressions, .. } => {
+            Expr::InterpolatedString {
+                expressions, span, ..
+            } => {
+                if ctx.is_no_alloc {
+                    diag.error(
+                        ErrorCode::AllocationViolation,
+                        format!(
+                            "[E0950] Allocation Violation: String interpolation allocates on the heap in '@no_alloc' function '{}'",
+                            ctx.fn_name
+                        ),
+                        Some(span.clone()),
+                    );
+                }
                 for e in expressions {
                     self.verify_expr(e, ctx, diag);
                 }
@@ -909,7 +1027,23 @@ impl<'a> SecurityVerifier<'a> {
             Expr::ArrayRepeatLiteral { elem, .. } => {
                 self.verify_expr(elem, ctx, diag);
             }
-            Expr::ObjectInit { fields, .. } => {
+            Expr::ObjectInit {
+                class_name,
+                fields,
+                span,
+                ..
+            } => {
+                if ctx.is_no_alloc && !class_name.contains("Arena") && !class_name.contains("Stack")
+                {
+                    diag.error(
+                        ErrorCode::AllocationViolation,
+                        format!(
+                            "[E0950] Allocation Violation: Heap allocation via object instantiation '{}' is forbidden in '@no_alloc' function '{}'",
+                            class_name, ctx.fn_name
+                        ),
+                        Some(span.clone()),
+                    );
+                }
                 for (_, f_expr) in fields {
                     self.verify_expr(f_expr, ctx, diag);
                 }
@@ -928,6 +1062,16 @@ impl<'a> SecurityVerifier<'a> {
         match divisor {
             Expr::Literal(LiteralValue::Int(n), _) => {
                 if *n == 0 {
+                    if ctx.is_no_panic {
+                        diag.error(
+                            ErrorCode::PanicViolation,
+                            format!(
+                                "[E0951] Panic Violation: Division by zero constant in '@no_panic' function '{}'",
+                                ctx.fn_name
+                            ),
+                            Some(span.clone()),
+                        );
+                    }
                     diag.error(
                         ErrorCode::ProofCarryingCodeViolation,
                         "Proof-Carrying Code Violation: Unproven divisor '0' may be zero. Use 'NonZeroInt' or contract 'require != 0'".to_string(),
@@ -937,6 +1081,16 @@ impl<'a> SecurityVerifier<'a> {
             }
             Expr::Literal(LiteralValue::Float(f), _) => {
                 if *f == 0.0 {
+                    if ctx.is_no_panic {
+                        diag.error(
+                            ErrorCode::PanicViolation,
+                            format!(
+                                "[E0951] Panic Violation: Division by 0.0 in '@no_panic' function '{}'",
+                                ctx.fn_name
+                            ),
+                            Some(span.clone()),
+                        );
+                    }
                     diag.error(
                         ErrorCode::ProofCarryingCodeViolation,
                         "Proof-Carrying Code Violation: Unproven divisor '0.0' may be zero. Use 'NonZeroInt' or contract 'require != 0'".to_string(),
@@ -979,6 +1133,16 @@ impl<'a> SecurityVerifier<'a> {
                         .unwrap_or(false);
 
                 if !is_proven {
+                    if ctx.is_no_panic {
+                        diag.error(
+                            ErrorCode::PanicViolation,
+                            format!(
+                                "[E0951] Panic Violation: Unproven division by zero in '@no_panic' function '{}'",
+                                ctx.fn_name
+                            ),
+                            Some(span.clone()),
+                        );
+                    }
                     diag.error(
                         ErrorCode::ProofCarryingCodeViolation,
                         format!(
@@ -990,6 +1154,16 @@ impl<'a> SecurityVerifier<'a> {
                 }
             }
             _ => {
+                if ctx.is_no_panic {
+                    diag.error(
+                        ErrorCode::PanicViolation,
+                        format!(
+                            "[E0951] Panic Violation: Unproven division expression may panic in '@no_panic' function '{}'",
+                            ctx.fn_name
+                        ),
+                        Some(span.clone()),
+                    );
+                }
                 diag.error(
                     ErrorCode::ProofCarryingCodeViolation,
                     "Proof-Carrying Code Violation: Unproven divisor expression may be zero. Use 'NonZeroInt' or contract 'require != 0'".to_string(),

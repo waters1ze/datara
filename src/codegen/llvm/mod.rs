@@ -109,6 +109,10 @@ impl<'a> LlvmEmitter<'a> {
                     ir.push_str("target datalayout = \"e-m:e-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-f80:128-n8:16:32:64-S128\"\n");
                     ir.push_str("target triple = \"x86_64-unknown-linux-gnu\"\n\n");
                 }
+                CallingConvention::WasmStandard => {
+                    ir.push_str("target datalayout = \"e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20\"\n");
+                    ir.push_str("target triple = \"wasm32-unknown-wasi\"\n\n");
+                }
             },
         }
 

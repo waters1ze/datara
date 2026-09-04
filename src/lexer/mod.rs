@@ -485,6 +485,17 @@ impl Lexer {
                         self.file.clone(),
                     ),
                 )),
+                '@' => tokens.push(Token::new(
+                    TokenType::At,
+                    "@".into(),
+                    SourceSpan::new(
+                        start_line,
+                        start_col,
+                        self.line,
+                        self.col,
+                        self.file.clone(),
+                    ),
+                )),
 
                 '\'' => {
                     let mut val = '\0';
@@ -565,51 +576,100 @@ impl Lexer {
                     let mut num_str = ch.to_string();
                     let mut is_float = false;
 
-                    while !self.is_at_end()
-                        && (self.peek().is_ascii_digit()
-                            || (self.peek() == '.' && self.peek_next().is_ascii_digit()))
-                    {
-                        if self.peek() == '.' {
-                            is_float = true;
-                        }
-                        num_str.push(self.advance());
-                    }
-
-                    let span = SourceSpan::new(
-                        start_line,
-                        start_col,
-                        self.line,
-                        self.col,
-                        self.file.clone(),
-                    );
-                    if is_float {
-                        match num_str.parse::<f64>() {
-                            Ok(val) => {
-                                tokens.push(Token::new(
-                                    TokenType::FloatLiteral(val),
-                                    num_str,
-                                    span,
-                                ));
-                            }
-                            Err(e) => {
-                                diag.error(
-                                    ErrorCode::SyntaxInvalidNumber,
-                                    format!("Invalid float literal '{}': {}", num_str, e),
-                                    Some(span),
-                                );
+                    if ch == '0' && (self.peek() == 'x' || self.peek() == 'X') {
+                        num_str.push(self.advance()); // consume 'x' / 'X'
+                        while !self.is_at_end()
+                            && (self.peek().is_ascii_hexdigit() || self.peek() == '_')
+                        {
+                            let h = self.advance();
+                            if h != '_' {
+                                num_str.push(h);
                             }
                         }
-                    } else {
-                        match num_str.parse::<i64>() {
+                        let span = SourceSpan::new(
+                            start_line,
+                            start_col,
+                            self.line,
+                            self.col,
+                            self.file.clone(),
+                        );
+                        let raw_hex = &num_str[2..];
+                        match i64::from_str_radix(raw_hex, 16) {
                             Ok(val) => {
                                 tokens.push(Token::new(TokenType::IntLiteral(val), num_str, span));
                             }
-                            Err(e) => {
-                                diag.error(
-                                    ErrorCode::SyntaxInvalidNumber,
-                                    format!("Invalid integer literal '{}': {}", num_str, e),
-                                    Some(span),
-                                );
+                            Err(_) => {
+                                // Fallback for 64-bit unsigned addresses like 0x8000_0000..=0xFFFF_FFFF
+                                if let Ok(uval) = u64::from_str_radix(raw_hex, 16) {
+                                    tokens.push(Token::new(
+                                        TokenType::IntLiteral(uval as i64),
+                                        num_str,
+                                        span,
+                                    ));
+                                } else {
+                                    diag.error(
+                                        ErrorCode::SyntaxInvalidNumber,
+                                        format!("Invalid hex integer literal '{}'", num_str),
+                                        Some(span),
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        while !self.is_at_end()
+                            && (self.peek().is_ascii_digit()
+                                || self.peek() == '_'
+                                || (self.peek() == '.' && self.peek_next().is_ascii_digit()))
+                        {
+                            if self.peek() == '.' {
+                                is_float = true;
+                            }
+                            let next_c = self.advance();
+                            if next_c != '_' {
+                                num_str.push(next_c);
+                            }
+                        }
+
+                        let span = SourceSpan::new(
+                            start_line,
+                            start_col,
+                            self.line,
+                            self.col,
+                            self.file.clone(),
+                        );
+                        if is_float {
+                            match num_str.parse::<f64>() {
+                                Ok(val) => {
+                                    tokens.push(Token::new(
+                                        TokenType::FloatLiteral(val),
+                                        num_str,
+                                        span,
+                                    ));
+                                }
+                                Err(e) => {
+                                    diag.error(
+                                        ErrorCode::SyntaxInvalidNumber,
+                                        format!("Invalid float literal '{}': {}", num_str, e),
+                                        Some(span),
+                                    );
+                                }
+                            }
+                        } else {
+                            match num_str.parse::<i64>() {
+                                Ok(val) => {
+                                    tokens.push(Token::new(
+                                        TokenType::IntLiteral(val),
+                                        num_str,
+                                        span,
+                                    ));
+                                }
+                                Err(e) => {
+                                    diag.error(
+                                        ErrorCode::SyntaxInvalidNumber,
+                                        format!("Invalid integer literal '{}': {}", num_str, e),
+                                        Some(span),
+                                    );
+                                }
                             }
                         }
                     }
@@ -700,10 +760,22 @@ impl Lexer {
                         "where" => TokenType::Where,
                         "require" => TokenType::Require,
                         "ensure" => TokenType::Ensure,
+                        "register" => TokenType::Register,
+                        "bit" => TokenType::Bit,
+                        "bits" => TokenType::Bits,
+                        "asm" if self.peek() == '!' => {
+                            self.advance();
+                            TokenType::Asm
+                        }
                         _ => TokenType::Identifier(ident_str.clone()),
                     };
 
-                    tokens.push(Token::new(tt, ident_str, span));
+                    let lexeme = if tt == TokenType::Asm {
+                        "asm!".to_string()
+                    } else {
+                        ident_str
+                    };
+                    tokens.push(Token::new(tt, lexeme, span));
                 }
 
                 // Catch-all: this used to be `_ => {}`, which silently DISCARDED

@@ -35,11 +35,15 @@ fn test_unexpected_character_is_reported() {
             ch, label
         );
         let err = res.error.unwrap_or_default();
+        let expected = if ch == "@" {
+            err.contains("Unexpected token: At") || err.contains("Unexpected character")
+        } else {
+            err.contains("Unexpected character")
+        };
         assert!(
-            err.contains("Unexpected character"),
-            "character '{}' should produce an 'Unexpected character' error, got: {}",
-            ch,
-            err
+            expected,
+            "character '{}' should produce an error, got: {}",
+            ch, err
         );
     }
 }

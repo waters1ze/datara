@@ -1,9 +1,40 @@
 use crate::diagnostics::SourceSpan;
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Attribute {
+    pub name: String,
+    pub args: Vec<(String, String)>,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BitFieldRange {
+    Single(usize),
+    Range { start: usize, end: usize },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterField {
+    pub name: String,
+    pub type_node: TypeNode,
+    pub offset: u64,
+    pub span: SourceSpan,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterDecl {
+    pub name: String,
+    pub base_address: u64,
+    pub fields: Vec<RegisterField>,
+    pub attributes: Vec<Attribute>,
+    pub span: SourceSpan,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Program {
     pub declarations: Vec<Decl>,
+    pub attributes: Vec<Attribute>,
     pub file: String,
 }
 
@@ -21,6 +52,7 @@ pub enum Decl {
     Packet(PacketDecl),
     ExternFn(ExternFnDecl),
     Type(TypeDecl),
+    Register(RegisterDecl),
 }
 
 impl Decl {
@@ -36,6 +68,7 @@ impl Decl {
             Decl::Packet(d) => &d.span,
             Decl::ExternFn(d) => &d.span,
             Decl::Type(d) => &d.span,
+            Decl::Register(d) => &d.span,
         }
     }
 }
@@ -51,6 +84,7 @@ pub struct UseDecl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClassDecl {
     pub name: String,
+    pub attributes: Vec<Attribute>,
     pub generic_params: Vec<String>,
     pub base_type: Option<String>,
     pub compositions: Vec<String>,
@@ -129,6 +163,7 @@ pub struct TypeDecl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionDecl {
     pub name: String,
+    pub attributes: Vec<Attribute>,
     pub generic_params: Vec<String>,
     pub generic_constraints: Vec<(String, String)>,
     pub params: Vec<Param>,
@@ -175,6 +210,7 @@ pub struct ExternFnDecl {
 pub struct FieldDecl {
     pub name: String,
     pub type_node: Option<TypeNode>,
+    pub bit_field: Option<BitFieldRange>,
     pub default_value: Option<Expr>,
     pub is_mut: bool,
     pub span: SourceSpan,
@@ -183,6 +219,7 @@ pub struct FieldDecl {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MethodDecl {
     pub name: String,
+    pub attributes: Vec<Attribute>,
     pub generic_params: Vec<String>,
     pub params: Vec<Param>,
     pub return_type: Option<TypeNode>,
@@ -326,6 +363,11 @@ pub enum Stmt {
         body: Box<Stmt>,
         span: SourceSpan,
     },
+    Asm {
+        instructions: Vec<String>,
+        options: Vec<String>,
+        span: SourceSpan,
+    },
     Return(Option<Expr>, SourceSpan),
 }
 
@@ -351,6 +393,7 @@ impl Stmt {
             | Stmt::ParallelFor { span: s, .. }
             | Stmt::With { span: s, .. }
             | Stmt::Unsafe { span: s, .. }
+            | Stmt::Asm { span: s, .. }
             | Stmt::Return(_, s) => s,
         }
     }
