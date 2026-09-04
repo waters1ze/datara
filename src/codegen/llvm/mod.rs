@@ -223,7 +223,15 @@ impl<'a> LlvmEmitter<'a> {
         ir.push_str("declare ptr @malloc(i64)\n");
         ir.push_str("declare void @free(ptr)\n");
         ir.push_str("declare <4 x float> @llvm.minnum.v4f32(<4 x float>, <4 x float>)\n");
-        ir.push_str("declare <4 x float> @llvm.maxnum.v4f32(<4 x float>, <4 x float>)\n\n");
+        ir.push_str("declare <4 x float> @llvm.maxnum.v4f32(<4 x float>, <4 x float>)\n");
+        ir.push_str("declare ptr @datara_rt_sha256(ptr)\n");
+        ir.push_str("declare ptr @datara_rt_base64_encode(ptr)\n");
+        ir.push_str("declare ptr @datara_rt_base64_decode(ptr)\n");
+        ir.push_str("declare ptr @datara_rt_uuid_v4()\n");
+        ir.push_str("declare i64 @datara_rt_random_bytes(ptr, i64)\n");
+        ir.push_str("declare i64 @datara_rt_dialog_info(ptr, ptr)\n");
+        ir.push_str("declare i64 @datara_rt_dialog_alert(ptr, ptr)\n");
+        ir.push_str("declare i64 @datara_rt_dialog_confirm(ptr, ptr)\n\n");
 
         // 2b. Declare user-declared extern "C" functions (FFI), mirroring the
         // Cranelift backend so FFI programs compile on both backends.
@@ -1349,9 +1357,12 @@ impl CodegenBackend for LlvmBackend {
         };
 
         if find_clang().is_some() {
-            let rt_path = PathBuf::from("src/runtime/datara_runtime.c");
-            let rt_opt = if rt_path.exists() {
-                Some(rt_path.as_path())
+            let rt_source = crate::runtime::runtime_source_path();
+            let rt_archive = crate::runtime::runtime_lib_path();
+            let rt_opt = if let Some(ref src) = rt_source {
+                Some(src.as_path())
+            } else if rt_archive.exists() {
+                Some(rt_archive.as_path())
             } else {
                 None
             };

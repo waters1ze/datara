@@ -39,7 +39,9 @@ behavior RedisClient {
         if !this.is_connected {
             return "ERROR: Not connected"
         }
-        let cmd = "*3\r\n$3\r\nSET\r\n$" + str_to_int("0") + key + "\r\n$" + str_to_int("0") + val + "\r\n"
+        let k_len = int_to_str(str_len(key))
+        let v_len = int_to_str(str_len(val))
+        let cmd = "*3\r\n$3\r\nSET\r\n$" + k_len + "\r\n" + key + "\r\n$" + v_len + "\r\n" + val + "\r\n"
         let _ = this.stream.send(cmd)
         let reply = this.stream.recv(1024)
         return str_trim(reply)
@@ -49,7 +51,8 @@ behavior RedisClient {
         if !this.is_connected {
             return ""
         }
-        let cmd = "*2\r\n$3\r\nGET\r\n$" + str_to_int("0") + key + "\r\n"
+        let k_len = int_to_str(str_len(key))
+        let cmd = "*2\r\n$3\r\nGET\r\n$" + k_len + "\r\n" + key + "\r\n"
         let _ = this.stream.send(cmd)
         let reply = this.stream.recv(4096)
         return str_trim(reply)
@@ -59,7 +62,8 @@ behavior RedisClient {
         if !this.is_connected {
             return 0
         }
-        let cmd = "*2\r\n$3\r\nDEL\r\n$" + str_to_int("0") + key + "\r\n"
+        let k_len = int_to_str(str_len(key))
+        let cmd = "*2\r\n$3\r\nDEL\r\n$" + k_len + "\r\n" + key + "\r\n"
         let _ = this.stream.send(cmd)
         let reply = this.stream.recv(1024)
         return 1

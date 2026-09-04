@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Instant;
 
 use cranelift_codegen::ir::{
     AbiParam, Block, BlockArg, Function as ClifFunction, InstBuilder, Signature, StackSlotData,
     StackSlotKind, Type as ClifType, Value as ClifValue, types as clif_types,
 };
+use cranelift_codegen::isa::{CallConv, TargetFrontendConfig, TargetIsa};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Variable};
 use cranelift_module::{DataDescription, Linkage, Module as ClifModule, default_libcall_names};
@@ -21,6 +23,13 @@ use crate::dmir::{BasicBlockId, Inst, Module, Terminator, ValueId};
 use crate::types::TypeChecker;
 
 use crate::codegen::linker::linker_lock;
+
+#[derive(Debug, Clone, Default)]
+pub struct ModuleCompileArtifacts {
+    pub main_entry_id: Option<cranelift_module::FuncId>,
+    pub main_fn_id: Option<cranelift_module::FuncId>,
+    pub func_ids: HashMap<String, cranelift_module::FuncId>,
+}
 
 #[derive(Clone)]
 pub struct RealCraneliftBackend {
@@ -55,13 +64,16 @@ impl RealCraneliftBackend {
         }
     }
 
-    pub fn compile_to_object_bytes(&self, dmir_module: &Module) -> Result<Vec<u8>, String> {
+    pub fn build_target_isa(
+        &self,
+        is_jit: bool,
+    ) -> Result<(Arc<dyn TargetIsa>, CallConv, TargetFrontendConfig), String> {
         let mut flag_builder = settings::builder();
         flag_builder
             .set("opt_level", "speed")
             .map_err(|e| e.to_string())?;
         flag_builder
-            .set("is_pic", "true")
+            .set("is_pic", if is_jit { "false" } else { "true" })
             .map_err(|e| e.to_string())?;
         let _ = flag_builder.set("preserve_frame_pointers", "false");
 
@@ -117,6 +129,11 @@ impl RealCraneliftBackend {
 
         let call_conv = isa.default_call_conv();
         let frontend_config = isa.frontend_config();
+        Ok((isa, call_conv, frontend_config))
+    }
+
+    pub fn compile_to_object_bytes(&self, dmir_module: &Module) -> Result<Vec<u8>, String> {
+        let (isa, call_conv, frontend_config) = self.build_target_isa(false)?;
         let builder = ObjectBuilder::new(
             isa,
             dmir_module.name.as_bytes().to_vec(),
@@ -124,7 +141,39 @@ impl RealCraneliftBackend {
         )
         .map_err(|e| e.to_string())?;
         let mut module = ObjectModule::new(builder);
+        self.compile_into_module(&mut module, dmir_module, frontend_config, call_conv)?;
+        let product = module.finish();
+        let obj_bytes = product.emit().map_err(|e| e.to_string())?;
+        Ok(obj_bytes)
+    }
 
+    pub fn compile_and_run_jit(
+        &self,
+        dmir_module: &Module,
+        args: &[String],
+        capture: bool,
+    ) -> Result<(String, String, i32, u128), String> {
+        let (isa, call_conv, frontend_config) = self.build_target_isa(true)?;
+        let mut module = crate::codegen::cranelift::jit::create_jit_module(isa)?;
+        let artifacts =
+            self.compile_into_module(&mut module, dmir_module, frontend_config, call_conv)?;
+        module.finalize_definitions().map_err(|e| e.to_string())?;
+
+        let entry_id = artifacts
+            .main_entry_id
+            .or(artifacts.main_fn_id)
+            .ok_or_else(|| "No entry point found in module (missing @main function)".to_string())?;
+        let code_ptr = module.get_finalized_function(entry_id);
+        unsafe { crate::codegen::cranelift::jit::run_jit_entry(code_ptr, args, capture) }
+    }
+
+    pub fn compile_into_module<M: ClifModule>(
+        &self,
+        module: &mut M,
+        dmir_module: &Module,
+        frontend_config: TargetFrontendConfig,
+        call_conv: CallConv,
+    ) -> Result<ModuleCompileArtifacts, String> {
         // 1. Declare native Datara runtime functions (datara_runtime.obj)
         let mut rt_out_int_sig = Signature::new(call_conv);
         rt_out_int_sig.params.push(AbiParam::new(clif_types::I64));
@@ -1256,6 +1305,32 @@ impl RealCraneliftBackend {
         );
         func_ids.insert("http_get".into(), (rt_http_get_id, rt_http_get_sig));
 
+        // String: str_len
+        let mut rt_str_len_sig = Signature::new(call_conv);
+        rt_str_len_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_str_len_sig.returns.push(AbiParam::new(clif_types::I64));
+        let rt_str_len_id = module
+            .declare_function("datara_rt_str_len", Linkage::Import, &rt_str_len_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_str_len".into(),
+            (rt_str_len_id, rt_str_len_sig.clone()),
+        );
+        func_ids.insert("str_len".into(), (rt_str_len_id, rt_str_len_sig));
+
+        // String: int_to_str
+        let mut rt_i2s_sig = Signature::new(call_conv);
+        rt_i2s_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_i2s_sig.returns.push(AbiParam::new(clif_types::I64));
+        let rt_i2s_id = module
+            .declare_function("datara_rt_int_to_str", Linkage::Import, &rt_i2s_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_int_to_str".into(),
+            (rt_i2s_id, rt_i2s_sig.clone()),
+        );
+        func_ids.insert("int_to_str".into(), (rt_i2s_id, rt_i2s_sig));
+
         // Crypto: sha256
         let mut rt_sha256_sig = Signature::new(call_conv);
         rt_sha256_sig.params.push(AbiParam::new(clif_types::I64));
@@ -1294,6 +1369,47 @@ impl RealCraneliftBackend {
             (rt_b64d_id, rt_b64d_sig.clone()),
         );
         func_ids.insert("base64_decode".into(), (rt_b64d_id, rt_b64d_sig));
+
+        // Crypto: uuid_v4
+        let mut rt_uuid_sig = Signature::new(call_conv);
+        rt_uuid_sig.returns.push(AbiParam::new(clif_types::I64));
+        let rt_uuid_id = module
+            .declare_function("datara_rt_uuid_v4", Linkage::Import, &rt_uuid_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_uuid_v4".into(),
+            (rt_uuid_id, rt_uuid_sig.clone()),
+        );
+        func_ids.insert("uuid_v4".into(), (rt_uuid_id, rt_uuid_sig));
+
+        // Native dialogs
+        let mut rt_dialog_sig = Signature::new(call_conv);
+        rt_dialog_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_dialog_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_dialog_sig.returns.push(AbiParam::new(clif_types::I64));
+        let rt_dlg_info_id = module
+            .declare_function("datara_rt_dialog_info", Linkage::Import, &rt_dialog_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_dialog_info".into(),
+            (rt_dlg_info_id, rt_dialog_sig.clone()),
+        );
+
+        let rt_dlg_alert_id = module
+            .declare_function("datara_rt_dialog_alert", Linkage::Import, &rt_dialog_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_dialog_alert".into(),
+            (rt_dlg_alert_id, rt_dialog_sig.clone()),
+        );
+
+        let rt_dlg_confirm_id = module
+            .declare_function("datara_rt_dialog_confirm", Linkage::Import, &rt_dialog_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_dialog_confirm".into(),
+            (rt_dlg_confirm_id, rt_dialog_sig),
+        );
 
         // System: process_run / datara_rt_system
         let mut rt_sys_sig = Signature::new(call_conv);
@@ -1576,6 +1692,10 @@ impl RealCraneliftBackend {
         string_return_funcs.insert("base64_encode".into());
         string_return_funcs.insert("datara_rt_base64_decode".into());
         string_return_funcs.insert("base64_decode".into());
+        string_return_funcs.insert("datara_rt_uuid_v4".into());
+        string_return_funcs.insert("uuid_v4".into());
+        string_return_funcs.insert("datara_rt_int_to_str".into());
+        string_return_funcs.insert("int_to_str".into());
         string_return_funcs.insert("datara_rt_exec".into());
         string_return_funcs.insert("process_output".into());
         string_return_funcs.insert("exec".into());
@@ -1654,23 +1774,22 @@ impl RealCraneliftBackend {
 
         // Pre-define all string literals in the module
         let mut string_literal_map: HashMap<String, cranelift_module::DataId> = HashMap::new();
-        let add_str_literal =
-            |s: &str, m: &mut ObjectModule| -> Result<cranelift_module::DataId, String> {
-                let mut data_ctx = DataDescription::new();
-                let mut bytes = s.as_bytes().to_vec();
-                bytes.push(0); // null terminator
-                data_ctx.define(bytes.into_boxed_slice());
-                let data_id = m
-                    .declare_anonymous_data(true, false)
-                    .map_err(|e| e.to_string())?;
-                m.define_data(data_id, &data_ctx)
-                    .map_err(|e| e.to_string())?;
-                Ok(data_id)
-            };
+        let add_str_literal = |s: &str, m: &mut M| -> Result<cranelift_module::DataId, String> {
+            let mut data_ctx = DataDescription::new();
+            let mut bytes = s.as_bytes().to_vec();
+            bytes.push(0); // null terminator
+            data_ctx.define(bytes.into_boxed_slice());
+            let data_id = m
+                .declare_anonymous_data(true, false)
+                .map_err(|e| e.to_string())?;
+            m.define_data(data_id, &data_ctx)
+                .map_err(|e| e.to_string())?;
+            Ok(data_id)
+        };
 
         // Always include empty string and colon
-        string_literal_map.insert("".to_string(), add_str_literal("", &mut module)?);
-        string_literal_map.insert(":".to_string(), add_str_literal(":", &mut module)?);
+        string_literal_map.insert("".to_string(), add_str_literal("", module)?);
+        string_literal_map.insert(":".to_string(), add_str_literal(":", module)?);
 
         for func in dmir_module.functions.values() {
             for b in &func.blocks {
@@ -1678,14 +1797,14 @@ impl RealCraneliftBackend {
                     match inst {
                         Inst::ConstStr { value, .. } => {
                             if !string_literal_map.contains_key(value) {
-                                let id = add_str_literal(value, &mut module)?;
+                                let id = add_str_literal(value, module)?;
                                 string_literal_map.insert(value.clone(), id);
                             }
                         }
                         Inst::FormatStr { parts, .. } => {
                             for p in parts {
                                 if !string_literal_map.contains_key(p) {
-                                    let id = add_str_literal(p, &mut module)?;
+                                    let id = add_str_literal(p, module)?;
                                     string_literal_map.insert(p.clone(), id);
                                 }
                             }
@@ -3174,12 +3293,12 @@ impl RealCraneliftBackend {
         }
 
         // 4. Define main entry function that calls @main() and exits with 0
-        if let Some((main_entry_id, main_entry_sig)) = main_entry_info
+        if let Some((main_entry_id, ref main_entry_sig)) = main_entry_info
             && let Some(&(main_fn_id, _)) = func_ids.get("main")
         {
             let mut main_clif_fn = ClifFunction::with_name_signature(
                 cranelift_codegen::ir::UserFuncName::user(0, main_entry_id.as_u32()),
-                main_entry_sig,
+                main_entry_sig.clone(),
             );
             let mut builder = FunctionBuilder::new(&mut main_clif_fn, &mut fn_builder_ctx);
             let entry_block = builder.create_block();
@@ -3209,9 +3328,15 @@ impl RealCraneliftBackend {
                 .map_err(|e| e.to_string())?;
         }
 
-        let product = module.finish();
-        let obj_bytes = product.emit().map_err(|e| e.to_string())?;
-        Ok(obj_bytes)
+        let main_fn_id = func_ids.get("main").map(|&(id, _)| id);
+        let main_entry_id = main_entry_info.map(|(id, _)| id);
+        let func_ids_map = func_ids.into_iter().map(|(k, (id, _))| (k, id)).collect();
+
+        Ok(ModuleCompileArtifacts {
+            main_entry_id,
+            main_fn_id,
+            func_ids: func_ids_map,
+        })
     }
 
     pub fn link_object_to_executable(

@@ -491,6 +491,131 @@ impl ForgenCompiler {
         self.compile_ast_internal(program, file, output_path, diag, total_start, timings)
     }
 
+    pub fn lower_ast_to_dmir(
+        &self,
+        program: Program,
+        file: &str,
+        diag: &mut DiagnosticEngine,
+        total_start: Instant,
+        mut timings: CompilationTimings,
+    ) -> Result<Module, CompilationResult> {
+        // 3. Resolver
+        let res_start = Instant::now();
+        let mut resolver = Resolver::new();
+        resolver.resolve_program(&program, diag);
+        timings.resolve_ms = res_start.elapsed().as_millis();
+        if diag.has_errors() {
+            timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
+            return Err(CompilationResult {
+                success: false,
+                exe_path: None,
+                error: Some(d_str.clone()),
+                program: Some(program),
+                semantic_graph: None,
+                dmir_module: None,
+                optimization_report: None,
+                diagnostics: d_str,
+                clif_source: None,
+                llvm_source: None,
+                timings,
+            });
+        }
+
+        // 4. Type Checker
+        let tc_start = Instant::now();
+        let mut type_checker = TypeChecker::new(&resolver);
+        type_checker.check_program(&program, diag);
+        timings.typecheck_ms = tc_start.elapsed().as_millis();
+        if diag.has_errors() {
+            timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
+            return Err(CompilationResult {
+                success: false,
+                exe_path: None,
+                error: Some(d_str.clone()),
+                program: Some(program),
+                semantic_graph: None,
+                dmir_module: None,
+                optimization_report: None,
+                diagnostics: d_str,
+                clif_source: None,
+                llvm_source: None,
+                timings,
+            });
+        }
+
+        // 5. Effects Analyzer
+        let eff_start = Instant::now();
+        let mut effects = EffectAnalyzer::new();
+        effects.analyze_program(&program);
+        timings.effects_ms = eff_start.elapsed().as_millis();
+
+        // 6. Ownership & Borrow Tracker
+        let own_start = Instant::now();
+        let mut ownership = OwnershipTracker::new(&resolver);
+        ownership.check_program(&program, diag);
+        timings.ownership_ms = own_start.elapsed().as_millis();
+        if diag.has_errors() {
+            timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
+            return Err(CompilationResult {
+                success: false,
+                exe_path: None,
+                error: Some(d_str.clone()),
+                program: Some(program),
+                semantic_graph: None,
+                dmir_module: None,
+                optimization_report: None,
+                diagnostics: d_str,
+                clif_source: None,
+                llvm_source: None,
+                timings,
+            });
+        }
+
+        // 8. DMIR Lowering
+        let mut lowering = Lowering::new(&resolver, &type_checker);
+        let mut dmir_module = lowering.lower_program(
+            &program,
+            Path::new(file)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("main"),
+        );
+
+        // 9. Optimizer
+        let _opt_start = Instant::now();
+        let mut optimizer = Optimizer::new(&self.mode);
+        optimizer.set_function_effects(effects.function_effects.clone());
+        for (class_name, specs) in &type_checker.generic_specializations {
+            for spec_args in specs {
+                let spec_str = format!(
+                    "{}<{}>",
+                    class_name,
+                    spec_args
+                        .iter()
+                        .map(|a| a.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+                optimizer.report.generic_specializations.push(spec_str);
+            }
+        }
+        optimizer.optimize_module(&mut dmir_module);
+        if let Some(ref pgo_path) = self.pgo_profile
+            && let Ok(profile) = crate::pgo::ProfileData::load_from_file(pgo_path)
+        {
+            crate::pgo::ProfileGuidedOptimizer::optimize_module(
+                &mut optimizer,
+                &mut dmir_module,
+                &profile,
+            );
+        }
+
+        Ok(dmir_module)
+    }
+
     fn compile_ast_internal(
         &self,
         program: Program,
@@ -823,11 +948,103 @@ impl ForgenCompiler {
         }
     }
 
+    pub fn compile_files_to_dmir(&self, paths: &[PathBuf]) -> Result<Module, String> {
+        let total_start = Instant::now();
+        let timings = CompilationTimings::default();
+        let mut diag = DiagnosticEngine::new(&self.locale);
+        let mut combined_declarations = Vec::new();
+
+        if paths.is_empty() {
+            return Err("No source files provided for compilation".to_string());
+        }
+
+        for p in paths {
+            let src = fs::read_to_string(p)
+                .map_err(|e| format!("Failed to read '{}': {}", p.display(), e))?;
+            diag.set_source(p.to_str().unwrap_or("file"), &src);
+
+            let mut lexer = Lexer::new(&src, p.to_str().unwrap_or("file"));
+            let tokens = lexer.tokenize(&mut diag);
+            if diag.has_errors() {
+                return Err(diag.format_all());
+            }
+
+            let mut parser = Parser::new(tokens, &mut diag, p.to_str().unwrap_or("file"));
+            let prog = parser.parse_program();
+            if diag.has_errors() {
+                return Err(diag.format_all());
+            }
+
+            combined_declarations.extend(prog.declarations);
+        }
+
+        let main_file = paths[0].to_str().unwrap_or("main.dtr");
+        let mut combined_program = Program {
+            declarations: combined_declarations,
+            file: main_file.to_string(),
+        };
+
+        let base_dirs = self.module_base_dirs(paths[0].as_path());
+        self.resolve_modules(&mut combined_program, &mut diag, paths, base_dirs);
+        if diag.has_errors() {
+            return Err(diag.format_all());
+        }
+
+        let dmir_mod = self
+            .lower_ast_to_dmir(combined_program, main_file, &mut diag, total_start, timings)
+            .map_err(|e| e.error.unwrap_or_else(|| "Compilation failed".into()))?;
+
+        Ok(dmir_mod)
+    }
+
+    pub fn compile_file_to_dmir(&self, path: &Path) -> Result<Module, String> {
+        self.compile_files_to_dmir(&[path.to_path_buf()])
+    }
+
+    pub fn compile_source_to_dmir(&self, source: &str, file: &str) -> Result<Module, String> {
+        let total_start = Instant::now();
+        let timings = CompilationTimings::default();
+        let mut diag = DiagnosticEngine::new(&self.locale);
+        diag.set_source(file, source);
+
+        let mut lexer = Lexer::new(source, file);
+        let tokens = lexer.tokenize(&mut diag);
+        if diag.has_errors() {
+            return Err(diag.format_all());
+        }
+
+        let mut parser = Parser::new(tokens, &mut diag, file);
+        let mut program = parser.parse_program();
+        if diag.has_errors() {
+            return Err(diag.format_all());
+        }
+
+        let base_dirs = self.module_base_dirs(Path::new(file));
+        self.resolve_modules(&mut program, &mut diag, &[], base_dirs);
+        if diag.has_errors() {
+            return Err(diag.format_all());
+        }
+
+        let dmir_mod = self
+            .lower_ast_to_dmir(program, file, &mut diag, total_start, timings)
+            .map_err(|e| e.error.unwrap_or_else(|| "Compilation failed".into()))?;
+
+        Ok(dmir_mod)
+    }
+
     pub fn run_project(
         &self,
         layout: &crate::project::ProjectLayout,
         args: &[String],
     ) -> Result<(String, String, i32, u128), String> {
+        if !self.use_llvm {
+            let dmir_mod = if layout.source_files.len() == 1 {
+                self.compile_file_to_dmir(&layout.source_files[0])?
+            } else {
+                self.compile_files_to_dmir(&layout.source_files)?
+            };
+            return self.cranelift.run_jit(&dmir_mod, args, true);
+        }
         let res = if layout.source_files.len() == 1 {
             self.compile_file(&layout.source_files[0], None)
         } else {
@@ -839,6 +1056,25 @@ impl ForgenCompiler {
         let exe = res
             .exe_path
             .ok_or_else(|| "Compilation succeeded but produced no executable".to_string())?;
+        self.codegen.run_executable(&exe, args)
+    }
+
+    pub fn run_source(
+        &self,
+        source: &str,
+        file: &str,
+        args: &[String],
+        capture: bool,
+    ) -> Result<(String, String, i32, u128), String> {
+        if !self.use_llvm {
+            let dmir_mod = self.compile_source_to_dmir(source, file)?;
+            return self.cranelift.run_jit(&dmir_mod, args, capture);
+        }
+        let res = self.compile_source(source, file, None);
+        if !res.success {
+            return Err(res.error.unwrap_or_else(|| "Compilation failed".into()));
+        }
+        let exe = res.exe_path.unwrap();
         self.codegen.run_executable(&exe, args)
     }
 
@@ -1763,6 +1999,10 @@ impl ForgenCompiler {
         path: &Path,
         args: &[String],
     ) -> Result<(String, String, i32, u128), String> {
+        if !self.use_llvm {
+            let dmir_mod = self.compile_file_to_dmir(path)?;
+            return self.cranelift.run_jit(&dmir_mod, args, true);
+        }
         let res = self.compile_file(path, None);
         if !res.success {
             return Err(res.error.unwrap_or_else(|| "Compilation failed".into()));

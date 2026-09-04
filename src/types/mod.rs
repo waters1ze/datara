@@ -475,6 +475,54 @@ impl<'a> TypeChecker<'a> {
             (vec![DataraType::String], DataraType::String, Vec::new()),
         );
         function_signatures.insert(
+            "str_len".to_string(),
+            (vec![DataraType::String], DataraType::Int, Vec::new()),
+        );
+        function_signatures.insert(
+            "datara_rt_str_len".to_string(),
+            (vec![DataraType::String], DataraType::Int, Vec::new()),
+        );
+        function_signatures.insert(
+            "int_to_str".to_string(),
+            (vec![DataraType::Int], DataraType::String, Vec::new()),
+        );
+        function_signatures.insert(
+            "datara_rt_int_to_str".to_string(),
+            (vec![DataraType::Int], DataraType::String, Vec::new()),
+        );
+        function_signatures.insert(
+            "uuid_v4".to_string(),
+            (Vec::new(), DataraType::String, Vec::new()),
+        );
+        function_signatures.insert(
+            "datara_rt_uuid_v4".to_string(),
+            (Vec::new(), DataraType::String, Vec::new()),
+        );
+        function_signatures.insert(
+            "datara_rt_dialog_info".to_string(),
+            (
+                vec![DataraType::String, DataraType::String],
+                DataraType::Int,
+                Vec::new(),
+            ),
+        );
+        function_signatures.insert(
+            "datara_rt_dialog_alert".to_string(),
+            (
+                vec![DataraType::String, DataraType::String],
+                DataraType::Int,
+                Vec::new(),
+            ),
+        );
+        function_signatures.insert(
+            "datara_rt_dialog_confirm".to_string(),
+            (
+                vec![DataraType::String, DataraType::String],
+                DataraType::Int,
+                Vec::new(),
+            ),
+        );
+        function_signatures.insert(
             "process_run".to_string(),
             (vec![DataraType::String], DataraType::Int, Vec::new()),
         );

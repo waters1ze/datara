@@ -19,7 +19,9 @@ pub struct JsonRpcResponse {
     pub result: Value,
 }
 
-pub struct LspServer;
+pub struct LspServer {
+    documents: std::sync::Mutex<std::collections::HashMap<String, String>>,
+}
 
 /// Upper bound for a single JSON-RPC message (16 MiB). Anything larger is
 /// drained and rejected instead of being allocated up front.
@@ -33,7 +35,9 @@ impl Default for LspServer {
 
 impl LspServer {
     pub fn new() -> Self {
-        Self
+        Self {
+            documents: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
     }
 
     fn send_error<W: Write>(&self, message: &str, writer: &mut W) -> io::Result<()> {
@@ -111,10 +115,6 @@ impl LspServer {
     pub fn handle_request<W: Write>(&self, req: &JsonRpcRequest, writer: &mut W) -> io::Result<()> {
         match req.method.as_str() {
             "initialize" => {
-                // Only advertise capabilities that are actually implemented.
-                // The former list claimed hover & completion providers that
-                // do not exist, so IDE clients kept calling methods that
-                // always returned null.
                 let resp = serde_json::json!({
                     "capabilities": {
                         "textDocumentSync": 1,
@@ -122,7 +122,9 @@ impl LspServer {
                         "completionProvider": {
                             "resolveProvider": false,
                             "triggerCharacters": [".", ":", " "]
-                        }
+                        },
+                        "documentFormattingProvider": true,
+                        "definitionProvider": true
                     },
                     "serverInfo": {
                         "name": "forgen-lsp",
@@ -160,17 +162,84 @@ impl LspServer {
                         });
 
                     if let Some(source) = text {
+                        if let Ok(mut docs) = self.documents.lock() {
+                            docs.insert(uri.to_string(), source.to_string());
+                        }
                         self.publish_diagnostics(uri, source, writer)?;
+                    }
+                }
+            }
+
+            "textDocument/formatting" => {
+                if let Some(ref id) = req.id {
+                    let uri = req
+                        .params
+                        .as_ref()
+                        .and_then(|p| p.get("textDocument"))
+                        .and_then(|td| td.get("uri"))
+                        .and_then(|u| u.as_str());
+
+                    let source_opt = uri.and_then(|u| self.documents.lock().ok()?.get(u).cloned());
+
+                    if let Some(source) = source_opt {
+                        let (formatted, diffs) = crate::fmt::format_source(
+                            &source,
+                            &crate::fmt::FormatOptions::default(),
+                        );
+                        if diffs.is_empty() {
+                            self.send_response(id.clone(), serde_json::json!([]), writer)?;
+                        } else {
+                            let line_count = source.lines().count().max(1);
+                            let last_len = source.lines().last().map(|l| l.len()).unwrap_or(0);
+                            let edits = serde_json::json!([{
+                                "range": {
+                                    "start": { "line": 0, "character": 0 },
+                                    "end": { "line": line_count + 1, "character": last_len }
+                                },
+                                "newText": formatted
+                            }]);
+                            self.send_response(id.clone(), edits, writer)?;
+                        }
+                    } else {
+                        self.send_response(id.clone(), serde_json::json!([]), writer)?;
                     }
                 }
             }
 
             "textDocument/hover" => {
                 if let Some(ref id) = req.id {
+                    let uri = req
+                        .params
+                        .as_ref()
+                        .and_then(|p| p.get("textDocument"))
+                        .and_then(|td| td.get("uri"))
+                        .and_then(|u| u.as_str());
+                    let pos = req.params.as_ref().and_then(|p| p.get("position"));
+                    let line = pos
+                        .and_then(|p| p.get("line"))
+                        .and_then(|l| l.as_u64())
+                        .unwrap_or(0) as usize;
+                    let col = pos
+                        .and_then(|p| p.get("character"))
+                        .and_then(|c| c.as_u64())
+                        .unwrap_or(0) as usize;
+
+                    let word = uri.and_then(|u| {
+                        let docs = self.documents.lock().ok()?;
+                        let src = docs.get(u)?;
+                        Self::word_at_position(src, line, col)
+                    });
+
+                    let hover_text = word.as_deref().and_then(Self::hover_info_for_word);
+
+                    let card_content = hover_text.unwrap_or_else(|| {
+                        "**Datara Semantic Inspector**\n\n- **Triad**: `let` (0-cost SSA register), `mut` (1-word mutable), `val` (gradual)\n- **Purity**: Verified zero-effect pure scope\n- **Ownership**: Linear single-owner, zero-cost move semantics".to_string()
+                    });
+
                     let hover_card = serde_json::json!({
                         "contents": {
                             "kind": "markdown",
-                            "value": "**Datara Semantic Inspector**\n\n- **Triad**: `let` (0-cost SSA register), `mut` (1-word mutable), `val` (gradual)\n- **Purity**: Verified zero-effect pure scope\n- **Ownership**: Linear single-owner, zero-cost move semantics"
+                            "value": card_content
                         }
                     });
                     self.send_response(id.clone(), hover_card, writer)?;
@@ -179,7 +248,14 @@ impl LspServer {
 
             "textDocument/completion" => {
                 if let Some(ref id) = req.id {
-                    let items = vec![
+                    let uri = req
+                        .params
+                        .as_ref()
+                        .and_then(|p| p.get("textDocument"))
+                        .and_then(|td| td.get("uri"))
+                        .and_then(|u| u.as_str());
+
+                    let mut items = vec![
                         serde_json::json!({ "label": "let", "kind": 14, "detail": "Immutable static value (0 cost register SSA)" }),
                         serde_json::json!({ "label": "mut", "kind": 14, "detail": "Mutable static variable (1-word type locked)" }),
                         serde_json::json!({ "label": "val", "kind": 14, "detail": "Dynamic gradual container" }),
@@ -188,17 +264,79 @@ impl LspServer {
                         serde_json::json!({ "label": "packet", "kind": 22, "detail": "Hardware Bitfield Memory Packet" }),
                         serde_json::json!({ "label": "fn", "kind": 3, "detail": "Native High-Performance Function" }),
                         serde_json::json!({ "label": "out", "kind": 14, "detail": "Native Standard Output Stream" }),
+                        serde_json::json!({ "label": "uuid_v4", "kind": 3, "detail": "fn uuid_v4() -> Str (RFC 4122 v4 UUID)" }),
+                        serde_json::json!({ "label": "sha256", "kind": 3, "detail": "fn sha256(data: Str) -> Str" }),
+                        serde_json::json!({ "label": "int_to_str", "kind": 3, "detail": "fn int_to_str(v: Int) -> Str" }),
+                        serde_json::json!({ "label": "str_len", "kind": 3, "detail": "fn str_len(s: Str) -> Int" }),
+                        serde_json::json!({ "label": "str_trim", "kind": 3, "detail": "fn str_trim(s: Str) -> Str" }),
                         serde_json::json!({ "label": "Page", "kind": 7, "detail": "stdlib.ui.page (Zero-JS HTML5 Page)" }),
                         serde_json::json!({ "label": "Card", "kind": 7, "detail": "stdlib.ui.components (Elevated Card Widget)" }),
                         serde_json::json!({ "label": "Button", "kind": 7, "detail": "stdlib.ui.components (Interactive Button)" }),
                         serde_json::json!({ "label": "MetricCard", "kind": 7, "detail": "stdlib.ui.components (KPI Metric Card)" }),
                         serde_json::json!({ "label": "ReactiveComponent", "kind": 7, "detail": "stdlib.ui.reactive (AOT Zero-VDOM Component)" }),
                     ];
+
+                    if let Some(u) = uri
+                        && let Ok(docs) = self.documents.lock()
+                        && let Some(src) = docs.get(u)
+                    {
+                        let dynamic_symbols = Self::extract_symbols_from_source(src);
+                        for (sym, kind, detail) in dynamic_symbols {
+                            items.push(serde_json::json!({
+                                "label": sym,
+                                "kind": kind,
+                                "detail": detail
+                            }));
+                        }
+                    }
+
                     self.send_response(
                         id.clone(),
                         serde_json::json!({ "isIncomplete": false, "items": items }),
                         writer,
                     )?;
+                }
+            }
+
+            "textDocument/definition" => {
+                if let Some(ref id) = req.id {
+                    let uri = req
+                        .params
+                        .as_ref()
+                        .and_then(|p| p.get("textDocument"))
+                        .and_then(|td| td.get("uri"))
+                        .and_then(|u| u.as_str());
+                    let pos = req.params.as_ref().and_then(|p| p.get("position"));
+                    let line = pos
+                        .and_then(|p| p.get("line"))
+                        .and_then(|l| l.as_u64())
+                        .unwrap_or(0) as usize;
+                    let col = pos
+                        .and_then(|p| p.get("character"))
+                        .and_then(|c| c.as_u64())
+                        .unwrap_or(0) as usize;
+
+                    let def_loc = if let Some(u) = uri
+                        && let Ok(docs) = self.documents.lock()
+                        && let Some(src) = docs.get(u)
+                        && let Some(w) = Self::word_at_position(src, line, col)
+                    {
+                        Self::find_definition_in_source(src, &w).map(
+                            |(def_line, def_col, end_col)| {
+                                serde_json::json!({
+                                    "uri": u,
+                                    "range": {
+                                        "start": { "line": def_line, "character": def_col },
+                                        "end": { "line": def_line, "character": end_col }
+                                    }
+                                })
+                            },
+                        )
+                    } else {
+                        None
+                    };
+
+                    self.send_response(id.clone(), def_loc.unwrap_or(Value::Null), writer)?;
                 }
             }
 
@@ -306,5 +444,229 @@ impl LspServer {
         writer.write_all(header.as_bytes())?;
         writer.write_all(body.as_bytes())?;
         writer.flush()
+    }
+
+    fn word_at_position(source: &str, line: usize, col: usize) -> Option<String> {
+        let line_str = source.lines().nth(line)?;
+        let chars: Vec<(usize, char)> = line_str.char_indices().collect();
+        if chars.is_empty() {
+            return None;
+        }
+        let target_idx = col.min(chars.len().saturating_sub(1));
+        let mut idx = target_idx;
+        if !chars[idx].1.is_alphanumeric() && chars[idx].1 != '_' {
+            if idx > 0 && (chars[idx - 1].1.is_alphanumeric() || chars[idx - 1].1 == '_') {
+                idx -= 1;
+            } else {
+                return None;
+            }
+        }
+        let mut start = idx;
+        while start > 0 && (chars[start - 1].1.is_alphanumeric() || chars[start - 1].1 == '_') {
+            start -= 1;
+        }
+        let mut end = idx;
+        while end + 1 < chars.len()
+            && (chars[end + 1].1.is_alphanumeric() || chars[end + 1].1 == '_')
+        {
+            end += 1;
+        }
+        let byte_start = chars[start].0;
+        let byte_end = if end + 1 < chars.len() {
+            chars[end + 1].0
+        } else {
+            line_str.len()
+        };
+        Some(line_str[byte_start..byte_end].to_string())
+    }
+
+    fn hover_info_for_word(w: &str) -> Option<String> {
+        match w {
+            "let" => Some("**let**: Immutable static register (0-cost SSA register, linear ownership)".into()),
+            "mut" => Some("**mut**: Mutable variable (1-word type locked, fast stack allocate)".into()),
+            "val" => Some("**val**: Gradual dynamic container (heterogeneous variant box)".into()),
+            "fn" => Some("**fn**: High-performance native function declaration".into()),
+            "class" => Some("**class**: Data-oriented class declaration (contiguous memory layout)".into()),
+            "behavior" => Some("**behavior**: Decoupled behavior implementation for a class".into()),
+            "packet" => Some("**packet**: Hardware-aligned bitfield memory packet".into()),
+            "extern" => Some("**extern**: Foreign Function Interface (zero-overhead C ABI)".into()),
+            "out" => Some("**out**: Datara streaming stdout pipe".into()),
+            "uuid_v4" => Some("**fn uuid_v4() -> Str**\n\nGenerates a cryptographically secure RFC 4122 v4 UUID with OS entropy.".into()),
+            "sha256" => Some("**fn sha256(data: Str) -> Str**\n\nComputes SHA-256 cryptographic hash of the input string.".into()),
+            "base64_encode" => Some("**fn base64_encode(data: Str) -> Str**\n\nEncodes input string to standard Base64.".into()),
+            "base64_decode" => Some("**fn base64_decode(data: Str) -> Str**\n\nDecodes standard Base64 string back into raw text.".into()),
+            "int_to_str" => Some("**fn int_to_str(v: Int) -> Str**\n\nConverts a 64-bit integer to its decimal string representation.".into()),
+            "str_len" => Some("**fn str_len(s: Str) -> Int**\n\nReturns the byte length of the string.".into()),
+            "str_trim" => Some("**fn str_trim(s: Str) -> Str**\n\nTrims leading and trailing whitespace from string.".into()),
+            "str_to_int" => Some("**fn str_to_int(s: Str) -> Int**\n\nParses string into 64-bit signed integer.".into()),
+            "str_to_float" => Some("**fn str_to_float(s: Str) -> Float**\n\nParses string into 64-bit float.".into()),
+            "sleep" => Some("**fn sleep(ms: Int)**\n\nSuspends current thread for the specified duration in milliseconds.".into()),
+            "parallel_for" => Some("**fn parallel_for(start: Int, end: Int, fn)**\n\nDistributes loop iterations across hardware worker threads.".into()),
+            "parallel_invoke" => Some("**fn parallel_invoke(fn1, fn2)**\n\nExecutes two functions concurrently using work-stealing.".into()),
+            "num_workers" => Some("**fn num_workers() -> Int**\n\nReturns the number of active thread pool worker threads.".into()),
+            _ => None,
+        }
+    }
+
+    fn extract_symbols_from_source(source: &str) -> Vec<(String, usize, String)> {
+        let mut symbols = Vec::new();
+        for line in source.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("fn ") {
+                let name = rest.split('(').next().unwrap_or("").trim();
+                if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    symbols.push((name.to_string(), 3, format!("User Function: {}", trimmed)));
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("class ") {
+                let name = rest.split_whitespace().next().unwrap_or("").trim();
+                if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    symbols.push((name.to_string(), 7, "User Class".to_string()));
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("let ") {
+                let name = rest
+                    .split('=')
+                    .next()
+                    .unwrap_or("")
+                    .split(':')
+                    .next()
+                    .unwrap_or("")
+                    .trim();
+                if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    symbols.push((name.to_string(), 6, "Local Constant".to_string()));
+                }
+            } else if let Some(rest) = trimmed.strip_prefix("mut ") {
+                let name = rest
+                    .split('=')
+                    .next()
+                    .unwrap_or("")
+                    .split(':')
+                    .next()
+                    .unwrap_or("")
+                    .trim();
+                if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    symbols.push((name.to_string(), 6, "Mutable Variable".to_string()));
+                }
+            }
+        }
+        symbols
+    }
+
+    fn find_definition_in_source(source: &str, word: &str) -> Option<(usize, usize, usize)> {
+        for (line_idx, line) in source.lines().enumerate() {
+            let prefixes = [
+                "fn ",
+                "class ",
+                "behavior ",
+                "packet ",
+                "let ",
+                "mut ",
+                "val ",
+            ];
+            for pre in prefixes {
+                if let Some(pos) = line.find(pre) {
+                    let after = &line[pos + pre.len()..];
+                    let sym = after
+                        .split(|c: char| !c.is_alphanumeric() && c != '_')
+                        .next()
+                        .unwrap_or("");
+                    if sym == word {
+                        let start_col = pos + pre.len();
+                        let end_col = start_col + word.len();
+                        return Some((line_idx, start_col, end_col));
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lsp_initialize_and_capabilities() {
+        let server = LspServer::new();
+        let mut buf = Vec::new();
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: Some(serde_json::json!(1)),
+            method: "initialize".into(),
+            params: None,
+        };
+        server.handle_request(&req, &mut buf).unwrap();
+        let output = String::from_utf8(buf).unwrap();
+        assert!(output.contains("\"documentFormattingProvider\":true"));
+        assert!(output.contains("\"definitionProvider\":true"));
+        assert!(output.contains("\"hoverProvider\":true"));
+    }
+
+    #[test]
+    fn test_lsp_hover_and_completion_and_definition() {
+        let server = LspServer::new();
+        let mut buf = Vec::new();
+
+        let doc_uri = "file:///workspace/test.dtr";
+        let doc_code = "fn calculate_total() -> Int {\n    let x = 42\n    return x\n}\n";
+
+        // didOpen
+        let open_req = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: None,
+            method: "textDocument/didOpen".into(),
+            params: Some(serde_json::json!({
+                "textDocument": {
+                    "uri": doc_uri,
+                    "text": doc_code
+                }
+            })),
+        };
+        server.handle_request(&open_req, &mut buf).unwrap();
+
+        // hover
+        buf.clear();
+        let hover_req = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: Some(serde_json::json!(2)),
+            method: "textDocument/hover".into(),
+            params: Some(serde_json::json!({
+                "textDocument": { "uri": doc_uri },
+                "position": { "line": 0, "character": 1 } // on 'fn'
+            })),
+        };
+        server.handle_request(&hover_req, &mut buf).unwrap();
+        let hover_out = String::from_utf8(buf.clone()).unwrap();
+        assert!(hover_out.contains("High-performance native function"));
+
+        // completion
+        buf.clear();
+        let comp_req = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: Some(serde_json::json!(3)),
+            method: "textDocument/completion".into(),
+            params: Some(serde_json::json!({
+                "textDocument": { "uri": doc_uri }
+            })),
+        };
+        server.handle_request(&comp_req, &mut buf).unwrap();
+        let comp_out = String::from_utf8(buf.clone()).unwrap();
+        assert!(comp_out.contains("calculate_total"));
+        assert!(comp_out.contains("uuid_v4"));
+
+        // definition
+        buf.clear();
+        let def_req = JsonRpcRequest {
+            jsonrpc: "2.0".into(),
+            id: Some(serde_json::json!(4)),
+            method: "textDocument/definition".into(),
+            params: Some(serde_json::json!({
+                "textDocument": { "uri": doc_uri },
+                "position": { "line": 0, "character": 5 } // on 'calculate_total'
+            })),
+        };
+        server.handle_request(&def_req, &mut buf).unwrap();
+        let def_out = String::from_utf8(buf.clone()).unwrap();
+        assert!(def_out.contains(doc_uri));
     }
 }

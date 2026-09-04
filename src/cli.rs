@@ -250,6 +250,26 @@ pub fn run_cli() {
             let is_llvm = args.iter().any(|a| a == "--llvm");
             let compiler = ForgenCompiler::new(mode).with_llvm(is_llvm);
 
+            // Cranelift in-memory JIT execution: zero disk artifacts, sub-millisecond launch
+            if !is_llvm {
+                match compiler.run_project(&layout, &run_args) {
+                    Ok((stdout, stderr, code, _)) => {
+                        print!("{}", stdout);
+                        if !stderr.is_empty() {
+                            eprint!("{}", stderr);
+                        }
+                        if code != 0 {
+                            std::process::exit(code);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{}", e);
+                        std::process::exit(1);
+                    }
+                }
+                return;
+            }
+
             // Incremental caching check: if target binary is newer than all source files, run directly
             let bin_name = layout.binary_name();
             let exe_target = if layout.source_files.len() == 1 && layout.manifest.is_none() {

@@ -173,14 +173,17 @@ behavior Redis {
 
     set(k: Str, v: Str) -> Str {
         if !this.is_connected { return "ERROR" }
-        let cmd = "*3\r\n$3\r\nSET\r\n$" + str_to_int("0") + k + "\r\n$" + str_to_int("0") + v + "\r\n"
+        let k_len = int_to_str(str_len(k))
+        let v_len = int_to_str(str_len(v))
+        let cmd = "*3\r\n$3\r\nSET\r\n$" + k_len + "\r\n" + k + "\r\n$" + v_len + "\r\n" + v + "\r\n"
         let _ = this.stream.send(cmd)
         return str_trim(this.stream.recv(1024))
     }
 
     get(k: Str) -> Str {
         if !this.is_connected { return "" }
-        let cmd = "*2\r\n$3\r\nGET\r\n$" + str_to_int("0") + k + "\r\n"
+        let k_len = int_to_str(str_len(k))
+        let cmd = "*2\r\n$3\r\nGET\r\n$" + k_len + "\r\n" + k + "\r\n"
         let _ = this.stream.send(cmd)
         return str_trim(this.stream.recv(4096))
     }
@@ -285,9 +288,7 @@ class Uuid {
 
 behavior Uuid {
     v4() -> Str {
-        let ts = str_to_int("0")
-        let hash = sha256("uuid_seed_" + ts)
-        return hash
+        return uuid_v4()
     }
 }
 "#

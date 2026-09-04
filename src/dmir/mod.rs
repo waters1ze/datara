@@ -275,6 +275,10 @@ impl<'a> Lowering<'a> {
         function_return_types.insert("now_ms".into(), "Int".into());
         function_return_types.insert("now_precise_ms".into(), "Int".into());
         function_return_types.insert("length".into(), "Int".into());
+        function_return_types.insert("str_len".into(), "Int".into());
+        function_return_types.insert("datara_rt_str_len".into(), "Int".into());
+        function_return_types.insert("int_to_str".into(), "String".into());
+        function_return_types.insert("datara_rt_int_to_str".into(), "String".into());
         function_return_types.insert("socket_create".into(), "Int".into());
         function_return_types.insert("socket_bind".into(), "Int".into());
         function_return_types.insert("socket_listen".into(), "Int".into());
@@ -286,6 +290,11 @@ impl<'a> Lowering<'a> {
         function_return_types.insert("sha256".into(), "String".into());
         function_return_types.insert("base64_encode".into(), "String".into());
         function_return_types.insert("base64_decode".into(), "String".into());
+        function_return_types.insert("uuid_v4".into(), "String".into());
+        function_return_types.insert("datara_rt_uuid_v4".into(), "String".into());
+        function_return_types.insert("datara_rt_dialog_info".into(), "Int".into());
+        function_return_types.insert("datara_rt_dialog_alert".into(), "Int".into());
+        function_return_types.insert("datara_rt_dialog_confirm".into(), "Int".into());
         function_return_types.insert("process_run".into(), "Int".into());
         function_return_types.insert("system".into(), "Int".into());
         function_return_types.insert("process_output".into(), "String".into());
@@ -2258,6 +2267,10 @@ impl<'a> Lowering<'a> {
                             || func_name == "datara_rt_base64_encode"
                             || func_name == "base64_decode"
                             || func_name == "datara_rt_base64_decode"
+                            || func_name == "uuid_v4"
+                            || func_name == "datara_rt_uuid_v4"
+                            || func_name == "int_to_str"
+                            || func_name == "datara_rt_int_to_str"
                         {
                             "String".into()
                         } else {

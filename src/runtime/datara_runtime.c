@@ -442,8 +442,50 @@ void datara_rt_flush(void) {
     }
 }
 
+static DATARA_TLS int g_capture_enabled = 0;
+static DATARA_TLS char* g_capture_buf = NULL;
+static DATARA_TLS size_t g_capture_len = 0;
+static DATARA_TLS size_t g_capture_cap = 0;
+
+void datara_rt_set_capture(int32_t enable) {
+    g_capture_enabled = enable;
+    if (enable) {
+        datara_rt_clear_capture();
+    }
+}
+
+void datara_rt_clear_capture(void) {
+    if (g_capture_buf) {
+        g_capture_buf[0] = '\0';
+    }
+    g_capture_len = 0;
+}
+
+const char* datara_rt_get_capture(void) {
+    datara_rt_flush();
+    return g_capture_buf ? g_capture_buf : "";
+}
+
+static void datara_capture_append(const char* s, size_t len) {
+    if (!s || len == 0) return;
+    if (g_capture_len + len + 1 > g_capture_cap) {
+        size_t new_cap = (g_capture_cap == 0) ? 4096 : (g_capture_cap * 2 + len + 1);
+        char* new_buf = (char*)realloc(g_capture_buf, new_cap);
+        if (!new_buf) return;
+        g_capture_buf = new_buf;
+        g_capture_cap = new_cap;
+    }
+    memcpy(g_capture_buf + g_capture_len, s, len);
+    g_capture_len += len;
+    g_capture_buf[g_capture_len] = '\0';
+}
+
 static inline void datara_rt_buf_write(const char* s, size_t len) {
     if (!s || len == 0) return;
+    if (g_capture_enabled) {
+        datara_capture_append(s, len);
+        return;
+    }
     if (len >= DATARA_OUT_BUF_SIZE) {
         datara_rt_flush();
 #ifdef _WIN32
@@ -739,6 +781,13 @@ int64_t* datara_rt_list_create_repeat(int64_t elem, int64_t count) {
         arr[i + 1] = elem;
     }
     return arr;
+}
+
+void* datara_rt_map_create(void) {
+    int64_t* map = (int64_t*)malloc(sizeof(int64_t));
+    if (!map) return NULL;
+    map[0] = 0;
+    return map;
 }
 
 int64_t* datara_rt_map_create_2(const char* k0, int64_t v0, const char* k1, int64_t v1) {
@@ -1446,6 +1495,151 @@ const char* datara_rt_base64_decode(const char* input) {
     }
     decoded[out_len] = '\0';
     return decoded;
+}
+
+int64_t datara_rt_random_bytes(uint8_t* buf, int64_t len) {
+    if (!buf || len <= 0) return 0;
+#ifdef _WIN32
+    typedef unsigned char (__stdcall *DataraRtlGenRandomFn)(void*, unsigned long);
+    static DataraRtlGenRandomFn s_pfnRtlGenRandom = NULL;
+    static int s_rng_init = 0;
+    if (!s_rng_init) {
+        HMODULE hAdvApi = LoadLibraryA("advapi32.dll");
+        if (hAdvApi) {
+            s_pfnRtlGenRandom = (DataraRtlGenRandomFn)GetProcAddress(hAdvApi, "SystemFunction036");
+        }
+        s_rng_init = 1;
+    }
+    if (s_pfnRtlGenRandom && s_pfnRtlGenRandom((void*)buf, (unsigned long)len)) {
+        return len;
+    }
+#else
+    int fd = open("/dev/urandom", O_RDONLY);
+    if (fd >= 0) {
+        ssize_t r = read(fd, buf, (size_t)len);
+        close(fd);
+        if (r > 0) return (int64_t)r;
+    }
+#endif
+    // High-entropy fallback using splitmix64 / xorshift with clock
+    int64_t seed = datara_rt_now_precise_ms();
+    for (int64_t i = 0; i < len; i++) {
+        seed = seed * 6364136223846793005ULL + 1442695040888963407ULL;
+        buf[i] = (uint8_t)((seed >> 32) ^ (seed & 0xFF));
+    }
+    return len;
+}
+
+const char* datara_rt_uuid_v4(void) {
+    uint8_t b[16];
+    datara_rt_random_bytes(b, 16);
+    // RFC 4122 v4 variant & version bits
+    b[6] = (b[6] & 0x0F) | 0x40; // Version 4
+    b[8] = (b[8] & 0x3F) | 0x80; // Variant 1 (RFC 4122)
+
+    char* str = (char*)malloc(37);
+    if (!str) return "";
+    snprintf(str, 37, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+        b[0], b[1], b[2], b[3],
+        b[4], b[5],
+        b[6], b[7],
+        b[8], b[9],
+        b[10], b[11], b[12], b[13], b[14], b[15]
+    );
+    return str;
+}
+
+// ---------------------------------------------------------------------------
+// Native UI Dialogs (Cross-platform)
+// ---------------------------------------------------------------------------
+int64_t datara_rt_dialog_info(const char* title, const char* msg) {
+#ifdef _WIN32
+    HMODULE hUser = LoadLibraryA("user32.dll");
+    if (hUser) {
+        typedef int (WINAPI *MsgBoxFn)(HWND, LPCSTR, LPCSTR, UINT);
+        MsgBoxFn pfn = (MsgBoxFn)GetProcAddress(hUser, "MessageBoxA");
+        if (pfn) {
+            pfn(NULL, msg ? msg : "", title ? title : "Information", 0x00000000L | 0x00000040L /* MB_OK | MB_ICONINFORMATION */);
+            return 1;
+        }
+    }
+#elif defined(__APPLE__)
+    if (msg && title) {
+        char cmd[1024];
+        snprintf(cmd, sizeof(cmd), "osascript -e 'display dialog \"%s\" with title \"%s\" buttons {\"OK\"} default button \"OK\"'", msg, title);
+        if (system(cmd) == 0) return 1;
+    }
+#else
+    if (getenv("DISPLAY") || getenv("WAYLAND_DISPLAY")) {
+        char cmd[1024];
+        snprintf(cmd, sizeof(cmd), "zenity --info --title=\"%s\" --text=\"%s\" 2>/dev/null", title ? title : "Info", msg ? msg : "");
+        if (system(cmd) == 0) return 1;
+    }
+#endif
+    printf("[%s] %s\n", title ? title : "Info", msg ? msg : "");
+    fflush(stdout);
+    return 1;
+}
+
+int64_t datara_rt_dialog_alert(const char* title, const char* msg) {
+#ifdef _WIN32
+    HMODULE hUser = LoadLibraryA("user32.dll");
+    if (hUser) {
+        typedef int (WINAPI *MsgBoxFn)(HWND, LPCSTR, LPCSTR, UINT);
+        MsgBoxFn pfn = (MsgBoxFn)GetProcAddress(hUser, "MessageBoxA");
+        if (pfn) {
+            pfn(NULL, msg ? msg : "", title ? title : "Alert", 0x00000000L | 0x00000030L /* MB_OK | MB_ICONWARNING */);
+            return 1;
+        }
+    }
+#elif defined(__APPLE__)
+    if (msg && title) {
+        char cmd[1024];
+        snprintf(cmd, sizeof(cmd), "osascript -e 'display alert \"%s\" message \"%s\" as warning'", title, msg);
+        if (system(cmd) == 0) return 1;
+    }
+#else
+    if (getenv("DISPLAY") || getenv("WAYLAND_DISPLAY")) {
+        char cmd[1024];
+        snprintf(cmd, sizeof(cmd), "zenity --warning --title=\"%s\" --text=\"%s\" 2>/dev/null", title ? title : "Warning", msg ? msg : "");
+        if (system(cmd) == 0) return 1;
+    }
+#endif
+    fprintf(stderr, "[%s] %s\n", title ? title : "Warning", msg ? msg : "");
+    fflush(stderr);
+    return 1;
+}
+
+int64_t datara_rt_dialog_confirm(const char* title, const char* msg) {
+#ifdef _WIN32
+    HMODULE hUser = LoadLibraryA("user32.dll");
+    if (hUser) {
+        typedef int (WINAPI *MsgBoxFn)(HWND, LPCSTR, LPCSTR, UINT);
+        MsgBoxFn pfn = (MsgBoxFn)GetProcAddress(hUser, "MessageBoxA");
+        if (pfn) {
+            int res = pfn(NULL, msg ? msg : "", title ? title : "Confirm", 0x00000004L | 0x00000020L /* MB_YESNO | MB_ICONQUESTION */);
+            return (res == 6 /* IDYES */) ? 1 : 0;
+        }
+    }
+#elif defined(__APPLE__)
+    if (msg && title) {
+        char cmd[1024];
+        snprintf(cmd, sizeof(cmd), "osascript -e 'display dialog \"%s\" with title \"%s\" buttons {\"Cancel\", \"OK\"} default button \"OK\"'", msg, title);
+        int res = system(cmd);
+        return (res == 0) ? 1 : 0;
+    }
+#else
+    if (getenv("DISPLAY") || getenv("WAYLAND_DISPLAY")) {
+        char cmd[1024];
+        snprintf(cmd, sizeof(cmd), "zenity --question --title=\"%s\" --text=\"%s\" 2>/dev/null", title ? title : "Confirm", msg ? msg : "");
+        int res = system(cmd);
+        return (res == 0) ? 1 : 0;
+    }
+#endif
+    printf("[%s] %s (y/n): ", title ? title : "Confirm", msg ? msg : "");
+    fflush(stdout);
+    int c = getchar();
+    return (c == 'y' || c == 'Y') ? 1 : 0;
 }
 
 int64_t datara_rt_system(const char* cmd) {

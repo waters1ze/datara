@@ -31,6 +31,9 @@ void        datara_rt_print_space(void);
 void        datara_rt_print_newline(void);
 void        datara_rt_flush(void);
 void        datara_rt_print_list(void* list);
+void        datara_rt_set_capture(int32_t enable);
+const char* datara_rt_get_capture(void);
+void        datara_rt_clear_capture(void);
 
 // String Operations
 const char* datara_rt_int_to_str(int64_t v);
@@ -90,10 +93,17 @@ const char* datara_rt_socket_recv(int64_t sock, int64_t max_bytes);
 void        datara_rt_socket_close(int64_t sock);
 const char* datara_rt_http_get(void);
 
-// Cryptography
+// Cryptography & Entropy
 const char* datara_rt_sha256(const char* input);
 const char* datara_rt_base64_encode(const char* input);
 const char* datara_rt_base64_decode(const char* input);
+int64_t     datara_rt_random_bytes(uint8_t* buf, int64_t len);
+const char* datara_rt_uuid_v4(void);
+
+// Native UI Dialogs (Cross-platform)
+int64_t     datara_rt_dialog_info(const char* title, const char* msg);
+int64_t     datara_rt_dialog_alert(const char* title, const char* msg);
+int64_t     datara_rt_dialog_confirm(const char* title, const char* msg);
 
 // Process & System
 int64_t     datara_rt_system(const char* cmd);

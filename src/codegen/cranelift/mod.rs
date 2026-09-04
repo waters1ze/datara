@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod clif;
+pub mod jit;
 
 use crate::ast::Program;
 use crate::codegen::CodegenBackend;
@@ -56,6 +57,16 @@ impl CraneliftBackend {
         args: &[String],
     ) -> Result<(String, String, i32, u128), String> {
         self.real_backend.run_executable(exe_path, args)
+    }
+
+    pub fn run_jit(
+        &self,
+        dmir_module: &Module,
+        args: &[String],
+        capture: bool,
+    ) -> Result<(String, String, i32, u128), String> {
+        self.real_backend
+            .compile_and_run_jit(dmir_module, args, capture)
     }
 }
 

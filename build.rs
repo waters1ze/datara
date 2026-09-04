@@ -31,10 +31,12 @@ fn main() {
         .file(runtime_dir.join("datara_runtime.c"))
         .include(&runtime_dir)
         .opt_level(2)
-        // Keep the runtime out of forgen.exe itself.
-        .cargo_metadata(false);
+        .cargo_metadata(true);
 
     if cfg!(target_os = "windows") {
+        println!("cargo:rustc-link-lib=ws2_32");
+        println!("cargo:rustc-link-lib=user32");
+        println!("cargo:rustc-link-lib=advapi32");
         let pf = env::var("ProgramFiles(x86)").unwrap_or_else(|_| "C:\\Program Files (x86)".into());
         let msvc_base = PathBuf::from(&pf).join("Microsoft Visual Studio");
         if let Ok(entries) = std::fs::read_dir(&msvc_base) {

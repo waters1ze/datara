@@ -73,6 +73,67 @@ pub fn runtime_lib_name() -> &'static str {
     }
 }
 
+/// Dynamically locates `datara_runtime.c` across development checkouts,
+/// installed toolchains, and custom DATARA_HOME directories.
+pub fn runtime_source_path() -> Option<PathBuf> {
+    // 1. Compile-time manifest checkout
+    let baked = PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/src/runtime/datara_runtime.c"
+    ));
+    if baked.exists() {
+        return Some(baked);
+    }
+
+    // 2. Relative to current executable
+    if let Ok(exe_path) = std::env::current_exe()
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        let candidates = [
+            exe_dir.join("runtime").join("datara_runtime.c"),
+            exe_dir.join("src").join("runtime").join("datara_runtime.c"),
+            exe_dir.join("datara_runtime.c"),
+        ];
+        for c in candidates {
+            if c.exists() {
+                return Some(c);
+            }
+        }
+        if let Some(parent) = exe_dir.parent() {
+            let p_cand = parent.join("runtime").join("datara_runtime.c");
+            if p_cand.exists() {
+                return Some(p_cand);
+            }
+        }
+    }
+
+    // 3. Check DATARA_HOME
+    if let Ok(home) = std::env::var("DATARA_HOME") {
+        let home_path = std::path::Path::new(&home);
+        let candidates = [
+            home_path.join("runtime").join("datara_runtime.c"),
+            home_path
+                .join("src")
+                .join("runtime")
+                .join("datara_runtime.c"),
+            home_path.join("datara_runtime.c"),
+        ];
+        for c in candidates {
+            if c.exists() {
+                return Some(c);
+            }
+        }
+    }
+
+    // 4. Current working directory fallback
+    let cwd_rel = PathBuf::from("src/runtime/datara_runtime.c");
+    if cwd_rel.exists() {
+        return Some(cwd_rel);
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

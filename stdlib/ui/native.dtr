@@ -1,4 +1,6 @@
-extern "C" fn MessageBoxA(hwnd: Int, text: Str, caption: Str, utype: Int) -> Int
+extern "C" fn datara_rt_dialog_info(title: Str, msg: Str) -> Int
+extern "C" fn datara_rt_dialog_alert(title: Str, msg: Str) -> Int
+extern "C" fn datara_rt_dialog_confirm(title: Str, msg: Str) -> Int
 
 class NativeDialog {
     title: Str
@@ -7,17 +9,14 @@ class NativeDialog {
 
 behavior NativeDialog {
     show_info() -> Int {
-        let MB_ICONINFORMATION = 64
-        return MessageBoxA(0, this.message, this.title, MB_ICONINFORMATION)
+        return datara_rt_dialog_info(this.title, this.message)
     }
 
     show_alert() -> Int {
-        let MB_ICONWARNING = 48
-        return MessageBoxA(0, this.message, this.title, MB_ICONWARNING)
+        return datara_rt_dialog_alert(this.title, this.message)
     }
 
     show_confirm() -> Int {
-        let MB_YESNO = 4
-        return MessageBoxA(0, this.message, this.title, MB_YESNO)
+        return datara_rt_dialog_confirm(this.title, this.message)
     }
 }

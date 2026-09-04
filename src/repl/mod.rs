@@ -2,7 +2,6 @@
 
 use crate::driver::ForgenCompiler;
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
 
 /// Calculates the delta of unclosed braces in a line, ignoring string literals and comments.
 pub fn count_brace_delta(line: &str) -> i32 {
@@ -48,7 +47,6 @@ pub struct ReplSession {
     pub buffer: String,
     pub brace_depth: i32,
     compiler: ForgenCompiler,
-    session_exe: PathBuf,
 }
 
 impl Default for ReplSession {
@@ -59,20 +57,6 @@ impl Default for ReplSession {
 
 impl ReplSession {
     pub fn new() -> Self {
-        // A random suffix (pid + high-resolution timestamp) makes the session
-        // binary path unguessable: the former `datara_repl_{pid}.exe` inside
-        // the shared temp directory had a predictable TOCTOU window between
-        // compilation and execution.
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let exe_name = if cfg!(windows) {
-            format!("datara_repl_{}_{:x}.exe", std::process::id(), nanos)
-        } else {
-            format!("datara_repl_{}_{:x}", std::process::id(), nanos)
-        };
-        let session_exe = std::env::temp_dir().join(exe_name);
         Self {
             history: Vec::new(),
             top_level_declarations: Vec::new(),
@@ -81,7 +65,6 @@ impl ReplSession {
             buffer: String::new(),
             brace_depth: 0,
             compiler: ForgenCompiler::new("repl"),
-            session_exe,
         }
     }
 
@@ -174,8 +157,6 @@ impl ReplSession {
                         .join("\n"),
                 ),
                 ":exit" | ":quit" | ":q" => {
-                    let _ = std::fs::remove_file(&self.session_exe);
-                    let _ = std::fs::remove_file(self.session_exe.with_extension("obj"));
                     std::process::exit(0);
                 }
                 _ => Some(format!("Unknown command '{}'. Type ':help' for help.", trimmed)),
@@ -242,13 +223,26 @@ impl ReplSession {
             source.push_str(trimmed);
             source.push('\n');
 
-            let res = self
-                .compiler
-                .compile_source(&source, "repl", Some(&self.session_exe));
-            if !res.success {
-                return res.error;
-            }
-            return self.run_session_exe();
+            return match self.compiler.run_source(&source, "repl", &[], true) {
+                Ok((stdout, stderr, code, _)) => {
+                    let out = stdout.trim();
+                    let err = stderr.trim();
+                    if code == 0 {
+                        if out.is_empty() {
+                            None
+                        } else {
+                            Some(format!("=> {}", out))
+                        }
+                    } else {
+                        Some(if !err.is_empty() {
+                            err.to_string()
+                        } else {
+                            out.to_string()
+                        })
+                    }
+                }
+                Err(e) => Some(e),
+            };
         }
 
         // Top-level declaration: fn, class, entity, behavior, role, component, packet, enum, use, extern
@@ -272,9 +266,7 @@ impl ReplSession {
             test_source.push_str(trimmed);
             test_source.push_str("\nfn main() {}\n");
 
-            let res = self
-                .compiler
-                .compile_source(&test_source, "repl_test", None);
+            let res = self.compiler.check_source(&test_source, "repl_test");
             if !res.success {
                 return res.error;
             }
@@ -354,55 +346,42 @@ impl ReplSession {
             || trimmed.starts_with("for ")
             || trimmed.contains(" = ");
 
-        if is_direct_stmt {
-            for line in trimmed.lines() {
-                source.push_str("    ");
-                source.push_str(line);
-                source.push('\n');
-            }
-            source.push_str("}\n");
-        } else {
+        if !is_direct_stmt {
             // First try evaluating as an expression whose result is printed
             let mut expr_source = source.clone();
             expr_source.push_str("    let __repl_res = ");
             expr_source.push_str(trimmed);
             expr_source.push_str(";\n    println(__repl_res)\n}\n");
 
-            let res = self
-                .compiler
-                .compile_source(&expr_source, "repl", Some(&self.session_exe));
-            if res.success {
-                return self.run_session_exe();
+            if let Ok((stdout, stderr, code, _)) =
+                self.compiler.run_source(&expr_source, "repl", &[], true)
+            {
+                let out = stdout.trim();
+                let err = stderr.trim();
+                if code == 0 {
+                    return if out.is_empty() {
+                        None
+                    } else {
+                        Some(format!("=> {}", out))
+                    };
+                } else if !err.is_empty() {
+                    return Some(err.to_string());
+                } else if !out.is_empty() {
+                    return Some(out.to_string());
+                }
             }
-
-            // If wrapping in `let __repl_res = ...` failed, try executing directly as statement
-            for line in trimmed.lines() {
-                source.push_str("    ");
-                source.push_str(line);
-                source.push('\n');
-            }
-            source.push_str("}\n");
         }
 
-        let res = self
-            .compiler
-            .compile_source(&source, "repl", Some(&self.session_exe));
-        if !res.success {
-            return res.error;
+        // Evaluate directly as statements
+        for line in trimmed.lines() {
+            source.push_str("    ");
+            source.push_str(line);
+            source.push('\n');
         }
+        source.push_str("}\n");
 
-        if expr.contains("input") {
-            let _ = std::process::Command::new(&self.session_exe)
-                .stdin(std::process::Stdio::inherit())
-                .status();
-            return None;
-        }
-
-        self.run_session_exe()
-    }
-
-    fn run_session_exe(&self) -> Option<String> {
-        match self.compiler.codegen.run_executable(&self.session_exe, &[]) {
+        let capture = !expr.contains("input");
+        match self.compiler.run_source(&source, "repl", &[], capture) {
             Ok((stdout, stderr, code, _)) => {
                 let out = stdout.trim();
                 let err = stderr.trim();
@@ -420,7 +399,7 @@ impl ReplSession {
                     })
                 }
             }
-            Err(e) => Some(format!("Execution failed: {}", e)),
+            Err(e) => Some(e),
         }
     }
 
@@ -430,8 +409,11 @@ impl ReplSession {
             "================================================================================"
         );
         println!(
-            " Datara Interactive REPL (Zero-Latency JIT Console v{})",
+            " Datara Interactive REPL (Zero-Latency In-Memory JIT Console v{})",
             env!("CARGO_PKG_VERSION")
+        );
+        println!(
+            " In-memory JIT execution active: zero disk artifacts, sub-millisecond evaluation."
         );
         println!(" Type ':help' for commands, ':exit' or Ctrl+C to quit.");
         println!(
@@ -441,36 +423,6 @@ impl ReplSession {
         let mut session = ReplSession::new();
         let stdin = io::stdin();
         let mut stdout = io::stdout();
-
-        // Check if linker is present upfront to guide users on clean Windows OS
-        if let Err(msg) = crate::codegen::linker::ensure_linker() {
-            eprintln!("\n{}\n", msg);
-            if cfg!(windows) {
-                print!(
-                    "Would you like to automatically configure Microsoft C++ Build Tools now? [Y/n]: "
-                );
-                let _ = stdout.flush();
-                let mut resp = String::new();
-                if stdin.lock().read_line(&mut resp).is_ok() {
-                    let r = resp.trim().to_lowercase();
-                    if r.is_empty() || r == "y" || r == "yes" {
-                        println!(
-                            "\nLaunching Microsoft C++ Build Tools installer window (Node.js style)..."
-                        );
-                        if crate::codegen::linker::run_windows_build_tools_installer() {
-                            crate::codegen::linker::invalidate_cache();
-                            println!(
-                                "[Success] C/C++ build tools installed! REPL is ready for native compilation.\n"
-                            );
-                        } else {
-                            println!(
-                                "[Notice] Setup window closed. You can also run 'forgen setup-tools'.\n"
-                            );
-                        }
-                    }
-                }
-            }
-        }
 
         loop {
             if session.brace_depth > 0 {
@@ -490,12 +442,5 @@ impl ReplSession {
                 println!("{}", res);
             }
         }
-    }
-}
-
-impl Drop for ReplSession {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.session_exe);
-        let _ = std::fs::remove_file(self.session_exe.with_extension("obj"));
     }
 }
