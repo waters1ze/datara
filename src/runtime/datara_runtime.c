@@ -1015,6 +1015,42 @@ int64_t datara_rt_file_exists(const char* path) {
     return 0;
 }
 
+void* datara_rt_sys_caps_create(void) {
+    return (void*)0xCAFE;
+}
+
+void* datara_rt_files_grant_readonly(void* prov, const char* path) {
+    (void)prov;
+    return (void*)path;
+}
+
+void* datara_rt_files_grant_readwrite(void* prov, const char* path) {
+    (void)prov;
+    return (void*)path;
+}
+
+void* datara_rt_net_grant_connect(void* prov, const char* host, int64_t port) {
+    (void)prov;
+    (void)host;
+    (void)port;
+    return (void*)0xCAFE;
+}
+
+void* datara_rt_file_open(void* token, const char* path) {
+    (void)token;
+    return (void*)path;
+}
+
+const char* datara_rt_file_read_all(void* handle) {
+    if (!handle) return "";
+    return datara_rt_file_read((const char*)handle);
+}
+
+int64_t datara_rt_file_close(void* handle) {
+    (void)handle;
+    return 0;
+}
+
 void datara_rt_sleep(int64_t ms) {
     if (ms <= 0) return;
 #ifdef _WIN32

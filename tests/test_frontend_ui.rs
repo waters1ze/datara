@@ -91,24 +91,25 @@ class Page {{
 }}
 
 behavior Page {{
-    save(path: Str) -> Bool {{
+    save(path: Str, token: Capability<FileWrite>) -> Bool {{
         let doc = "<!DOCTYPE html><html><head><title>" + this.title + "</title></head><body>" + this.content + "</body></html>"
         let res = file_write(path, doc)
         return res == 1
     }}
 }}
 
-fn main() {{
+fn main(sys_caps: SystemCapabilities) {{
+    let token = sys_caps.files.grant_readwrite("{}")
     let p = Page {{
         title: "Test Dashboard",
         content: "<h1>Zero-JS Pure Datara</h1>"
     }}
-    let ok = p.save("{}")
+    let ok = p.save("{}", token)
     assert(ok, "Failed to write html file")
     out "PAGE_SAVED_OK"
 }}
 "#,
-        target_html
+        target_html, target_html
     );
 
     let out = run_datara(&code, "test_ui_page_save.dtr");
@@ -129,7 +130,9 @@ fn main() {
     // Guarded so it does not block CI with a GUI modal, but forces the linker
     // to resolve MessageBoxA from user32.lib
     if 1 == 2 {
-        let res = MessageBoxA(0, "Headless test", "Title", 0)
+        unsafe(justification: "testing win32 user32.dll message box linking") {
+            let res = MessageBoxA(0, "Headless test", "Title", 0)
+        }
     }
     out "NATIVE_GUI_LINKED_OK"
 }

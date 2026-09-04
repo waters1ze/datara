@@ -236,9 +236,11 @@ impl EffectAnalyzer {
                 self.analyze_stmt(catch_block, effects, local_vars);
             }
             Stmt::Parallel(body, _) => {
+                effects.add(Effect::Parallel);
                 self.analyze_stmt(body, effects, local_vars);
             }
             Stmt::ParallelFor { iterable, body, .. } => {
+                effects.add(Effect::Parallel);
                 self.analyze_expr(iterable, effects);
                 self.analyze_stmt(body, effects, local_vars);
             }
@@ -250,6 +252,10 @@ impl EffectAnalyzer {
                 if let Some(e) = opt_e {
                     self.analyze_expr(e, effects);
                 }
+            }
+            Stmt::Unsafe { body, .. } => {
+                effects.add(Effect::Unsafe);
+                self.analyze_stmt(body, effects, local_vars);
             }
         }
     }

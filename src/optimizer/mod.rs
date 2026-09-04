@@ -731,6 +731,7 @@ impl Optimizer {
                             || s.effects.contains(&crate::effects::Effect::Network)
                             || s.effects.contains(&crate::effects::Effect::Database)
                             || s.effects.contains(&crate::effects::Effect::Unsafe)
+                            || s.effects.contains(&crate::effects::Effect::Parallel)
                             || s.effects
                                 .contains(&crate::effects::Effect::Nondeterministic)
                     })

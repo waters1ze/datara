@@ -84,6 +84,7 @@ impl Resolver {
             "input_float",
             "panic",
             "assert",
+            "require",
             "exit",
             "len",
             "now",
@@ -117,6 +118,12 @@ impl Resolver {
             "file_write",
             "file_append",
             "file_exists",
+            "fs_open",
+            "fs_read",
+            "fs_write",
+            "net_connect",
+            "net_listen",
+            "proc_spawn",
             "env_get",
             "args_count",
             "args_get",
@@ -928,6 +935,9 @@ impl Resolver {
                 self.define_local(resource_name, SymbolKind::Variable, false, span);
                 self.resolve_stmt(body, diag);
                 self.exit_scope();
+            }
+            Stmt::Unsafe { body, .. } => {
+                self.resolve_stmt(body, diag);
             }
         }
     }

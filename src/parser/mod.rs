@@ -969,6 +969,31 @@ impl<'a> Parser<'a> {
             ));
         }
 
+        if self.match_token(&TokenType::Require) {
+            let cond = self.parse_expression()?;
+            if self.match_token(&TokenType::Comma)
+                && let TokenType::StringLiteral(_) = &self.peek().token_type
+            {
+                self.advance();
+            }
+            self.match_token(&TokenType::Semicolon);
+            let span = SourceSpan::new(
+                start_span.start_line,
+                start_span.start_col,
+                self.previous().span.end_line,
+                self.previous().span.end_col,
+                self.file.clone(),
+            );
+            return Some(Stmt::Expr(
+                Expr::Call {
+                    callee: Box::new(Expr::Identifier("require".into(), span.clone())),
+                    args: vec![cond],
+                    span: span.clone(),
+                },
+                span,
+            ));
+        }
+
         if self.match_token(&TokenType::Return) {
             let expr = if !self.check(&TokenType::RBrace) && !self.is_at_end() {
                 self.parse_expression()
@@ -1133,6 +1158,41 @@ impl<'a> Parser<'a> {
             return Some(Stmt::With {
                 resource_name,
                 init,
+                body,
+                span: SourceSpan::new(
+                    start_span.start_line,
+                    start_span.start_col,
+                    self.previous().span.end_line,
+                    self.previous().span.end_col,
+                    self.file.clone(),
+                ),
+            });
+        }
+
+        if self.match_token(&TokenType::Unsafe) {
+            let mut justification = None;
+            if self.match_token(&TokenType::LParen) {
+                if let TokenType::Identifier(id) = &self.peek().token_type
+                    && id == "justification"
+                {
+                    self.advance();
+                    self.consume(&TokenType::Colon, "Expected ':' after 'justification'")?;
+                }
+                if let TokenType::StringLiteral(s) = &self.peek().token_type {
+                    justification = Some(s.clone());
+                    self.advance();
+                } else {
+                    self.error("Expected string literal justification in 'unsafe(...)'");
+                    return None;
+                }
+                self.consume(
+                    &TokenType::RParen,
+                    "Expected ')' after unsafe justification",
+                )?;
+            }
+            let body = Box::new(self.parse_block()?);
+            return Some(Stmt::Unsafe {
+                justification,
                 body,
                 span: SourceSpan::new(
                     start_span.start_line,

@@ -44,6 +44,12 @@ pub enum ErrorCode {
     CodegenBackendFailed,
     CodegenLinkerFailed,
     CodegenIOError,
+
+    // Security & Zero-Trust Gate Errors (E0940-E0943)
+    SecurityViolation,
+    ProofCarryingCodeViolation,
+    UncheckedFFIViolation,
+    DataRaceViolation,
 }
 
 impl ErrorCode {
@@ -85,6 +91,11 @@ impl ErrorCode {
             ErrorCode::CodegenBackendFailed => "E-CODEGEN-001",
             ErrorCode::CodegenLinkerFailed => "E-CODEGEN-002",
             ErrorCode::CodegenIOError => "E-CODEGEN-003",
+
+            ErrorCode::SecurityViolation => "E0940",
+            ErrorCode::ProofCarryingCodeViolation => "E0941",
+            ErrorCode::UncheckedFFIViolation => "E0942",
+            ErrorCode::DataRaceViolation => "E0943",
         }
     }
 
@@ -137,6 +148,19 @@ impl ErrorCode {
                 ErrorCode::CodegenBackendFailed => "Ошибка генерации нативного кода",
                 ErrorCode::CodegenLinkerFailed => "Ошибка компоновщика",
                 ErrorCode::CodegenIOError => "Ошибка ввода-вывода при компиляции",
+
+                ErrorCode::SecurityViolation => {
+                    "Нарушение безопасности: операция требует мандат полномочий (Capability)"
+                }
+                ErrorCode::ProofCarryingCodeViolation => {
+                    "Нарушение Proof-Carrying Code: операция не имеет доказательства безопасности"
+                }
+                ErrorCode::UncheckedFFIViolation => {
+                    "Небезопасный вызов FFI без блока 'unsafe(justification: ...)'"
+                }
+                ErrorCode::DataRaceViolation => {
+                    "Нарушение параллелизма: потенциальная гонка данных переменной"
+                }
             }
         } else {
             match self {
@@ -186,6 +210,19 @@ impl ErrorCode {
                 ErrorCode::CodegenBackendFailed => "Native codegen backend failed",
                 ErrorCode::CodegenLinkerFailed => "Linker execution failed",
                 ErrorCode::CodegenIOError => "IO failure during artifact generation",
+
+                ErrorCode::SecurityViolation => {
+                    "Security Violation: Operation requires capability token"
+                }
+                ErrorCode::ProofCarryingCodeViolation => {
+                    "Proof-Carrying Code Violation: Unproven operation"
+                }
+                ErrorCode::UncheckedFFIViolation => {
+                    "Security Violation: Foreign call requires unsafe justification"
+                }
+                ErrorCode::DataRaceViolation => {
+                    "Concurrency Violation: Potential data race across threads"
+                }
             }
         }
     }

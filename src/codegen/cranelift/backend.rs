@@ -3411,7 +3411,16 @@ impl RealCraneliftBackend {
             }
 
             let main_fn_ref = module.declare_func_in_func(main_fn_id, builder.func);
-            builder.ins().call(main_fn_ref, &[]);
+            let main_param_count = func_ids
+                .get("main")
+                .map(|(_, s)| s.params.len())
+                .unwrap_or(0);
+            if main_param_count == 0 {
+                builder.ins().call(main_fn_ref, &[]);
+            } else {
+                let dummy_cap = builder.ins().iconst(clif_types::I64, 0xCAFE);
+                builder.ins().call(main_fn_ref, &[dummy_cap]);
+            }
 
             let zero = builder.ins().iconst(clif_types::I32, 0);
             builder.ins().return_(&[zero]);

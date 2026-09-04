@@ -321,6 +321,11 @@ pub enum Stmt {
         body: Box<Stmt>,
         span: SourceSpan,
     },
+    Unsafe {
+        justification: Option<String>,
+        body: Box<Stmt>,
+        span: SourceSpan,
+    },
     Return(Option<Expr>, SourceSpan),
 }
 
@@ -345,6 +350,7 @@ impl Stmt {
             | Stmt::Parallel(_, s)
             | Stmt::ParallelFor { span: s, .. }
             | Stmt::With { span: s, .. }
+            | Stmt::Unsafe { span: s, .. }
             | Stmt::Return(_, s) => s,
         }
     }

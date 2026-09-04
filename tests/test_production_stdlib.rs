@@ -34,16 +34,19 @@ class File {{
 }}
 
 behavior File {{
-    read() -> Str {{
+    read(token: Capability<FileRead>) -> Str {{
+        let _ = token
         return file_read(this.path)
     }}
 
-    write(content: Str) -> Bool {{
+    write(content: Str, token: Capability<FileWrite>) -> Bool {{
+        let _ = token
         let res = file_write(this.path, content)
         return res == 1
     }}
 
-    append(content: Str) -> Bool {{
+    append(content: Str, token: Capability<FileWrite>) -> Bool {{
+        let _ = token
         let res = file_append(this.path, content)
         return res == 1
     }}
@@ -54,13 +57,15 @@ behavior File {{
     }}
 }}
 
-fn main() {{
+fn main(sys_caps: SystemCapabilities) {{
+    let r_token = sys_caps.files.grant_readonly("{test_file}")
+    let w_token = sys_caps.files.grant_readwrite("{test_file}")
     let f = File {{ path: "{test_file}" }}
     out f.exists()
-    f.write("Hello Datara Production FileSystem!\n")
+    f.write("Hello Datara Production FileSystem!\n", w_token)
     out f.exists()
-    f.append("Second line appended.\n")
-    let content = f.read()
+    f.append("Second line appended.\n", w_token)
+    let content = f.read(r_token)
     out content
 }}
 "#,

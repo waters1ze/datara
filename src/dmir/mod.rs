@@ -1849,6 +1849,7 @@ impl<'a> Lowering<'a> {
                 }
                 (body_end, ret_val)
             }
+            Stmt::Unsafe { body, .. } => self.lower_stmt_cfg(body, cur_block),
         }
     }
 
@@ -2553,6 +2554,30 @@ impl<'a> Lowering<'a> {
                     if member == "view" && args.is_empty() {
                         return self.lower_expr(object, cur_block);
                     }
+                    if (member == "grant_readonly"
+                        || member == "grant_readwrite"
+                        || member == "open")
+                        && args.len() == 1
+                    {
+                        return self.lower_expr(&args[0], cur_block);
+                    }
+                    if member == "read_all" {
+                        let dest = self.next_val();
+                        let arg = if args.is_empty() {
+                            self.lower_expr(object, cur_block)?
+                        } else {
+                            self.lower_expr(&args[0], cur_block)?
+                        };
+                        self.get_block_mut(*cur_block)
+                            .instructions
+                            .push(Inst::Call {
+                                dest,
+                                func: "datara_rt_file_read".into(),
+                                args: vec![arg],
+                                ty: "String".into(),
+                            });
+                        return Some(dest);
+                    }
                     let obj_val = self.lower_expr(object, cur_block)?;
                     if member == "pop" && args.is_empty() {
                         let dest = self.next_val();
@@ -2632,6 +2657,17 @@ impl<'a> Lowering<'a> {
                 } else {
                     "func".into()
                 };
+
+                if func_name == "require" {
+                    let zero = self.next_val();
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::ConstInt {
+                            dest: zero,
+                            value: 0,
+                        });
+                    return Some(zero);
+                }
 
                 let dest = self.next_val();
                 let ret_ty = self
@@ -2748,7 +2784,7 @@ impl<'a> Lowering<'a> {
                     }
                 }
                 let obj_val = self.lower_expr(object, cur_block)?;
-                if member == "view" {
+                if member == "view" || member == "files" || member == "net" || member == "proc" {
                     return Some(obj_val);
                 }
                 if let Some((offset, bits)) = self.find_packet_for_member(object, member) {

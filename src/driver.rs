@@ -254,6 +254,10 @@ impl ForgenCompiler {
         ownership.check_program(&program, &mut diag);
         timings.ownership_ms = own_start.elapsed().as_millis();
 
+        // 6. Security & Zero-Trust Verifier (Proof-Carrying Code)
+        let mut security = crate::security::SecurityVerifier::new(&resolver, &type_checker);
+        security.verify_program(&program, &mut diag);
+
         timings.total_ms = total_start.elapsed().as_millis();
         let diag_str = diag.format_all();
         CompilationResult {
@@ -449,6 +453,10 @@ impl ForgenCompiler {
         ownership.check_program(&combined_program, &mut diag);
         timings.ownership_ms = own_start.elapsed().as_millis();
 
+        // 6. Security & Zero-Trust Verifier (Proof-Carrying Code)
+        let mut security = crate::security::SecurityVerifier::new(&resolver, &type_checker);
+        security.verify_program(&combined_program, &mut diag);
+
         timings.total_ms = total_start.elapsed().as_millis();
         let diag_str = diag.format_all();
         CompilationResult {
@@ -557,6 +565,27 @@ impl ForgenCompiler {
         let mut ownership = OwnershipTracker::new(&resolver);
         ownership.check_program(&program, diag);
         timings.ownership_ms = own_start.elapsed().as_millis();
+        if diag.has_errors() {
+            timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
+            return Err(CompilationResult {
+                success: false,
+                exe_path: None,
+                error: Some(d_str.clone()),
+                program: Some(program),
+                semantic_graph: None,
+                dmir_module: None,
+                optimization_report: None,
+                diagnostics: d_str,
+                clif_source: None,
+                llvm_source: None,
+                timings,
+            });
+        }
+
+        // 7. Security & Zero-Trust Verifier (Proof-Carrying Code)
+        let mut security = crate::security::SecurityVerifier::new(&resolver, &type_checker);
+        security.verify_program(&program, diag);
         if diag.has_errors() {
             timings.total_ms = total_start.elapsed().as_millis();
             let d_str = diag.format_all();
@@ -701,7 +730,28 @@ impl ForgenCompiler {
             };
         }
 
-        // 7. Semantic Graph
+        // 7. Security & Zero-Trust Verifier (Proof-Carrying Code)
+        let mut security = crate::security::SecurityVerifier::new(&resolver, &type_checker);
+        security.verify_program(&program, diag);
+        if diag.has_errors() {
+            timings.total_ms = total_start.elapsed().as_millis();
+            let d_str = diag.format_all();
+            return CompilationResult {
+                success: false,
+                exe_path: None,
+                error: Some(d_str.clone()),
+                program: Some(program),
+                semantic_graph: None,
+                dmir_module: None,
+                optimization_report: None,
+                diagnostics: d_str,
+                clif_source: None,
+                llvm_source: None,
+                timings,
+            };
+        }
+
+        // 8. Semantic Graph
         let graph_start = Instant::now();
         let mut graph = if self.mode != "quick" {
             Some(SemanticGraph::build(&program, &resolver, &effects))

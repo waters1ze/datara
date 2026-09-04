@@ -246,6 +246,119 @@ impl<'a> TypeChecker<'a> {
         let fn_symbol_types = HashMap::new();
 
         // Built-in prelude function signatures
+        // Capabilities & Safe OS Resources prelude
+        let mut sys_caps_fields = HashMap::new();
+        sys_caps_fields.insert(
+            "files".to_string(),
+            DataraType::Class("FileCapabilityProvider".into()),
+        );
+        sys_caps_fields.insert(
+            "net".to_string(),
+            DataraType::Class("NetCapabilityProvider".into()),
+        );
+        sys_caps_fields.insert(
+            "proc".to_string(),
+            DataraType::Class("ProcessCapabilityProvider".into()),
+        );
+        class_fields.insert("SystemCapabilities".to_string(), sys_caps_fields);
+
+        let mut file_prov_methods = HashMap::new();
+        file_prov_methods.insert(
+            "grant_readonly".to_string(),
+            DataraType::GenericInstance {
+                name: "Capability".into(),
+                args: vec![DataraType::Class("FileRead".into())],
+            },
+        );
+        file_prov_methods.insert(
+            "grant_readwrite".to_string(),
+            DataraType::GenericInstance {
+                name: "Capability".into(),
+                args: vec![DataraType::Class("FileWrite".into())],
+            },
+        );
+        class_methods.insert("FileCapabilityProvider".to_string(), file_prov_methods);
+
+        let mut net_prov_methods = HashMap::new();
+        net_prov_methods.insert(
+            "grant_connect".to_string(),
+            DataraType::GenericInstance {
+                name: "Capability".into(),
+                args: vec![DataraType::Class("NetworkConnect".into())],
+            },
+        );
+        net_prov_methods.insert(
+            "grant_listen".to_string(),
+            DataraType::GenericInstance {
+                name: "Capability".into(),
+                args: vec![DataraType::Class("NetworkListen".into())],
+            },
+        );
+        class_methods.insert("NetCapabilityProvider".to_string(), net_prov_methods);
+
+        let mut proc_prov_methods = HashMap::new();
+        proc_prov_methods.insert(
+            "grant_exec".to_string(),
+            DataraType::GenericInstance {
+                name: "Capability".into(),
+                args: vec![DataraType::Class("ProcessExec".into())],
+            },
+        );
+        class_methods.insert("ProcessCapabilityProvider".to_string(), proc_prov_methods);
+
+        let mut file_handle_methods = HashMap::new();
+        file_handle_methods.insert("read_all".to_string(), DataraType::String);
+        file_handle_methods.insert("read_line".to_string(), DataraType::String);
+        file_handle_methods.insert("close".to_string(), DataraType::Unit);
+        class_methods.insert("FileHandle".to_string(), file_handle_methods);
+
+        let mut file_write_handle_methods = HashMap::new();
+        file_write_handle_methods.insert("write".to_string(), DataraType::Int);
+        file_write_handle_methods.insert("write_all".to_string(), DataraType::Int);
+        file_write_handle_methods.insert("close".to_string(), DataraType::Unit);
+        class_methods.insert("FileWriteHandle".to_string(), file_write_handle_methods);
+
+        function_signatures.insert(
+            "fs_open".to_string(),
+            (
+                vec![DataraType::String],
+                DataraType::Class("FileHandle".into()),
+                Vec::new(),
+            ),
+        );
+        function_signatures.insert(
+            "fs_read".to_string(),
+            (
+                vec![DataraType::Class("FileHandle".into())],
+                DataraType::String,
+                Vec::new(),
+            ),
+        );
+        function_signatures.insert(
+            "fs_write".to_string(),
+            (
+                vec![DataraType::String, DataraType::String],
+                DataraType::Int,
+                Vec::new(),
+            ),
+        );
+        function_signatures.insert(
+            "net_connect".to_string(),
+            (
+                vec![DataraType::String, DataraType::Int],
+                DataraType::Int,
+                Vec::new(),
+            ),
+        );
+        function_signatures.insert(
+            "net_listen".to_string(),
+            (vec![DataraType::Int], DataraType::Int, Vec::new()),
+        );
+        function_signatures.insert(
+            "proc_spawn".to_string(),
+            (vec![DataraType::String], DataraType::Int, Vec::new()),
+        );
+
         function_signatures.insert(
             "println".to_string(),
             (vec![DataraType::String], DataraType::Unit, Vec::new()),
@@ -1003,6 +1116,24 @@ impl<'a> TypeChecker<'a> {
                 let p_nodes: Vec<Option<TypeNode>> =
                     f.params.iter().map(|p| p.type_node.clone()).collect();
                 self.function_param_nodes.insert(f.name.clone(), p_nodes);
+            } else if let Decl::ExternFn(ef) = decl {
+                let p_types: Vec<DataraType> = ef
+                    .params
+                    .iter()
+                    .map(|p| {
+                        p.type_node
+                            .as_ref()
+                            .map(|t| self.resolve_type_node(t))
+                            .unwrap_or(DataraType::Int)
+                    })
+                    .collect();
+                let ret = ef
+                    .return_type
+                    .as_ref()
+                    .map(|t| self.resolve_type_node(t))
+                    .unwrap_or(DataraType::Unit);
+                self.function_signatures
+                    .insert(ef.name.clone(), (p_types, ret, Vec::new()));
             }
         }
 
@@ -1782,6 +1913,10 @@ impl<'a> TypeChecker<'a> {
                 self.check_stmt(body, diag);
                 DataraType::Unit
             }
+            Stmt::Unsafe { body, .. } => {
+                self.check_stmt(body, diag);
+                DataraType::Unit
+            }
         }
     }
 
@@ -1863,7 +1998,7 @@ impl<'a> TypeChecker<'a> {
                     if fn_name == "panic" || fn_name == "exit" {
                         return DataraType::Never;
                     }
-                    if fn_name == "assert" {
+                    if fn_name == "assert" || fn_name == "require" {
                         return DataraType::Unit;
                     }
                     if fn_name == "input" || fn_name == "read_line" {
@@ -1929,6 +2064,28 @@ impl<'a> TypeChecker<'a> {
 
                 if let Expr::MemberAccess { object, member, .. } = &**callee {
                     let obj_type = self.check_expr(object, diag);
+                    if let DataraType::GenericInstance { name, args } = &obj_type
+                        && name == "Capability"
+                    {
+                        let cap_kind = args.first().map(|a| a.to_string()).unwrap_or_default();
+                        if cap_kind == "FileRead" {
+                            if member == "open" {
+                                return DataraType::Class("FileHandle".into());
+                            }
+                            if member == "read_all" {
+                                return DataraType::String;
+                            }
+                        } else if cap_kind == "FileWrite" {
+                            if member == "open" {
+                                return DataraType::Class("FileWriteHandle".into());
+                            }
+                            if member == "write" || member == "write_all" {
+                                return DataraType::Int;
+                            }
+                        } else if cap_kind == "NetworkConnect" && member == "connect" {
+                            return DataraType::Int;
+                        }
+                    }
                     if let DataraType::Class(cls) = &obj_type {
                         let full_name = format!("{}.{}", cls, member);
                         if let Some(t) = self.symbol_types.get(&full_name) {
@@ -1987,6 +2144,17 @@ impl<'a> TypeChecker<'a> {
                         let full_name = format!("{}.{}", cls_name, member);
                         if let Some(t) = self.symbol_types.get(&full_name) {
                             return t.clone();
+                        }
+                        if cls_name == "SystemCapabilities" {
+                            if member == "files" {
+                                return DataraType::Class("FileCapabilityProvider".into());
+                            }
+                            if member == "net" {
+                                return DataraType::Class("NetCapabilityProvider".into());
+                            }
+                            if member == "proc" {
+                                return DataraType::Class("ProcessCapabilityProvider".into());
+                            }
                         }
                         if member == "view" || member == "clone" || member == "mut_view" {
                             return DataraType::Class(cls_name.clone());

@@ -109,7 +109,10 @@ fn test_native_ffi_extern_c() {
 extern "C" fn datara_rt_now_ms() -> Int
 
 fn main() {
-    let t = datara_rt_now_ms()
+    mut t: Int = 0
+    unsafe(justification: "reading platform high-resolution hardware clock") {
+        t = datara_rt_now_ms()
+    }
     assert(t > 0, "native FFI timestamp must be positive")
     println("FFI OK")
 }

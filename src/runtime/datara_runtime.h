@@ -59,6 +59,15 @@ int64_t     datara_rt_file_write(const char* path, const char* content);
 int64_t     datara_rt_file_append(const char* path, const char* content);
 int64_t     datara_rt_file_exists(const char* path);
 
+// Zero-Trust Capability-Based OS I/O & Resources
+void*       datara_rt_sys_caps_create(void);
+void*       datara_rt_files_grant_readonly(void* prov, const char* path);
+void*       datara_rt_files_grant_readwrite(void* prov, const char* path);
+void*       datara_rt_net_grant_connect(void* prov, const char* host, int64_t port);
+void*       datara_rt_file_open(void* token, const char* path);
+const char* datara_rt_file_read_all(void* handle);
+int64_t     datara_rt_file_close(void* handle);
+
 // System, Environment & Timing
 void        datara_rt_sleep(int64_t ms);
 int64_t     datara_rt_now_ms(void);

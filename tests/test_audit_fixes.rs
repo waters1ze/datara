@@ -71,8 +71,10 @@ fn main() {
     }
 
     mut sum2: Int = 0
-    parallel for j in 1..5 {
-        sum2 = sum2 + j
+    unsafe(justification: "audit test intentional race") {
+        parallel for j in 1..5 {
+            sum2 = sum2 + j
+        }
     }
 
     out fmt"SUMS: {sum1},{sum2}"
