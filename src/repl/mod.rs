@@ -429,7 +429,10 @@ impl ReplSession {
         println!(
             "================================================================================"
         );
-        println!(" Datara Interactive REPL (Zero-Latency JIT Console v{})", env!("CARGO_PKG_VERSION"));
+        println!(
+            " Datara Interactive REPL (Zero-Latency JIT Console v{})",
+            env!("CARGO_PKG_VERSION")
+        );
         println!(" Type ':help' for commands, ':exit' or Ctrl+C to quit.");
         println!(
             "================================================================================"
