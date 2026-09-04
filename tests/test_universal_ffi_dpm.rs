@@ -38,7 +38,14 @@ fn test_dpm_merkle_tree_and_lockfile_integrity() {
         );
     }
 
-    let temp_dir = std::env::temp_dir().join("datara_dpm_test");
+    let temp_dir = std::env::temp_dir().join(format!(
+        "datara_dpm_test_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    ));
     let _ = fs::create_dir_all(&temp_dir);
 
     let mut lock = DataraLock::load(&temp_dir).unwrap_or_default();
