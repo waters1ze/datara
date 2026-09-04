@@ -70,6 +70,15 @@ jobs:
           Copy-Item -Force "assets/datara-logo.png" "dist/staging/assets/datara-logo.png"
           Copy-Item -Force -Recurse "stdlib" "dist/staging/stdlib"
           Copy-Item -Force -Recurse "editors" "dist/staging/editors"
+          New-Item -ItemType Directory -Force -Path "dist/staging/runtime" | Out-Null
+          if (Test-Path "src/runtime/datara_runtime.h") { Copy-Item -Force "src/runtime/datara_runtime.h" "dist/staging/runtime/datara_runtime.h" }
+          if (Test-Path "src/runtime/datara_runtime.c") { Copy-Item -Force "src/runtime/datara_runtime.c" "dist/staging/runtime/datara_runtime.c" }
+          $rtLib = (Get-ChildItem -Path "target/${{ matrix.target }}/release/build" -Recurse -Filter "datara_runtime.lib" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if ($rtLib -and (Test-Path $rtLib)) { Copy-Item -Force $rtLib "dist/staging/runtime/datara_runtime.lib" }
+          New-Item -ItemType Directory -Force -Path "dist/staging/scripts" | Out-Null
+          if (Test-Path "scripts/install_build_tools.ps1") { Copy-Item -Force "scripts/install_build_tools.ps1" "dist/staging/scripts/install_build_tools.ps1" }
+          if (Test-Path "scripts/install_build_tools.bat") { Copy-Item -Force "scripts/install_build_tools.bat" "dist/staging/scripts/install_build_tools.bat" }
+          if (Test-Path "installer/install_build_tools.bat") { Copy-Item -Force "installer/install_build_tools.bat" "dist/staging/install_build_tools.bat" }
           Copy-Item -Force "install.ps1" "dist/staging/install.ps1"
           Copy-Item -Force "setup_windows.bat" "dist/staging/setup_windows.bat"
           Copy-Item -Force "README.md", "LICENSE-APACHE", "LICENSE-MIT" "dist/staging/"
@@ -105,8 +114,11 @@ jobs:
           [ -f "target/${{ matrix.target }}/release/datara" ] && cp "target/${{ matrix.target }}/release/datara" "dist/staging/bin/datara" || cp "target/${{ matrix.target }}/release/forgen" "dist/staging/bin/datara"
           [ -f "target/${{ matrix.target }}/release/dpm" ] && cp "target/${{ matrix.target }}/release/dpm" "dist/staging/bin/dpm" || true
           cp -r stdlib dist/staging/stdlib
+          mkdir -p dist/staging/runtime
+          [ -f "src/runtime/datara_runtime.h" ] && cp src/runtime/datara_runtime.h dist/staging/runtime/ || true
+          [ -f "src/runtime/datara_runtime.c" ] && cp src/runtime/datara_runtime.c dist/staging/runtime/ || true
           cp scripts/install.sh dist/staging/install.sh
-          cp README.md LICENSE dist/staging/
+          cp README.md LICENSE dist/staging/ || true
           cd dist/staging
           tar -czf "../${{ matrix.archive_name }}" *
           cd ../..
