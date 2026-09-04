@@ -56,6 +56,8 @@ namespace DataraInstaller
         [DllImport("Shell32.dll")]
         public static extern void SHChangeNotify(int eventId, int flags, IntPtr item1, IntPtr item2);
 
+        public const string AppVersion = "0.1.0";
+
         public InstallerForm()
         {
             InitializeComponent();
@@ -63,7 +65,7 @@ namespace DataraInstaller
 
         private void InitializeComponent()
         {
-            this.Text = "Datara Language & Forgen Compiler Setup v0.1.0";
+            this.Text = "Datara Language & Forgen Compiler Setup v" + AppVersion;
             this.Size = new Size(680, 520);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -179,7 +181,7 @@ namespace DataraInstaller
             };
 
             Label sectionTitle = new Label {
-                Text = "Install Datara 0.1.0 (64-bit)",
+                Text = "Install Datara " + AppVersion + " (64-bit)",
                 Location = new Point(0, 4),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 13f, FontStyle.Bold),
@@ -330,7 +332,7 @@ namespace DataraInstaller
             };
 
             successSubtitle = new Label {
-                Text = "Datara 0.1.0 is now ready to use on your system!",
+                Text = "Datara " + AppVersion + " is now ready to use on your system!",
                 Location = new Point(10, 46),
                 AutoSize = true,
                 Font = new Font("Segoe UI", 10f),
@@ -507,7 +509,7 @@ namespace DataraInstaller
                 string uninstKey = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\Datara";
                 using (RegistryKey key = Registry.CurrentUser.CreateSubKey(uninstKey)) {
                     key.SetValue("DisplayName", "Datara Language & Forgen Compiler");
-                    key.SetValue("DisplayVersion", "0.1.0");
+                    key.SetValue("DisplayVersion", AppVersion);
                     key.SetValue("Publisher", "Datara Language Project");
                     key.SetValue("DisplayIcon", Path.Combine(installDir, @"assets\datara.ico"));
                     key.SetValue("InstallLocation", installDir);

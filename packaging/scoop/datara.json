@@ -26,7 +26,7 @@
   "autoupdate": {
     "architecture": {
       "64bit": {
-        "url": "https://github.com/waters1ze/datara/releases/download/v$version/forgen-windows-x64.zip"
+        "url": "https://github.com/waters1ze/datara/releases/download/v0.1.0/forgen-windows-x64.zip"
       }
     }
   }

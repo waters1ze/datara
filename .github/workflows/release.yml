@@ -48,11 +48,24 @@ jobs:
         shell: pwsh
         run: |
           $ver = "${{ github.ref_name }}"
-          if (-not $ver) { $ver = "v0.1.0" }
+          if (-not $ver) {
+              $cargoToml = Get-Content "Cargo.toml" -Raw
+              if ($cargoToml -match '(?m)^version\s*=\s*"([^"]+)"') { $ver = "v" + $matches[1] }
+              else { $ver = "v0.1.0" }
+          }
+          $cleanVer = $ver.TrimStart('v')
+
           New-Item -ItemType Directory -Force -Path "dist/staging/bin" | Out-Null
           New-Item -ItemType Directory -Force -Path "dist/staging/assets" | Out-Null
           Copy-Item -Force "target/${{ matrix.target }}/release/forgen.exe" "dist/staging/bin/forgen.exe"
-          Copy-Item -Force "target/${{ matrix.target }}/release/forgen.exe" "dist/staging/bin/datara.exe"
+          if (Test-Path "target/${{ matrix.target }}/release/datara.exe") {
+              Copy-Item -Force "target/${{ matrix.target }}/release/datara.exe" "dist/staging/bin/datara.exe"
+          } else {
+              Copy-Item -Force "target/${{ matrix.target }}/release/forgen.exe" "dist/staging/bin/datara.exe"
+          }
+          if (Test-Path "target/${{ matrix.target }}/release/dpm.exe") {
+              Copy-Item -Force "target/${{ matrix.target }}/release/dpm.exe" "dist/staging/bin/dpm.exe"
+          }
           Copy-Item -Force "assets/datara.ico" "dist/staging/assets/datara.ico"
           Copy-Item -Force "assets/datara-logo.png" "dist/staging/assets/datara-logo.png"
           Copy-Item -Force -Recurse "stdlib" "dist/staging/stdlib"
@@ -65,10 +78,20 @@ jobs:
 
           # Build Standalone Windows GUI Setup.exe
           $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (-not (Test-Path $csc)) {
+              $csc = "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+          }
           if (Test-Path $csc) {
-              & $csc /nologo /target:winexe /win32icon:"assets/datara.ico" /resource:"dist/${{ matrix.archive_name }},payload.zip" /reference:System.dll,System.Windows.Forms.dll,System.Drawing.dll,System.IO.Compression.dll,System.IO.Compression.FileSystem.dll /out:"dist/Datara-Setup.exe" "installer/SetupWizard.cs"
+              $setupCsPath = "installer/SetupWizard.cs"
+              $setupCsContent = Get-Content $setupCsPath -Raw
+              $setupCsContent = [regex]::Replace($setupCsContent, 'public const string AppVersion = "[^"]*";', "public const string AppVersion = `"$cleanVer`";")
+              Set-Content -Path $setupCsPath -Value $setupCsContent -NoNewline
+
+              & $csc /nologo /target:winexe /win32icon:"assets/datara.ico" /resource:"dist/${{ matrix.archive_name }},payload.zip" /reference:System.dll,System.Windows.Forms.dll,System.Drawing.dll,System.IO.Compression.dll,System.IO.Compression.FileSystem.dll /out:"dist/Datara-Setup.exe" "$setupCsPath"
               if (Test-Path "dist/Datara-Setup.exe") {
+                  Copy-Item -Force "dist/Datara-Setup.exe" "dist/Datara-$ver-Setup.exe"
                   Get-FileHash -Algorithm SHA256 "dist/Datara-Setup.exe" | Out-File "dist/Datara-Setup.exe.sha256"
+                  Get-FileHash -Algorithm SHA256 "dist/Datara-$ver-Setup.exe" | Out-File "dist/Datara-$ver-Setup.exe.sha256"
               }
           }
 
@@ -76,8 +99,11 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          mkdir -p dist/staging
+          mkdir -p dist/staging/bin
+          cp "target/${{ matrix.target }}/release/forgen" "dist/staging/bin/forgen"
           cp "target/${{ matrix.target }}/release/forgen" "dist/staging/forgen"
+          [ -f "target/${{ matrix.target }}/release/datara" ] && cp "target/${{ matrix.target }}/release/datara" "dist/staging/bin/datara" || cp "target/${{ matrix.target }}/release/forgen" "dist/staging/bin/datara"
+          [ -f "target/${{ matrix.target }}/release/dpm" ] && cp "target/${{ matrix.target }}/release/dpm" "dist/staging/bin/dpm" || true
           cp -r stdlib dist/staging/stdlib
           cp scripts/install.sh dist/staging/install.sh
           cp README.md LICENSE dist/staging/
@@ -115,6 +141,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Synchronize Package Versions
+        run: |
+          python scripts/sync_version.py
+          VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)
+          echo "PACKAGE_VERSION=$VERSION" >> $GITHUB_ENV
+
       - name: Install Linux Packaging Tools
         run: |
           sudo apt-get update
@@ -122,12 +154,13 @@ jobs:
 
       - name: Build Release Binaries for Packaging
         run: |
-          cargo build --release
+          cargo build --release --bins
 
       - name: Package VS Code Extension (.vsix)
         run: |
           cd editors/vscode
-          npx @vscode/vsce package --no-dependencies -o ../../dist/datara-language-0.1.0.vsix
+          npx @vscode/vsce package --no-dependencies -o "../../dist/datara-language-${{ env.PACKAGE_VERSION }}.vsix"
+          cp "../../dist/datara-language-${{ env.PACKAGE_VERSION }}.vsix" "../../dist/datara-language.vsix"
 
       - name: Package NPM Registry Tarball
         run: |
@@ -142,7 +175,7 @@ jobs:
       - name: Package Crates.io Crate
         run: |
           cargo package --allow-dirty --no-verify
-          cp target/package/forgen-0.1.0.crate dist/
+          cp target/package/*.crate dist/
 
       - name: Package PyPI Distribution (.whl and .tar.gz)
         run: |
@@ -152,7 +185,7 @@ jobs:
       - name: Package Linux .deb and .rpm
         run: |
           chmod +x packages/linux/build_packages.sh
-          ./packages/linux/build_packages.sh
+          VERSION=${{ env.PACKAGE_VERSION }} ./packages/linux/build_packages.sh
 
       - name: Upload Ecosystem Packages
         uses: actions/upload-artifact@v4
@@ -185,8 +218,14 @@ jobs:
       - name: Generate Consolidated SHA256SUMS.txt
         run: |
           cd dist-all
-          cat *.sha256 > SHA256SUMS.txt
+          > SHA256SUMS.txt
+          for f in *; do
+            if [ -f "$f" ] && [[ "$f" != *.sha256 ]] && [[ "$f" != "SHA256SUMS.txt" ]]; then
+              sha256sum "$f" >> SHA256SUMS.txt
+            fi
+          done
           rm -f *.sha256
+          cat SHA256SUMS.txt
           ls -la
 
       - name: Create GitHub Release
@@ -194,8 +233,15 @@ jobs:
         with:
           files: |
             dist-all/Datara-Setup.exe
+            dist-all/Datara-*-Setup.exe
             dist-all/forgen-*.zip
             dist-all/forgen-*.tar.gz
+            dist-all/*.vsix
+            dist-all/*.deb
+            dist-all/*.rpm
+            dist-all/*.whl
+            dist-all/*.crate
+            dist-all/*.tgz
             dist-all/SHA256SUMS.txt
           generate_release_notes: true
           draft: false

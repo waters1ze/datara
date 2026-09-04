@@ -17,12 +17,21 @@ $repoRoot = (Get-Item "$PSScriptRoot\..").FullName
 $iconPath = Join-Path $repoRoot "assets\datara.ico"
 $logoPath = Join-Path $repoRoot "assets\datara-logo.png"
 
+$Version = "0.1.0"
+$cargoTomlPath = Join-Path $repoRoot "Cargo.toml"
+if (Test-Path $cargoTomlPath) {
+    $cargoToml = Get-Content $cargoTomlPath -Raw
+    if ($cargoToml -match '(?m)^version\s*=\s*"([^"]+)"') {
+        $Version = $matches[1]
+    }
+}
+
 $defaultInstallDir = Join-Path $env:LOCALAPPDATA "Programs\Datara"
 
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Datara Language &amp; Forgen Compiler Setup v0.1.0"
+        Title="Datara Language &amp; Forgen Compiler Setup v$Version"
         Height="540" Width="680"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
@@ -58,7 +67,7 @@ $defaultInstallDir = Join-Path $env:LOCALAPPDATA "Programs\Datara"
         <!-- Main Configuration Panel -->
         <Grid x:Name="ConfigPanel" Margin="32,108,32,80">
             <StackPanel>
-                <TextBlock Text="Install Datara 0.1.0 (64-bit)" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" Foreground="#F1F5F9"/>
+                <TextBlock Text="Install Datara $Version (64-bit)" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" Foreground="#F1F5F9"/>
                 <TextBlock Text="Select installation options and destination directory below." FontSize="13" Foreground="#94A3B8" Margin="0,0,0,16"/>
 
                 <!-- Destination Directory -->
@@ -99,7 +108,7 @@ $defaultInstallDir = Join-Path $env:LOCALAPPDATA "Programs\Datara"
         <Grid x:Name="SuccessPanel" Margin="32,110,32,80" Visibility="Collapsed">
             <StackPanel VerticalAlignment="Center">
                 <TextBlock Text="✓ Setup was successful" FontSize="22" FontWeight="Bold" Foreground="#4ADE80" Margin="0,0,0,10"/>
-                <TextBlock Text="Datara 0.1.0 is now ready to use on your system!" FontSize="14" Foreground="#E2E8F0" Margin="0,0,0,16"/>
+                <TextBlock Text="Datara $Version is now ready to use on your system!" FontSize="14" Foreground="#E2E8F0" Margin="0,0,0,16"/>
 
                 <Border Background="#1E293B" CornerRadius="8" Padding="16" BorderBrush="#334155" BorderThickness="1" Margin="0,0,0,16">
                     <StackPanel>
@@ -208,10 +217,21 @@ $btnInstall.Add_Click({
 
     # Step 2: Copy Binaries
     & $action 35 "Installing Forgen compiler and Datara runtime..."
-    $binSrc = Join-Path $repoRoot "target\release"
-    if (-not (Test-Path (Join-Path $binSrc "forgen.exe"))) {
-        $binSrc = Join-Path $repoRoot "dist\forgen-v0.1.0-windows-x64\bin"
+    $binCandidates = @(
+        (Join-Path $repoRoot "target\release"),
+        (Join-Path $repoRoot "dist\staging\bin"),
+        (Join-Path $repoRoot "dist\forgen-windows-x64\bin"),
+        (Join-Path $repoRoot "dist\forgen-v$Version-windows-x64\bin")
+    )
+    $distDir = Join-Path $repoRoot "dist"
+    if (Test-Path $distDir) {
+        Get-ChildItem -Path $distDir -Directory -Filter "forgen*windows*" -ErrorAction SilentlyContinue | ForEach-Object {
+            $subBin = Join-Path $_.FullName "bin"
+            if (Test-Path $subBin) { $binCandidates += $subBin }
+            $binCandidates += $_.FullName
+        }
     }
+    $binSrc = $binCandidates | Where-Object { Test-Path (Join-Path $_ "forgen.exe") } | Select-Object -First 1
 
     if (Test-Path (Join-Path $binSrc "forgen.exe")) {
         Copy-Item -Path (Join-Path $binSrc "forgen.exe") -Destination (Join-Path $binDir "forgen.exe") -Force

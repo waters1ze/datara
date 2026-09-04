@@ -126,7 +126,7 @@ impl LspServer {
                     },
                     "serverInfo": {
                         "name": "forgen-lsp",
-                        "version": "0.1.0"
+                        "version": env!("CARGO_PKG_VERSION")
                     }
                 });
                 if let Some(ref id) = req.id {

@@ -1203,7 +1203,7 @@ pub fn run_dpm_cli_args(args: &[String]) {
         }
 
         "version" | "--version" | "-V" | "-v" => {
-            println!("dpm 0.1.0 (Datara Package Manager)");
+            println!("dpm {} (Datara Package Manager)", env!("CARGO_PKG_VERSION"));
             println!("Engine: HyperGrid CAS v2 / Forgen Toolchain");
         }
 
