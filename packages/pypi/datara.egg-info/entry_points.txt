@@ -1,4 +1,0 @@
-[console_scripts]
-datara = datara.cli:datara_main
-dpm = datara.cli:dpm_main
-forgen = datara.cli:forgen_main

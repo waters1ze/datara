@@ -1071,11 +1071,11 @@ impl<'a> LlvmEmitter<'a> {
 
                 let actual_func = if module.functions.contains_key(method) {
                     method.clone()
-                } else if let Some(k) = module
-                    .functions
-                    .keys()
-                    .find(|k| k.ends_with(&format!("_{}", method)))
-                {
+                } else if let Some(k) = module.functions.keys().find(|k| {
+                    k.len() > method.len() + 1
+                        && k.ends_with(method.as_str())
+                        && k.as_bytes()[k.len() - method.len() - 1] == b'_'
+                }) {
                     k.clone()
                 } else {
                     method.clone()

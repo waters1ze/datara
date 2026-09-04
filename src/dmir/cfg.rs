@@ -22,7 +22,7 @@ pub struct ControlFlowGraph {
 }
 
 impl ControlFlowGraph {
-    pub fn build(func: &Function) -> Self {
+    fn new_base(func: &Function) -> Self {
         let entry = func.entry_block;
         let mut blocks = Vec::new();
         let mut predecessors: HashMap<BasicBlockId, Vec<BasicBlockId>> = HashMap::new();
@@ -57,7 +57,7 @@ impl ControlFlowGraph {
             }
         }
 
-        let mut cfg = Self {
+        Self {
             entry,
             blocks,
             predecessors,
@@ -66,12 +66,20 @@ impl ControlFlowGraph {
             dom_tree_children: HashMap::new(),
             dominance_frontiers: HashMap::new(),
             loops: Vec::new(),
-        };
+        }
+    }
 
+    pub fn build(func: &Function) -> Self {
+        let mut cfg = Self::new_base(func);
         cfg.compute_dominance(func);
         cfg.compute_dominance_frontiers();
         cfg.compute_natural_loops();
+        cfg
+    }
 
+    pub fn build_dominance_only(func: &Function) -> Self {
+        let mut cfg = Self::new_base(func);
+        cfg.compute_dominance(func);
         cfg
     }
 

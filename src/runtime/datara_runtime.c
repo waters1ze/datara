@@ -1841,13 +1841,13 @@ void datara_rt_thread_pool_init(int64_t workers) {
     g_workers_count = (int)workers;
 
 #ifdef _WIN32
-    for (int i = 0; i < g_workers_count; i++) {
+    for (int i = 1; i < g_workers_count; i++) {
         g_start_events[i] = CreateEvent(NULL, FALSE, FALSE, NULL);
         g_done_events[i] = CreateEvent(NULL, FALSE, FALSE, NULL);
         g_worker_threads[i] = CreateThread(NULL, 0, datara_worker_proc, (LPVOID)(intptr_t)i, 0, NULL);
     }
 #else
-    for (int i = 0; i < g_workers_count; i++) {
+    for (int i = 1; i < g_workers_count; i++) {
         pthread_mutex_init(&g_worker_mutexes[i], NULL);
         pthread_cond_init(&g_worker_conds[i], NULL);
         g_worker_ready[i] = 0;
@@ -1938,11 +1938,13 @@ void datara_rt_parallel_for(int64_t start, int64_t end, void (*fn)(int64_t idx, 
 
 void datara_rt_parallel_invoke(void (*fn1)(void* ctx1), void* ctx1, void (*fn2)(void* ctx2), void* ctx2) {
     datara_rt_ensure_threads();
-    if (g_workers_count <= 1) {
+    if (tls_in_parallel_region != 0 || g_workers_count <= 1) {
         if (fn1) fn1(ctx1);
         if (fn2) fn2(ctx2);
         return;
     }
+
+    tls_in_parallel_region = 1;
 
     // Dispatch fn1 to worker 1
     g_worker_tasks[1].task_fn = fn1;
@@ -1974,6 +1976,8 @@ void datara_rt_parallel_invoke(void (*fn1)(void* ctx1), void* ctx1, void (*fn2)(
     }
     pthread_mutex_unlock(&g_worker_mutexes[1]);
 #endif
+
+    tls_in_parallel_region = 0;
 }
 
 // ---------------------------------------------------------------------------

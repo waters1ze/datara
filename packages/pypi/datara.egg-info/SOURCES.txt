@@ -1,9 +1,0 @@
-README.md
-pyproject.toml
-datara/__init__.py
-datara/cli.py
-datara.egg-info/PKG-INFO
-datara.egg-info/SOURCES.txt
-datara.egg-info/dependency_links.txt
-datara.egg-info/entry_points.txt
-datara.egg-info/top_level.txt

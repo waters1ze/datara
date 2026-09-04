@@ -73,7 +73,7 @@ pub fn verify_function(function: &Function) -> Result<(), String> {
     // same block than its definition; (2) in any block dominated by the
     // defining block (block parameters / terminator operands count as uses at
     // the end of the block); (3) function parameters, defined at entry.
-    let cfg = crate::dmir::cfg::ControlFlowGraph::build(function);
+    let cfg = crate::dmir::cfg::ControlFlowGraph::build_dominance_only(function);
 
     for block in &function.blocks {
         for (index, instruction) in block.instructions.iter().enumerate() {

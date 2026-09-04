@@ -27,7 +27,7 @@ impl std::fmt::Display for BasicBlockId {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Terminator {
     Branch {
         target: BasicBlockId,
@@ -52,7 +52,7 @@ impl Default for Terminator {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BlockParam {
     pub val: ValueId,
     pub ty: String,
@@ -170,6 +170,179 @@ pub enum Inst {
     },
 }
 
+impl std::hash::Hash for Inst {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Inst::ConstInt { dest, value } => {
+                dest.hash(state);
+                value.hash(state);
+            }
+            Inst::ConstFloat { dest, value } => {
+                dest.hash(state);
+                value.to_bits().hash(state);
+            }
+            Inst::ConstStr { dest, value } => {
+                dest.hash(state);
+                value.hash(state);
+            }
+            Inst::ConstBool { dest, value } => {
+                dest.hash(state);
+                value.hash(state);
+            }
+            Inst::LoadVar { dest, name } => {
+                dest.hash(state);
+                name.hash(state);
+            }
+            Inst::AssignVar { name, value } => {
+                name.hash(state);
+                value.hash(state);
+            }
+            Inst::BinOp {
+                dest,
+                op,
+                left,
+                right,
+                ty,
+            } => {
+                dest.hash(state);
+                op.hash(state);
+                left.hash(state);
+                right.hash(state);
+                ty.hash(state);
+            }
+            Inst::UnOp {
+                dest,
+                op,
+                operand,
+                ty,
+            } => {
+                dest.hash(state);
+                op.hash(state);
+                operand.hash(state);
+                ty.hash(state);
+            }
+            Inst::Call {
+                dest,
+                func,
+                args,
+                ty,
+            } => {
+                dest.hash(state);
+                func.hash(state);
+                args.hash(state);
+                ty.hash(state);
+            }
+            Inst::MethodCall {
+                dest,
+                object,
+                method,
+                args,
+                ty,
+            } => {
+                dest.hash(state);
+                object.hash(state);
+                method.hash(state);
+                args.hash(state);
+                ty.hash(state);
+            }
+            Inst::StructInit {
+                dest,
+                class_name,
+                fields,
+            } => {
+                dest.hash(state);
+                class_name.hash(state);
+                fields.hash(state);
+            }
+            Inst::GetField {
+                dest,
+                object,
+                field,
+                ty,
+            } => {
+                dest.hash(state);
+                object.hash(state);
+                field.hash(state);
+                ty.hash(state);
+            }
+            Inst::SetField {
+                object,
+                field,
+                value,
+            } => {
+                object.hash(state);
+                field.hash(state);
+                value.hash(state);
+            }
+            Inst::Out { value } => {
+                value.hash(state);
+            }
+            Inst::Err { value } => {
+                value.hash(state);
+            }
+            Inst::FormatStr {
+                dest,
+                parts,
+                values,
+            } => {
+                dest.hash(state);
+                parts.hash(state);
+                values.hash(state);
+            }
+            Inst::Decide {
+                dest,
+                arms,
+                else_val,
+                ty,
+            } => {
+                dest.hash(state);
+                arms.hash(state);
+                else_val.hash(state);
+                ty.hash(state);
+            }
+            Inst::WhileLoop {
+                condition_insts,
+                cond_val,
+                body_insts,
+            } => {
+                condition_insts.hash(state);
+                cond_val.hash(state);
+                body_insts.hash(state);
+            }
+            Inst::TryCatch {
+                try_insts,
+                err_var,
+                catch_insts,
+            } => {
+                try_insts.hash(state);
+                err_var.hash(state);
+                catch_insts.hash(state);
+            }
+            Inst::Return { value } => {
+                value.hash(state);
+            }
+            Inst::GetFuncAddr { dest, func_name } => {
+                dest.hash(state);
+                func_name.hash(state);
+            }
+            Inst::Select {
+                dest,
+                cond,
+                then_val,
+                else_val,
+                ty,
+            } => {
+                dest.hash(state);
+                cond.hash(state);
+                then_val.hash(state);
+                else_val.hash(state);
+                ty.hash(state);
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BasicBlock {
     pub id: BasicBlockId,
@@ -190,10 +363,16 @@ pub struct Function {
 
 impl Function {
     pub fn get_block(&self, id: BasicBlockId) -> Option<&BasicBlock> {
+        if id.0 < self.blocks.len() && self.blocks[id.0].id == id {
+            return Some(&self.blocks[id.0]);
+        }
         self.blocks.iter().find(|b| b.id == id)
     }
 
     pub fn get_block_mut(&mut self, id: BasicBlockId) -> Option<&mut BasicBlock> {
+        if id.0 < self.blocks.len() && self.blocks[id.0].id == id {
+            return Some(&mut self.blocks[id.0]);
+        }
         self.blocks.iter_mut().find(|b| b.id == id)
     }
 }
@@ -420,6 +599,9 @@ impl<'a> Lowering<'a> {
     }
 
     pub fn get_block_mut(&mut self, id: BasicBlockId) -> &mut BasicBlock {
+        if id.0 < self.current_blocks.len() && self.current_blocks[id.0].id == id {
+            return &mut self.current_blocks[id.0];
+        }
         self.current_blocks
             .iter_mut()
             .find(|b| b.id == id)
@@ -429,6 +611,12 @@ impl<'a> Lowering<'a> {
     /// True when `id` still has the placeholder terminator, i.e. control really
     /// reaches the end of the block.
     pub fn block_falls_through(&self, id: BasicBlockId) -> bool {
+        if id.0 < self.current_blocks.len() && self.current_blocks[id.0].id == id {
+            return matches!(
+                self.current_blocks[id.0].terminator,
+                Terminator::Unreachable
+            );
+        }
         self.current_blocks
             .iter()
             .find(|b| b.id == id)

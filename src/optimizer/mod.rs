@@ -778,6 +778,20 @@ impl Optimizer {
 
         let mut inlined_set: HashSet<String> = HashSet::new();
 
+        let mut candidates_by_method: HashMap<String, Vec<&Function>> = HashMap::new();
+        for (name, f) in &candidates {
+            let mut start = 0;
+            while let Some(idx) = name[start..].find('_') {
+                let actual_idx = start + idx;
+                let suffix = &name[actual_idx + 1..];
+                candidates_by_method
+                    .entry(suffix.to_string())
+                    .or_default()
+                    .push(f);
+                start = actual_idx + 1;
+            }
+        }
+
         let mut caller_names: Vec<String> = module.functions.keys().cloned().collect();
         caller_names.sort();
 
@@ -855,17 +869,13 @@ impl Optimizer {
                                 .and_then(|name| candidates.get(name))
                                 .or_else(|| candidates.get(method))
                                 .or_else(|| {
-                                    let suffix = format!("_{}", method);
-                                    let mut matches: Vec<&Function> = candidates
-                                        .iter()
-                                        .filter(|(k, _)| k.ends_with(&suffix))
-                                        .map(|(_, f)| f)
-                                        .collect();
-                                    if matches.len() == 1 {
-                                        Some(matches.remove(0))
-                                    } else {
-                                        None
-                                    }
+                                    candidates_by_method.get(method).and_then(|matches| {
+                                        if matches.len() == 1 {
+                                            Some(matches[0])
+                                        } else {
+                                            None
+                                        }
+                                    })
                                 });
                             callee.map(|c| (*dest, c, all_args))
                         }
@@ -958,6 +968,20 @@ impl Optimizer {
         let mut reachable: HashSet<String> = HashSet::new();
         let mut worklist: Vec<String> = Vec::new();
 
+        let mut method_map: HashMap<String, Vec<String>> = HashMap::new();
+        for f_name in module.functions.keys() {
+            let mut start = 0;
+            while let Some(idx) = f_name[start..].find('_') {
+                let actual_idx = start + idx;
+                let suffix = &f_name[actual_idx + 1..];
+                method_map
+                    .entry(suffix.to_string())
+                    .or_default()
+                    .push(f_name.clone());
+                start = actual_idx + 1;
+            }
+        }
+
         if module.functions.contains_key("main") {
             reachable.insert("main".to_string());
             worklist.push("main".to_string());
@@ -966,7 +990,13 @@ impl Optimizer {
         while let Some(current_fn) = worklist.pop() {
             if let Some(f) = module.functions.get(&current_fn) {
                 for block in &f.blocks {
-                    self.collect_calls(&block.instructions, module, &mut reachable, &mut worklist);
+                    self.collect_calls(
+                        &block.instructions,
+                        module,
+                        &method_map,
+                        &mut reachable,
+                        &mut worklist,
+                    );
                 }
             }
         }
@@ -986,6 +1016,7 @@ impl Optimizer {
         &self,
         instructions: &[Inst],
         module: &Module,
+        method_map: &HashMap<String, Vec<String>>,
         reachable: &mut HashSet<String>,
         worklist: &mut Vec<String>,
     ) {
@@ -1008,11 +1039,12 @@ impl Optimizer {
                         reachable.insert(method.clone());
                         worklist.push(method.clone());
                     }
-                    for f_name in module.functions.keys() {
-                        if f_name.ends_with(&format!("_{}", method)) && !reachable.contains(f_name)
-                        {
-                            reachable.insert(f_name.clone());
-                            worklist.push(f_name.clone());
+                    if let Some(funcs) = method_map.get(method) {
+                        for f_name in funcs {
+                            if !reachable.contains(f_name) {
+                                reachable.insert(f_name.clone());
+                                worklist.push(f_name.clone());
+                            }
                         }
                     }
                 }
@@ -1021,16 +1053,16 @@ impl Optimizer {
                     body_insts,
                     ..
                 } => {
-                    self.collect_calls(condition_insts, module, reachable, worklist);
-                    self.collect_calls(body_insts, module, reachable, worklist);
+                    self.collect_calls(condition_insts, module, method_map, reachable, worklist);
+                    self.collect_calls(body_insts, module, method_map, reachable, worklist);
                 }
                 Inst::TryCatch {
                     try_insts,
                     catch_insts,
                     ..
                 } => {
-                    self.collect_calls(try_insts, module, reachable, worklist);
-                    self.collect_calls(catch_insts, module, reachable, worklist);
+                    self.collect_calls(try_insts, module, method_map, reachable, worklist);
+                    self.collect_calls(catch_insts, module, method_map, reachable, worklist);
                 }
                 _ => {}
             }

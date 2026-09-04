@@ -52,7 +52,7 @@ impl ScalarOptimizer {
         cost_model: &CostModel,
         trace: &mut OptimizationDecisionTrace,
     ) -> usize {
-        let cfg = ControlFlowGraph::build(f);
+        let cfg = ControlFlowGraph::build_dominance_only(f);
 
         // ---- Phase 1: global occurrence counting --------------------------
         let mut counts: HashMap<ExprKey, usize> = HashMap::new();

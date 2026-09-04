@@ -60,5 +60,7 @@ tests/debug_*.dtr
 # Code dumps for analysis
 /dump*.txt
 
-
-
+# Python packaging build artifacts
+*.egg-info/
+__pycache__/
+.pytest_cache/

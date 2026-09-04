@@ -47,15 +47,12 @@ fn fingerprint_function(
         block.id.hash(hasher);
         block.label.hash(hasher);
         for param in &block.params {
-            param.val.hash(hasher);
-            param.ty.hash(hasher);
-            param.name.hash(hasher);
+            param.hash(hasher);
         }
         for inst in &block.instructions {
-            // Debug format covers every field of every Inst variant.
-            format!("{:?}", inst).hash(hasher);
+            inst.hash(hasher);
         }
-        format!("{:?}", block.terminator).hash(hasher);
+        block.terminator.hash(hasher);
     }
 }
 
