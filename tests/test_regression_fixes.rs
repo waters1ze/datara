@@ -179,7 +179,7 @@ fn main() {
 }
 
 #[test]
-fn cranelift_rejects_simd_with_clear_error() {
+fn cranelift_executes_simd_dot_end_to_end() {
     let source = r#"
 fn main() {
     let a = float4(1.0, 2.0, 3.0, 4.0)
@@ -188,16 +188,18 @@ fn main() {
 }
 "#;
     let compiler = ForgenCompiler::new("quick");
-    let res = compiler.compile_source(source, "simd_cranelift.dtr", None);
-    let err = format!("{:?}", res.error);
+    let res = compiler.run_source(source, "simd_cranelift.dtr", &[], true);
     assert!(
-        !res.success,
-        "Cranelift must reject SIMD instead of silently emitting garbage"
+        res.is_ok(),
+        "Cranelift must execute SIMD successfully: {:?}",
+        res.err()
     );
+    let (stdout, _, code, _) = res.unwrap();
+    assert_eq!(code, 0);
     assert!(
-        err.contains("--llvm"),
-        "error must point the user to --llvm, got: {}",
-        err
+        stdout.contains("20"),
+        "dot product of [1,2,3,4] and [4,3,2,1] must be 20, got: {}",
+        stdout
     );
 }
 

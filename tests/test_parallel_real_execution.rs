@@ -108,3 +108,49 @@ fn main() {
     assert!(stdout.contains("Result 1: 9999900010"));
     assert!(stdout.contains("Result 2: 9999900020"));
 }
+
+#[test]
+fn test_compiled_parallel_invoke_fork_join() {
+    let source = r#"
+fn worker_a() {
+    mut i = 0
+    while i < 5000000 {
+        i = i + 1
+    }
+    out "WORKER_A_DONE"
+}
+
+fn worker_b() {
+    mut i = 0
+    while i < 5000000 {
+        i = i + 1
+    }
+    out "WORKER_B_DONE"
+}
+
+fn main() {
+    parallel {
+        worker_a()
+        worker_b()
+    }
+    out "ALL_DONE"
+}
+"#;
+
+    let compiler = ForgenCompiler::new("release");
+    let res = compiler.compile_source(source, "test_parallel_invoke_fj.dtr", None);
+    assert!(
+        res.success,
+        "Parallel invoke compilation failed: {:?}",
+        res.error
+    );
+
+    let (stdout, _stderr, code, _) = compiler
+        .codegen
+        .run_executable(&res.exe_path.unwrap(), &[])
+        .unwrap();
+    assert_eq!(code, 0);
+    assert!(stdout.contains("WORKER_A_DONE"));
+    assert!(stdout.contains("WORKER_B_DONE"));
+    assert!(stdout.contains("ALL_DONE"));
+}

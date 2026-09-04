@@ -231,7 +231,9 @@ impl<'a> LlvmEmitter<'a> {
         ir.push_str("declare i64 @datara_rt_random_bytes(ptr, i64)\n");
         ir.push_str("declare i64 @datara_rt_dialog_info(ptr, ptr)\n");
         ir.push_str("declare i64 @datara_rt_dialog_alert(ptr, ptr)\n");
-        ir.push_str("declare i64 @datara_rt_dialog_confirm(ptr, ptr)\n\n");
+        ir.push_str("declare i64 @datara_rt_dialog_confirm(ptr, ptr)\n");
+        ir.push_str("declare void @datara_rt_parallel_for(i64, i64, i64, i64)\n");
+        ir.push_str("declare void @datara_rt_parallel_invoke(i64, i64, i64, i64)\n\n");
 
         // 2b. Declare user-declared extern "C" functions (FFI), mirroring the
         // Cranelift backend so FFI programs compile on both backends.

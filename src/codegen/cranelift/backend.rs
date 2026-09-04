@@ -2386,26 +2386,123 @@ impl RealCraneliftBackend {
                             args,
                             ty,
                         } => {
-                            // SIMD vector builtins have no scalar Cranelift
-                            // lowering (the C runtime passes/returns 16-byte
-                            // structs). Reject them with a clear diagnostic
-                            // instead of silently emitting garbage; the LLVM
-                            // backend (`--llvm`) supports them natively.
-                            if matches!(
-                                func.as_str(),
-                                "float4"
-                                    | "int4"
-                                    | "dot"
-                                    | "min4"
-                                    | "max4"
-                                    | "datara_rt_float4"
-                                    | "datara_rt_int4"
-                                    | "datara_rt_float4_dot"
-                            ) {
-                                return Err(format!(
-                                    "Code generation failed: SIMD function '{}' requires the LLVM backend (build with --llvm) in function '{}'",
-                                    func, f.name
-                                ));
+                            // First-Class Hardware SIMD Lowering (float4, int4, dot, min4, max4)
+                            if (func == "float4" || func == "datara_rt_float4") && args.len() == 4 {
+                                let malloc_ref =
+                                    module.declare_func_in_func(malloc_id, builder.func);
+                                let size_val = builder.ins().iconst(clif_types::I64, 16);
+                                let call_inst = builder.ins().call(malloc_ref, &[size_val]);
+                                let slot_addr = builder.inst_results(call_inst)[0];
+                                let flags = cranelift_codegen::ir::MachMemFlags::new();
+
+                                for (i, a) in args.iter().enumerate() {
+                                    let raw_val = val_map
+                                        .get(a)
+                                        .copied()
+                                        .unwrap_or_else(|| builder.ins().f64const(0.0));
+                                    let raw_ty = builder.func.dfg.value_type(raw_val);
+                                    let f32_val = if raw_ty == clif_types::F64 {
+                                        builder.ins().fdemote(clif_types::F32, raw_val)
+                                    } else if raw_ty == clif_types::I64 {
+                                        builder.ins().fcvt_from_sint(clif_types::F32, raw_val)
+                                    } else if raw_ty == clif_types::F32 {
+                                        raw_val
+                                    } else {
+                                        builder.ins().f32const(0.0)
+                                    };
+                                    builder
+                                        .ins()
+                                        .store(flags, f32_val, slot_addr, (i * 4) as i32);
+                                }
+                                val_map.insert(*dest, slot_addr);
+                                continue;
+                            }
+
+                            if (func == "int4" || func == "datara_rt_int4") && args.len() == 4 {
+                                let malloc_ref =
+                                    module.declare_func_in_func(malloc_id, builder.func);
+                                let size_val = builder.ins().iconst(clif_types::I64, 16);
+                                let call_inst = builder.ins().call(malloc_ref, &[size_val]);
+                                let slot_addr = builder.inst_results(call_inst)[0];
+                                let flags = cranelift_codegen::ir::MachMemFlags::new();
+
+                                for (i, a) in args.iter().enumerate() {
+                                    let raw_val = val_map.get(a).copied().unwrap_or_else(|| {
+                                        builder.ins().iconst(clif_types::I64, 0)
+                                    });
+                                    let raw_ty = builder.func.dfg.value_type(raw_val);
+                                    let i32_val = if raw_ty == clif_types::I64 {
+                                        builder.ins().ireduce(clif_types::I32, raw_val)
+                                    } else if raw_ty == clif_types::F64 {
+                                        builder.ins().fcvt_to_sint(clif_types::I32, raw_val)
+                                    } else if raw_ty == clif_types::I32 {
+                                        raw_val
+                                    } else {
+                                        builder.ins().iconst(clif_types::I32, 0)
+                                    };
+                                    builder
+                                        .ins()
+                                        .store(flags, i32_val, slot_addr, (i * 4) as i32);
+                                }
+                                val_map.insert(*dest, slot_addr);
+                                continue;
+                            }
+
+                            if (func == "min4" || func == "max4") && args.len() == 2 {
+                                let v1 = val_map
+                                    .get(&args[0])
+                                    .copied()
+                                    .unwrap_or_else(|| builder.ins().iconst(clif_types::I64, 0));
+                                let v2 = val_map
+                                    .get(&args[1])
+                                    .copied()
+                                    .unwrap_or_else(|| builder.ins().iconst(clif_types::I64, 0));
+
+                                let malloc_ref =
+                                    module.declare_func_in_func(malloc_id, builder.func);
+                                let size_val = builder.ins().iconst(clif_types::I64, 16);
+                                let call_inst = builder.ins().call(malloc_ref, &[size_val]);
+                                let slot_addr = builder.inst_results(call_inst)[0];
+                                let flags = cranelift_codegen::ir::MachMemFlags::new();
+
+                                for i in 0..4i32 {
+                                    let offset = i * 4;
+                                    let l1 = builder.ins().load(clif_types::F32, flags, v1, offset);
+                                    let l2 = builder.ins().load(clif_types::F32, flags, v2, offset);
+                                    let r = if func == "min4" {
+                                        builder.ins().fmin(l1, l2)
+                                    } else {
+                                        builder.ins().fmax(l1, l2)
+                                    };
+                                    builder.ins().store(flags, r, slot_addr, offset);
+                                }
+                                val_map.insert(*dest, slot_addr);
+                                continue;
+                            }
+
+                            if (func == "dot" || func == "datara_rt_float4_dot") && args.len() == 2
+                            {
+                                let v1 = val_map
+                                    .get(&args[0])
+                                    .copied()
+                                    .unwrap_or_else(|| builder.ins().iconst(clif_types::I64, 0));
+                                let v2 = val_map
+                                    .get(&args[1])
+                                    .copied()
+                                    .unwrap_or_else(|| builder.ins().iconst(clif_types::I64, 0));
+                                let flags = cranelift_codegen::ir::MachMemFlags::new();
+
+                                let mut sum = builder.ins().f32const(0.0);
+                                for i in 0..4i32 {
+                                    let offset = i * 4;
+                                    let l1 = builder.ins().load(clif_types::F32, flags, v1, offset);
+                                    let l2 = builder.ins().load(clif_types::F32, flags, v2, offset);
+                                    let prod = builder.ins().fmul(l1, l2);
+                                    sum = builder.ins().fadd(sum, prod);
+                                }
+                                let res_f64 = builder.ins().fpromote(clif_types::F64, sum);
+                                val_map.insert(*dest, res_f64);
+                                continue;
                             }
                             // List literals: the lowering emits
                             // datara_rt_list_create_N for the exact literal

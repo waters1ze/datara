@@ -1303,7 +1303,100 @@ impl<'a> Lowering<'a> {
                 (exit_id, None)
             }
             Stmt::TryCatch { try_block, .. } => self.lower_stmt_cfg(try_block, cur_block),
-            Stmt::Parallel(body, _) => self.lower_stmt_cfg(body, cur_block),
+            Stmt::Parallel(body, _) => {
+                if let Stmt::Block(stmts, _) = body.as_ref()
+                    && stmts.len() == 2
+                {
+                    let get_call_info = |s: &Stmt| -> Option<(String, Option<Expr>)> {
+                        match s {
+                            Stmt::Expr(Expr::Call { callee, args, .. }, _) => {
+                                if let Expr::Identifier(fn_name, _) = callee.as_ref() {
+                                    if args.is_empty() {
+                                        return Some((fn_name.clone(), None));
+                                    } else if args.len() == 1 {
+                                        return Some((fn_name.clone(), Some(args[0].clone())));
+                                    }
+                                }
+                            }
+                            Stmt::Block(inner, _) if inner.len() == 1 => {
+                                if let Stmt::Expr(Expr::Call { callee, args, .. }, _) = &inner[0]
+                                    && let Expr::Identifier(fn_name, _) = callee.as_ref()
+                                {
+                                    if args.is_empty() {
+                                        return Some((fn_name.clone(), None));
+                                    } else if args.len() == 1 {
+                                        return Some((fn_name.clone(), Some(args[0].clone())));
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                        None
+                    };
+
+                    if let (Some((fn1_name, arg1)), Some((fn2_name, arg2))) =
+                        (get_call_info(&stmts[0]), get_call_info(&stmts[1]))
+                    {
+                        let ctx1 = if let Some(arg) = arg1 {
+                            self.lower_expr(&arg, &mut cur_block).unwrap_or_else(|| {
+                                let z = self.next_val();
+                                self.get_block_mut(cur_block)
+                                    .instructions
+                                    .push(Inst::ConstInt { dest: z, value: 0 });
+                                z
+                            })
+                        } else {
+                            let z = self.next_val();
+                            self.get_block_mut(cur_block)
+                                .instructions
+                                .push(Inst::ConstInt { dest: z, value: 0 });
+                            z
+                        };
+
+                        let ctx2 = if let Some(arg) = arg2 {
+                            self.lower_expr(&arg, &mut cur_block).unwrap_or_else(|| {
+                                let z = self.next_val();
+                                self.get_block_mut(cur_block)
+                                    .instructions
+                                    .push(Inst::ConstInt { dest: z, value: 0 });
+                                z
+                            })
+                        } else {
+                            let z = self.next_val();
+                            self.get_block_mut(cur_block)
+                                .instructions
+                                .push(Inst::ConstInt { dest: z, value: 0 });
+                            z
+                        };
+
+                        let fn1_addr = self.next_val();
+                        self.get_block_mut(cur_block)
+                            .instructions
+                            .push(Inst::GetFuncAddr {
+                                dest: fn1_addr,
+                                func_name: fn1_name,
+                            });
+
+                        let fn2_addr = self.next_val();
+                        self.get_block_mut(cur_block)
+                            .instructions
+                            .push(Inst::GetFuncAddr {
+                                dest: fn2_addr,
+                                func_name: fn2_name,
+                            });
+
+                        let dummy = self.next_val();
+                        self.get_block_mut(cur_block).instructions.push(Inst::Call {
+                            dest: dummy,
+                            func: "datara_rt_parallel_invoke".into(),
+                            args: vec![fn1_addr, ctx1, fn2_addr, ctx2],
+                            ty: "Unit".into(),
+                        });
+                        return (cur_block, None);
+                    }
+                }
+                self.lower_stmt_cfg(body, cur_block)
+            }
             Stmt::ParallelFor {
                 var_name,
                 iterable,
