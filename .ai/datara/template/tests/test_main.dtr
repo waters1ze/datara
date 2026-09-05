@@ -1,0 +1,16 @@
+﻿// Verification test suite
+use src.lib.Calculator
+use src.lib.create_calculator
+
+fn test_calculator_math() -> Bool {
+    let calc = create_calculator(10)
+    return calc.add(5) == 15 && calc.multiply(3) == 30
+}
+
+fn main() {
+    if test_calculator_math() {
+        out "PASS: test_calculator_math"
+    } else {
+        err "FAIL: test_calculator_math"
+    }
+}

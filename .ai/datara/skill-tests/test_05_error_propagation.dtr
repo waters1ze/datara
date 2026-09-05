@@ -1,0 +1,25 @@
+// Test 05: Outcome, ? Operator, and or Fallback
+use stdlib.result.result.Outcome
+
+fn compute_div(a: Int, b: Int) -> Outcome<Int> {
+    if b != 0 {
+        return Outcome<Int> { is_success: true, value: a / b, error_msg: "" }
+    }
+    return Outcome<Int> { is_success: false, value: 0, error_msg: "div by zero" }
+}
+
+fn try_operation(x: Int, y: Int) -> Outcome<Int> {
+    let res = compute_div(x, y)?
+    return Outcome<Int> { is_success: true, value: res * 2, error_msg: "" }
+}
+
+fn main() {
+    let ok = try_operation(100, 2)
+    let err_case = try_operation(100, 0)
+    let fb = compute_div(100, 0) or 999
+    if ok.value == 100 && !err_case.is_success && fb == 999 {
+        out "PASS: error_propagation"
+    } else {
+        err "FAIL: error_propagation"
+    }
+}

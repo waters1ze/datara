@@ -1,0 +1,13 @@
+// Test 10: Zero-Cost Security Capability Token Witness
+fn verify_token(token: Capability<FileRead>) -> Bool {
+    return true
+}
+
+fn main(sys_caps: SystemCapabilities) {
+    let token = sys_caps.files.grant_readonly("dummy.txt")
+    if verify_token(token) {
+        out "PASS: capabilities"
+    } else {
+        err "FAIL: capabilities"
+    }
+}

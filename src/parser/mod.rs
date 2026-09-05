@@ -2,11 +2,24 @@ use crate::ast::*;
 use crate::diagnostics::{DiagnosticEngine, ErrorCode, SourceSpan};
 use crate::lexer::{Lexer, Token, TokenType};
 
+/// Maximum recursion depth for nested expressions/types; deeper input is
+/// rejected instead of overflowing the stack. Empirically, parser recursion
+/// frames are large enough that depths beyond ~100 can exhaust the stack on
+/// threads with small stacks, so the cap stays well below that.
+const MAX_PARSE_DEPTH: usize = 100;
+
 pub struct Parser<'a> {
     tokens: Vec<Token>,
     current: usize,
     diag: &'a mut DiagnosticEngine,
     file: String,
+    depth: usize,
+    /// When set, `Ident {` at the top of an expression is not treated as a
+    /// struct literal unless the brace content provably looks like field
+    /// initializer syntax (`{`, `Ident :` or `{}`). Used for `if`/`while`
+    /// conditions and `match` scrutinees so `if Flag { ... }` parses the
+    /// `{` as the block body instead of an object init.
+    no_struct_literal_at_top: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -16,6 +29,8 @@ impl<'a> Parser<'a> {
             current: 0,
             diag,
             file: file.to_string(),
+            depth: 0,
+            no_struct_literal_at_top: false,
         }
     }
 
@@ -30,11 +45,21 @@ impl<'a> Parser<'a> {
                 && id == "module"
             {
                 self.advance();
+                let mut module_path = String::new();
                 while !self.is_at_end()
                     && !self.check(&TokenType::Semicolon)
                     && self.peek().span.start_line == self.previous().span.start_line
                 {
-                    self.advance();
+                    let tok = self.advance();
+                    module_path.push_str(&tok.lexeme);
+                }
+                if module_path
+                    .chars()
+                    .any(|c| !(c.is_alphanumeric() || c == '_' || c == '.' || c == ':'))
+                {
+                    self.error(
+                        "Invalid module path; expected identifiers separated by '.' or '::'",
+                    );
                 }
                 self.match_token(&TokenType::Semicolon);
                 file_attributes.extend(attrs);
@@ -184,11 +209,19 @@ impl<'a> Parser<'a> {
 
         let base_address = match &self.peek().token_type {
             TokenType::IntLiteral(n) => {
+                if *n < 0 {
+                    self.error("Register base address must be non-negative");
+                    return None;
+                }
                 let val = *n as u64;
                 self.advance();
                 val
             }
             _ => {
+                if self.negative_literal_follows() {
+                    self.error("Register base address must be non-negative");
+                    return None;
+                }
                 self.error("Expected base address integer/hex literal after 'at'");
                 return None;
             }
@@ -211,11 +244,19 @@ impl<'a> Parser<'a> {
             }
             let offset = match &self.peek().token_type {
                 TokenType::IntLiteral(n) => {
+                    if *n < 0 {
+                        self.error("Register field offset must be non-negative");
+                        return None;
+                    }
                     let val = *n as u64;
                     self.advance();
                     val
                 }
                 _ => {
+                    if self.negative_literal_follows() {
+                        self.error("Register field offset must be non-negative");
+                        return None;
+                    }
                     self.error("Expected register field offset integer/hex literal after 'at'");
                     return None;
                 }
@@ -679,17 +720,29 @@ impl<'a> Parser<'a> {
             let mut bit_field = None;
             if self.match_token(&TokenType::In) {
                 if self.match_token(&TokenType::Bit) {
-                    if let TokenType::IntLiteral(bit_idx) = self.peek().token_type {
+                    if self.negative_literal_follows() {
+                        self.error("Bit index must be non-negative");
+                        self.advance();
+                        self.advance();
+                    } else if let TokenType::IntLiteral(bit_idx) = self.peek().token_type {
                         self.advance();
                         bit_field = Some(BitFieldRange::Single(bit_idx as usize));
                     } else {
                         self.error("Expected bit index integer after 'in bit'");
                     }
                 } else if self.match_token(&TokenType::Bits) {
-                    if let TokenType::IntLiteral(start) = self.peek().token_type {
+                    if self.negative_literal_follows() {
+                        self.error("Bit index must be non-negative");
+                        self.advance();
+                        self.advance();
+                    } else if let TokenType::IntLiteral(start) = self.peek().token_type {
                         self.advance();
                         self.consume(&TokenType::DotDotEq, "Expected '..=' in bit range")?;
-                        if let TokenType::IntLiteral(end) = self.peek().token_type {
+                        if self.negative_literal_follows() {
+                            self.error("Bit index must be non-negative");
+                            self.advance();
+                            self.advance();
+                        } else if let TokenType::IntLiteral(end) = self.peek().token_type {
                             self.advance();
                             bit_field = Some(BitFieldRange::Range {
                                 start: start as usize,
@@ -806,9 +859,19 @@ impl<'a> Parser<'a> {
             let field_span = self.peek().span.clone();
             let fname = self.consume_ident("Expected field name in packet")?;
             self.match_token(&TokenType::Colon);
-            let bits = if let TokenType::IntLiteral(val) = self.peek().token_type {
+            let bits = if self.negative_literal_follows() {
+                self.error("Packet field bit count must be non-negative");
                 self.advance();
-                val as usize
+                self.advance();
+                1
+            } else if let TokenType::IntLiteral(val) = self.peek().token_type {
+                self.advance();
+                if val < 0 {
+                    self.error("Packet field bit count must be non-negative");
+                    1
+                } else {
+                    val as usize
+                }
             } else {
                 self.error("Expected bit count for packet field");
                 1
@@ -920,6 +983,18 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type(&mut self) -> Option<TypeNode> {
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            self.error("Type nesting too deep");
+            self.depth -= 1;
+            return None;
+        }
+        let result = self.parse_type_inner();
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_type_inner(&mut self) -> Option<TypeNode> {
         let start_span = self.peek().span.clone();
         let name = self.consume_ident("Expected type name")?;
 
@@ -950,32 +1025,46 @@ impl<'a> Parser<'a> {
             } else {
                 while !self.check(&TokenType::Greater) && !self.is_at_end() {
                     if let TokenType::Identifier(ref id) = self.peek().token_type {
-                        let mut unit_name = id.clone();
-                        let unit_span = self.peek().span.clone();
-                        self.advance();
-                        while (self.check(&TokenType::Slash) || self.check(&TokenType::Star))
-                            && !self.is_at_end()
-                        {
-                            let op_tok = self.advance();
-                            let op_str = if matches!(op_tok.token_type, TokenType::Slash) {
-                                "/"
-                            } else {
-                                "*"
-                            };
-                            if let TokenType::Identifier(ref next_id) = self.peek().token_type {
-                                unit_name.push_str(op_str);
-                                unit_name.push_str(next_id);
-                                self.advance();
+                        // A generic argument starting with an identifier is a
+                        // nested type when followed by `<` (e.g. `Vec<Vec<Int>>`);
+                        // otherwise it is a unit name (possibly composite, like
+                        // `m/s` or `N*m`).
+                        let next_is_less = matches!(
+                            self.tokens.get(self.current + 1).map(|t| &t.token_type),
+                            Some(TokenType::Less)
+                        );
+                        if next_is_less {
+                            if let Some(arg) = self.parse_type() {
+                                generic_args.push(arg);
                             }
+                        } else {
+                            let mut unit_name = id.clone();
+                            let unit_span = self.peek().span.clone();
+                            self.advance();
+                            while (self.check(&TokenType::Slash) || self.check(&TokenType::Star))
+                                && !self.is_at_end()
+                            {
+                                let op_tok = self.advance();
+                                let op_str = if matches!(op_tok.token_type, TokenType::Slash) {
+                                    "/"
+                                } else {
+                                    "*"
+                                };
+                                if let TokenType::Identifier(ref next_id) = self.peek().token_type {
+                                    unit_name.push_str(op_str);
+                                    unit_name.push_str(next_id);
+                                    self.advance();
+                                }
+                            }
+                            generic_args.push(TypeNode {
+                                name: unit_name,
+                                generic_args: Vec::new(),
+                                is_option: false,
+                                error_type: None,
+                                refinement: None,
+                                span: unit_span,
+                            });
                         }
-                        generic_args.push(TypeNode {
-                            name: unit_name,
-                            generic_args: Vec::new(),
-                            is_option: false,
-                            error_type: None,
-                            refinement: None,
-                            span: unit_span,
-                        });
                     } else if let Some(arg) = self.parse_type() {
                         generic_args.push(arg);
                     }
@@ -1159,6 +1248,123 @@ impl<'a> Parser<'a> {
         ))
     }
 
+    /// Decides whether a `{`-delimited arm body (match/decide/select) is a
+    /// statement block (`{ let y = 2; y }`) rather than a map literal. Scans
+    /// ahead without consuming: a map literal must contain a top-level `:`,
+    /// while a block body either starts with a statement keyword, contains a
+    /// top-level `;`, or simply has no top-level `:`. An empty `{}` is treated
+    /// as an empty block (Unit); a map literal needs at least a key.
+    fn arm_body_is_block(&self) -> bool {
+        if !self.check(&TokenType::LBrace) {
+            return false;
+        }
+        let body_start = self.current + 1;
+        let mut depth = 0usize;
+        let mut has_top_level_colon = false;
+        let mut i = body_start;
+        while i < self.tokens.len() {
+            match &self.tokens[i].token_type {
+                TokenType::LBrace => depth += 1,
+                TokenType::RBrace => {
+                    if depth == 0 {
+                        if i == body_start {
+                            // Empty braces: block (Unit).
+                            return true;
+                        }
+                        break;
+                    }
+                    depth -= 1;
+                }
+                TokenType::Semicolon if depth == 0 => return true,
+                TokenType::Colon if depth == 0 => has_top_level_colon = true,
+                t if depth == 0
+                    && i == body_start
+                    && matches!(
+                        t,
+                        TokenType::Let
+                            | TokenType::Mut
+                            | TokenType::Val
+                            | TokenType::Const
+                            | TokenType::If
+                            | TokenType::For
+                            | TokenType::While
+                            | TokenType::Loop
+                            | TokenType::Return
+                            | TokenType::Out
+                            | TokenType::Err
+                            | TokenType::Match
+                            | TokenType::Decide
+                            | TokenType::Select
+                            | TokenType::Unsafe
+                            | TokenType::Try
+                            | TokenType::Parallel
+                    ) =>
+                {
+                    return true;
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        // No top-level `:` anywhere: it cannot be a map literal, so treat it
+        // as a block (e.g. `{ 1 }`, `{ x + 1 }`).
+        !has_top_level_colon
+    }
+
+    /// Parses a `{ ... }` arm body as a statement block: statements run in
+    /// order and the trailing expression (if any) becomes the block's value.
+    fn parse_arm_block(&mut self) -> Option<Expr> {
+        let start_span = self.peek().span.clone();
+        self.consume(&TokenType::LBrace, "Expected '{'")?;
+        let mut stmts: Vec<Stmt> = Vec::new();
+        let mut value: Option<Box<Expr>> = None;
+
+        while !self.check(&TokenType::RBrace) && !self.is_at_end() {
+            if self.match_token(&TokenType::Semicolon) {
+                continue;
+            }
+            match self.parse_statement() {
+                Some(Stmt::Expr(e, sp)) => {
+                    while self.match_token(&TokenType::Semicolon) {}
+                    if self.check(&TokenType::RBrace) || self.is_at_end() {
+                        value = Some(Box::new(e));
+                    } else {
+                        stmts.push(Stmt::Expr(e, sp));
+                    }
+                }
+                Some(s) => {
+                    stmts.push(s);
+                    while self.match_token(&TokenType::Semicolon) {}
+                }
+                None => self.synchronize(),
+            }
+        }
+
+        let end_token = self.consume(&TokenType::RBrace, "Expected '}'")?;
+        Some(Expr::Block(
+            stmts,
+            value,
+            SourceSpan::new(
+                start_span.start_line,
+                start_span.start_col,
+                end_token.span.end_line,
+                end_token.span.end_col,
+                self.file.clone(),
+            ),
+        ))
+    }
+
+    /// Arm body for match/decide/select: a `{`-shaped body that is a statement
+    /// block parses as `Expr::Block`; anything else stays a plain expression
+    /// (including map literals).
+    fn parse_arm_body(&mut self) -> Option<Expr> {
+        if self.arm_body_is_block() {
+            self.parse_arm_block()
+        } else {
+            self.parse_expression()
+        }
+    }
+
     fn parse_statement(&mut self) -> Option<Stmt> {
         let start_span = self.peek().span.clone();
 
@@ -1295,7 +1501,12 @@ impl<'a> Parser<'a> {
         }
 
         if self.match_token(&TokenType::Return) {
-            let expr = if !self.check(&TokenType::RBrace) && !self.is_at_end() {
+            // A bare `return` is terminated by the end of the statement
+            // (`;`), the enclosing block (`}`) or EOF — not just `}`.
+            let expr = if !self.check(&TokenType::RBrace)
+                && !self.check(&TokenType::Semicolon)
+                && !self.is_at_end()
+            {
                 self.parse_expression()
             } else {
                 None
@@ -1313,7 +1524,7 @@ impl<'a> Parser<'a> {
         }
 
         if self.match_token(&TokenType::If) {
-            let condition = self.parse_expression()?;
+            let condition = self.parse_condition()?;
             let then_branch = Box::new(self.parse_block()?);
             let mut else_branch = None;
             if self.match_token(&TokenType::Else) {
@@ -1431,7 +1642,7 @@ impl<'a> Parser<'a> {
         }
 
         if self.match_token(&TokenType::While) {
-            let condition = self.parse_expression()?;
+            let condition = self.parse_condition()?;
             let body = Box::new(self.parse_block()?);
             return Some(Stmt::While {
                 condition,
@@ -1576,7 +1787,41 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_expression(&mut self) -> Option<Expr> {
-        self.parse_pipeline()
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            self.error("Expression nesting too deep");
+            self.depth -= 1;
+            return None;
+        }
+        let result = self.parse_pipeline();
+        self.depth -= 1;
+        result
+    }
+
+    /// Parse an expression in "condition / scrutinee" position (`if`, `while`,
+    /// `match`). In this position a capitalized identifier followed by `{` is
+    /// ambiguous between a struct literal (`if User { name: "a" }.is_admin { }`)
+    /// and a plain variable followed by the statement's block body
+    /// (`if Flag { out 1 }`). We only treat `Ident {` as a struct literal when
+    /// the brace content provably looks like field-initializer syntax.
+    fn parse_condition(&mut self) -> Option<Expr> {
+        self.no_struct_literal_at_top = true;
+        let expr = self.parse_expression();
+        self.no_struct_literal_at_top = false;
+        expr
+    }
+
+    /// Lookahead: assuming `self.current` points at `{`, does the brace content
+    /// look like struct-literal field-initializer syntax (`{}` or `{ Ident :`)?
+    fn struct_literal_ahead(&self) -> bool {
+        match self.tokens.get(self.current + 1).map(|t| &t.token_type) {
+            Some(TokenType::RBrace) => true,
+            Some(TokenType::Identifier(_)) => matches!(
+                self.tokens.get(self.current + 2).map(|t| &t.token_type),
+                Some(TokenType::Colon)
+            ),
+            _ => false,
+        }
     }
 
     fn parse_pipeline(&mut self) -> Option<Expr> {
@@ -1891,10 +2136,11 @@ impl<'a> Parser<'a> {
     fn parse_unary(&mut self) -> Option<Expr> {
         if self.match_token(&TokenType::Bang) || self.match_token(&TokenType::Minus) {
             let op = self.previous().lexeme.clone();
+            let op_span = self.previous().span.clone();
             let expr = self.parse_unary()?;
             let span = SourceSpan::new(
-                self.previous().span.start_line,
-                self.previous().span.start_col,
+                op_span.start_line,
+                op_span.start_col,
                 expr.span().end_line,
                 expr.span().end_col,
                 self.file.clone(),
@@ -2079,30 +2325,40 @@ impl<'a> Parser<'a> {
                 }
 
                 if is_capital && self.check(&TokenType::LBrace) {
-                    self.consume(&TokenType::LBrace, "Expected '{'")?;
-                    let mut fields = Vec::new();
+                    // In condition/scrutinee position (`if Flag { ... }`), only
+                    // treat `Ident {` as a struct literal when the brace content
+                    // provably looks like field-initializer syntax; otherwise
+                    // parse the identifier alone and leave `{` to be consumed as
+                    // the block body by the statement parser.
+                    let allow_struct =
+                        !self.no_struct_literal_at_top || self.struct_literal_ahead();
+                    if allow_struct {
+                        self.consume(&TokenType::LBrace, "Expected '{'")?;
+                        let mut fields = Vec::new();
 
-                    while !self.check(&TokenType::RBrace) && !self.is_at_end() {
-                        let field_name = self.consume_ident_or_keyword("Expected field name")?;
-                        self.consume(&TokenType::Colon, "Expected ':' after field name")?;
-                        let field_val = self.parse_expression()?;
-                        fields.push((field_name, field_val));
-                        self.match_token(&TokenType::Comma);
+                        while !self.check(&TokenType::RBrace) && !self.is_at_end() {
+                            let field_name =
+                                self.consume_ident_or_keyword("Expected field name")?;
+                            self.consume(&TokenType::Colon, "Expected ':' after field name")?;
+                            let field_val = self.parse_expression()?;
+                            fields.push((field_name, field_val));
+                            self.match_token(&TokenType::Comma);
+                        }
+
+                        let end_token = self.consume(&TokenType::RBrace, "Expected '}'")?;
+                        return Some(Expr::ObjectInit {
+                            class_name: name.clone(),
+                            generic_args,
+                            fields,
+                            span: SourceSpan::new(
+                                token.span.start_line,
+                                token.span.start_col,
+                                end_token.span.end_line,
+                                end_token.span.end_col,
+                                self.file.clone(),
+                            ),
+                        });
                     }
-
-                    let end_token = self.consume(&TokenType::RBrace, "Expected '}'")?;
-                    return Some(Expr::ObjectInit {
-                        class_name: name.clone(),
-                        generic_args,
-                        fields,
-                        span: SourceSpan::new(
-                            token.span.start_line,
-                            token.span.start_col,
-                            end_token.span.end_line,
-                            end_token.span.end_col,
-                            self.file.clone(),
-                        ),
-                    });
                 }
 
                 Some(Expr::Identifier(name.clone(), token.span))
@@ -2122,12 +2378,12 @@ impl<'a> Parser<'a> {
                 while !self.check(&TokenType::RBrace) && !self.is_at_end() {
                     if self.match_token(&TokenType::Else) {
                         self.consume(&TokenType::FatArrow, "Expected '=>' after else")?;
-                        else_arm = Some(Box::new(self.parse_expression()?));
+                        else_arm = Some(Box::new(self.parse_arm_body()?));
                         self.match_token(&TokenType::Comma);
                     } else {
                         let condition = self.parse_expression()?;
                         self.consume(&TokenType::FatArrow, "Expected '=>' after decide condition")?;
-                        let body = self.parse_expression()?;
+                        let body = self.parse_arm_body()?;
                         let span = SourceSpan::new(
                             condition.span().start_line,
                             condition.span().start_col,
@@ -2161,7 +2417,7 @@ impl<'a> Parser<'a> {
 
             TokenType::Match => {
                 let start_span = token.span.clone();
-                let value = Box::new(self.parse_expression()?);
+                let value = Box::new(self.parse_condition()?);
                 self.consume(&TokenType::LBrace, "Expected '{' after match expression")?;
                 let mut arms = Vec::new();
 
@@ -2172,7 +2428,7 @@ impl<'a> Parser<'a> {
                         guard = self.parse_expression();
                     }
                     self.consume(&TokenType::FatArrow, "Expected '=>' after match pattern")?;
-                    let body = self.parse_expression()?;
+                    let body = self.parse_arm_body()?;
                     let span = SourceSpan::new(
                         pattern.span().start_line,
                         pattern.span().start_col,
@@ -2213,12 +2469,12 @@ impl<'a> Parser<'a> {
                 while !self.check(&TokenType::RBrace) && !self.is_at_end() {
                     if self.match_token(&TokenType::Else) {
                         self.consume(&TokenType::FatArrow, "Expected '=>' after else")?;
-                        else_arm = Some(Box::new(self.parse_expression()?));
+                        else_arm = Some(Box::new(self.parse_arm_body()?));
                         self.match_token(&TokenType::Comma);
                     } else {
                         let condition = self.parse_expression()?;
                         self.consume(&TokenType::FatArrow, "Expected '=>' after select condition")?;
-                        let body = self.parse_expression()?;
+                        let body = self.parse_arm_body()?;
                         let span = SourceSpan::new(
                             condition.span().start_line,
                             condition.span().start_col,
@@ -2295,9 +2551,19 @@ impl<'a> Parser<'a> {
 
                 // Check for [elem; count] (ArrayRepeatLiteral)
                 if self.match_token(&TokenType::Semicolon) {
-                    let count = if let TokenType::IntLiteral(c) = self.peek().token_type {
+                    let count = if self.negative_literal_follows() {
+                        self.error("Array repeat count must be non-negative");
                         self.advance();
-                        c as usize
+                        self.advance();
+                        0
+                    } else if let TokenType::IntLiteral(c) = self.peek().token_type {
+                        self.advance();
+                        if c < 0 {
+                            self.error("Array repeat count must be non-negative");
+                            0
+                        } else {
+                            c as usize
+                        }
                     } else {
                         self.error("Expected integer count after ';' in array repeat literal");
                         0
@@ -2402,14 +2668,17 @@ impl<'a> Parser<'a> {
 
                 if self.match_token(&TokenType::FatArrow) {
                     let mut params = Vec::new();
-                    for e in exprs {
-                        if let Expr::Identifier(name, p_span) = e {
-                            params.push(Param {
-                                name,
+                    for e in &exprs {
+                        match e {
+                            Expr::Identifier(name, p_span) => params.push(Param {
+                                name: name.clone(),
                                 type_node: None,
                                 ownership_mode: "owned".into(),
-                                span: p_span,
-                            });
+                                span: p_span.clone(),
+                            }),
+                            _ => {
+                                self.error("Lambda parameters must be plain identifiers");
+                            }
                         }
                     }
                     let body = Box::new(self.parse_expression()?);
@@ -2668,6 +2937,17 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// True when the next tokens are a `-` immediately followed by an integer
+    /// literal, i.e. a negative literal that must not be accepted as a count,
+    /// size, bit index or address (casting it to `usize` would wrap).
+    fn negative_literal_follows(&self) -> bool {
+        self.check(&TokenType::Minus)
+            && matches!(
+                self.tokens.get(self.current + 1).map(|t| &t.token_type),
+                Some(TokenType::IntLiteral(_))
+            )
+    }
+
     fn check_ident_str(&self, expected: &str) -> bool {
         if self.is_at_end() {
             false
@@ -2725,12 +3005,19 @@ impl<'a> Parser<'a> {
                 | TokenType::Behavior
                 | TokenType::Component
                 | TokenType::Role
+                | TokenType::Enum
+                | TokenType::Extern
+                | TokenType::Type
+                | TokenType::Packet
                 | TokenType::Let
                 | TokenType::Mut
                 | TokenType::If
                 | TokenType::For
                 | TokenType::While
                 | TokenType::Return => return,
+                // Stop at (but do not consume) block/statement terminators so
+                // recovery does not eat the enclosing block and cascade errors.
+                TokenType::RBrace | TokenType::Semicolon => return,
                 _ => {
                     self.advance();
                 }

@@ -1,0 +1,13 @@
+// Test 01: Variable Triad and String Interpolation
+fn main() {
+    let a: Int = 15
+    mut b: Int = 25
+    b = b + 10
+    val c = 50
+    let total = a + b + c
+    if total == 100 {
+        out "PASS: syntax_basics"
+    } else {
+        err "FAIL: syntax_basics"
+    }
+}

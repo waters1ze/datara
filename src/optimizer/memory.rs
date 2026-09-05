@@ -13,16 +13,22 @@ impl MemoryOptimizer {
     ) -> usize {
         let mut allocations_eliminated = 0;
 
-        for block in &mut f.blocks {
-            let (new_insts, eliminated) = Self::scalarize_instruction_list(
-                &block.instructions,
-                &block.terminator,
-                f.name.as_str(),
-                cost_model,
-                trace,
-            );
-            block.instructions = new_insts;
-            allocations_eliminated += eliminated;
+        // Field maps are tracked per instruction list with no cross-block
+        // invalidation: a `SetField` in block A is deleted while a `GetField`
+        // in block B would still read the pre-update field values. Only
+        // scalarize functions whose entire body is one block.
+        if f.blocks.len() == 1 {
+            for block in &mut f.blocks {
+                let (new_insts, eliminated) = Self::scalarize_instruction_list(
+                    &block.instructions,
+                    &block.terminator,
+                    f.name.as_str(),
+                    cost_model,
+                    trace,
+                );
+                block.instructions = new_insts;
+                allocations_eliminated += eliminated;
+            }
         }
 
         allocations_eliminated += Self::eliminate_bounds_checks(f, cost_model, trace);
@@ -227,8 +233,16 @@ impl MemoryOptimizer {
                             field_map.insert(field.clone(), *value);
                             updated = true;
                         }
-                        for (_, field_map) in var_to_struct.values_mut() {
-                            field_map.insert(field.clone(), *value);
+                        // Update ONLY the field maps of variables that alias
+                        // this object. Poisoning every tracked struct
+                        // variable's map would forward the wrong field value
+                        // through unrelated LoadVars.
+                        for (name, &bound_val) in &var_to_val {
+                            if bound_val == object_root
+                                && let Some((_, field_map)) = var_to_struct.get_mut(name)
+                            {
+                                field_map.insert(field.clone(), *value);
+                            }
                         }
                         if updated {
                             eliminated += 1;

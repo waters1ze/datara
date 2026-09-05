@@ -133,7 +133,10 @@ impl LoopOptimizer {
             // Loading a variable that the loop never writes produces the same
             // value on every iteration, so the load is loop-invariant.
             Inst::LoadVar { name, .. } => !facts.may_alias && !facts.assigned.contains(name),
-            Inst::GetField { .. } => !facts.may_alias,
+            // GetField dereferences its object: hoisting it out of a zero-trip
+            // loop could introduce a fault the original never had. Stay
+            // conservative and never hoist it.
+            Inst::GetField { .. } => false,
             // Division / modulo may trap on a zero divisor. Moving one out of a
             // loop that may run zero times can introduce a fault the original
             // program never had, so those stay where they are.
@@ -141,8 +144,10 @@ impl LoopOptimizer {
             Inst::ConstInt { .. }
             | Inst::ConstFloat { .. }
             | Inst::ConstBool { .. }
-            | Inst::ConstStr { .. }
-            | Inst::UnOp { .. } => true,
+            | Inst::ConstStr { .. } => true,
+            // Only a plain copy is known non-trapping; other unops are not
+            // proven pure.
+            Inst::UnOp { op, .. } => op == "copy",
             _ => false,
         }
     }
@@ -741,6 +746,12 @@ impl LoopOptimizer {
         if header_blk.params.len() != 2 || (!is_int && !is_float) {
             return None;
         }
+        // Float induction/invariant-constant folding is disabled pending
+        // bit-exactness analysis: the closed forms are not bit-exact with
+        // IEEE-754 sequential addition.
+        if is_float {
+            return None;
+        }
         if header_blk.instructions.len() != 1 {
             return None;
         }
@@ -761,6 +772,13 @@ impl LoopOptimizer {
             } if op == "<=" => (*dest, *left, *right, true),
             _ => return None,
         };
+        // For `<=` the bound itself is the last tested value. When it is
+        // i64::MAX the induction variable wraps (MAX + 1 == MIN, and MIN is
+        // still <= MAX), so the original loop never terminates and the
+        // closed form is invalid.
+        if is_le && Self::const_int_value(f, n) == Some(i64::MAX) {
+            return None;
+        }
         let (p_a, p_b) = (header_blk.params[0].val, header_blk.params[1].val);
         if p_i != p_a && p_i != p_b {
             return None;
@@ -1835,7 +1853,13 @@ impl LoopOptimizer {
                             } else if in_loop {
                                 rebound = true;
                             } else if const_val(*value) == Some(0) {
-                                init_zero = true;
+                                // The zero-init only counts when its block
+                                // dominates the loop header: an `= 0` in a
+                                // non-dominating block does not execute on
+                                // every path into the loop.
+                                if cfg.dominates(block.id, lp.header) {
+                                    init_zero = true;
+                                }
                             } else {
                                 // A non-zero init: cannot prove [0, bound).
                                 rebound = true;

@@ -1,0 +1,13 @@
+// Reusable core components and operations
+class Calculator {
+    base: Int
+}
+
+behavior Calculator {
+    add(val: Int) -> Int => this.base + val
+    multiply(factor: Int) -> Int => this.base * factor
+}
+
+fn create_calculator(initial: Int) -> Calculator {
+    return Calculator { base: initial }
+}

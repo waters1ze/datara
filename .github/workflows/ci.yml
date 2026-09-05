@@ -17,8 +17,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust
+        # Pinned to the floating stable channel; pass an explicit version here
+        # (e.g. `toolchain: 1.75.0`) once an MSRV is declared in Cargo.toml.
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: stable
           components: rustfmt, clippy
 
       - uses: Swatinem/rust-cache@v2

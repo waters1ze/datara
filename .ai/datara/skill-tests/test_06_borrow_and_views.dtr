@@ -1,0 +1,14 @@
+// Test 06: Zero-Copy View and Scoped Mutability
+fn main() {
+    mut item = 100
+    if true {
+        mut v = item.view()
+        out fmt"Active view: {v}"
+    }
+    item = 200
+    if item == 200 {
+        out "PASS: borrow_and_views"
+    } else {
+        err "FAIL: borrow_and_views"
+    }
+}

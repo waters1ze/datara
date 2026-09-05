@@ -1,0 +1,19 @@
+// Test 11: Comptime Evaluation and Structural @derive
+@derive(Display, Json, Hash, Clone)
+class SensorData {
+    channel: Int
+    active: Bool
+}
+
+fn main() {
+    let folded: Int = comptime { (50 + 50) * 4 }
+    let s = SensorData { channel: 12, active: true }
+    let json_str = s.to_json()
+    let h1 = s.hash()
+    let s_clone = s.clone()
+    if folded == 400 && h1 == s_clone.hash() {
+        out "PASS: comptime_derive"
+    } else {
+        err "FAIL: comptime_derive"
+    }
+}

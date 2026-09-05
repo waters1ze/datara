@@ -1,0 +1,10 @@
+// Application entry point
+use lib.Calculator
+use lib.create_calculator
+
+fn main() {
+    let calc = create_calculator(50)
+    let sum = calc.add(25)
+    let prod = calc.multiply(2)
+    out fmt"Calculator initial=50, add(25)={sum}, multiply(2)={prod}"
+}

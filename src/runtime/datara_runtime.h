@@ -18,6 +18,8 @@ void        datara_rt_out_str(const char* s);
 void        datara_rt_out_dec64(int64_t v);
 void        datara_rt_err(const char* s);
 void        datara_rt_exit(int32_t code);
+void        datara_rt_panic(const char* s);
+void        datara_rt_print_backtrace(void);
 const char* datara_rt_input(const char* prompt);
 int64_t     datara_rt_input_int(const char* prompt);
 double      datara_rt_input_float(const char* prompt);
@@ -52,6 +54,26 @@ int64_t     datara_rt_str_to_int(const char* s);
 double      datara_rt_str_to_float(const char* s);
 const char* datara_rt_str_substring(const char* s, int64_t start, int64_t len);
 const char* datara_rt_str_char_at(const char* s, int64_t idx);
+const char* datara_rt_str_repeat(const char* s, int64_t count);
+const char* datara_rt_str_pad_left(const char* s, int64_t total_len, const char* pad);
+const char* datara_rt_str_pad_right(const char* s, int64_t total_len, const char* pad);
+const char* datara_rt_str_replace(const char* s, const char* target, const char* replacement);
+const char* datara_rt_str_to_upper(const char* s);
+const char* datara_rt_str_to_lower(const char* s);
+const char* datara_rt_format_percent(double val, int64_t decimals);
+const char* datara_rt_format_int_with_commas(int64_t n);
+
+// High-Speed JavaScript & Node.js Interop
+const char* datara_js_eval(const char* code);
+int64_t     datara_js_eval_int(const char* code);
+double      datara_js_eval_float(const char* code);
+int64_t     datara_js_require(const char* module_name);
+const char* datara_js_call(const char* fn_name, const char* args_json);
+const char* datara_js_call_0(const char* fn_name);
+const char* datara_js_call_1(const char* fn_name, const char* arg0);
+const char* datara_js_call_2(const char* fn_name, const char* arg0, const char* arg1);
+int64_t     datara_js_set_global(const char* name, const char* json_val);
+const char* datara_js_get_global(const char* name);
 
 // File I/O
 const char* datara_rt_file_read(const char* path);
@@ -82,6 +104,11 @@ const char* datara_rt_args_get(int64_t index);
 // Collections & Data Structures
 int64_t*    datara_rt_list_create(int64_t cap);
 int64_t*    datara_rt_list_create_capacity(int64_t cap);
+int64_t*    datara_rt_list_create_1(int64_t a);
+int64_t*    datara_rt_list_create_2(int64_t a, int64_t b);
+int64_t*    datara_rt_list_create_3(int64_t a, int64_t b, int64_t c);
+int64_t*    datara_rt_list_create_4(int64_t a, int64_t b, int64_t c, int64_t d);
+int64_t*    datara_rt_list_create_5(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e);
 int64_t*    datara_rt_list_append(int64_t* list, int64_t val);
 int64_t     datara_rt_list_get(int64_t* list, int64_t idx);
 int64_t     datara_rt_list_get_unchecked(int64_t* list, int64_t idx);
@@ -92,6 +119,15 @@ int64_t     datara_rt_list_pop(int64_t* list);
 void*       datara_rt_map_create(void);
 int64_t*    datara_rt_map_insert(int64_t* map, const char* key, int64_t val);
 int64_t     datara_rt_map_get(int64_t* map, const char* key);
+void*       datara_rt_map_create_1(const char* k0, int64_t v0);
+int64_t*    datara_rt_map_create_2(const char* k0, int64_t v0, const char* k1, int64_t v1);
+int64_t*    datara_rt_map_create_3(const char* k0, int64_t v0, const char* k1, int64_t v1,
+                                   const char* k2, int64_t v2);
+int64_t*    datara_rt_map_create_4(const char* k0, int64_t v0, const char* k1, int64_t v1,
+                                   const char* k2, int64_t v2, const char* k3, int64_t v3);
+int64_t*    datara_rt_map_create_5(const char* k0, int64_t v0, const char* k1, int64_t v1,
+                                   const char* k2, int64_t v2, const char* k3, int64_t v3,
+                                   const char* k4, int64_t v4);
 void        datara_rt_map_free(void* map);
 
 // Network Sockets
@@ -103,13 +139,14 @@ int64_t     datara_rt_socket_connect(int64_t sock, const char* host, int64_t por
 int64_t     datara_rt_socket_send(int64_t sock, const char* data);
 const char* datara_rt_socket_recv(int64_t sock, int64_t max_bytes);
 void        datara_rt_socket_close(int64_t sock);
-const char* datara_rt_http_get(void);
+const char* datara_rt_http_get(const char* url);
 
 // Cryptography & Entropy
 const char* datara_rt_sha256(const char* input);
 const char* datara_rt_base64_encode(const char* input);
 const char* datara_rt_base64_decode(const char* input);
 int64_t     datara_rt_random_bytes(uint8_t* buf, int64_t len);
+int         datara_rt_rng_is_insecure(void); /* 1 if random_bytes fell back to the insecure clock-seeded LCG */
 const char* datara_rt_uuid_v4(void);
 
 // Native UI Dialogs (Cross-platform)
@@ -150,6 +187,11 @@ typedef struct { int32_t x, y, z, w; } DataraInt4;
 DataraFloat4 datara_rt_float4(double x, double y, double z, double w);
 DataraInt4   datara_rt_int4(int64_t x, int64_t y, int64_t z, int64_t w);
 double       datara_rt_float4_dot(DataraFloat4 a, DataraFloat4 b);
+DataraFloat4 datara_rt_float4_min4(DataraFloat4 a, DataraFloat4 b);
+DataraFloat4 datara_rt_float4_max4(DataraFloat4 a, DataraFloat4 b);
+DataraInt4   datara_rt_int4_min4(DataraInt4 a, DataraInt4 b);
+DataraInt4   datara_rt_int4_max4(DataraInt4 a, DataraInt4 b);
+int          datara_rt_simd_enabled(void);
 void        datara_rt_thread_pool_init(int64_t workers);
 int64_t     datara_rt_num_workers(void);
 void        datara_rt_parallel_for(int64_t start, int64_t end, void (*fn)(int64_t idx, void* ctx), void* ctx);

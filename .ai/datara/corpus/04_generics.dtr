@@ -1,0 +1,18 @@
+// 04: Generic Containers & Functions
+class Container<T> {
+    item: T
+}
+
+behavior Container {
+    get_item() -> T => this.item
+}
+
+fn wrap<T>(val: T) -> Container<T> {
+    return Container<T> { item: val }
+}
+
+fn main() {
+    let c1 = wrap(42)
+    let c2 = wrap("Datara Generics")
+    out fmt"c1: {c1.get_item()}, c2: {c2.get_item()}"
+}

@@ -83,6 +83,7 @@ if ($RuntimeLib -and (Test-Path $RuntimeLib)) {
 }
 Copy-Item -Force "$ProjectRoot\src\runtime\datara_runtime.h" "$WinStaging\runtime\datara_runtime.h"
 Copy-Item -Force "$ProjectRoot\src\runtime\datara_runtime.c" "$WinStaging\runtime\datara_runtime.c"
+if (Test-Path "$ProjectRoot\src\runtime\datara_js.h") { Copy-Item -Force "$ProjectRoot\src\runtime\datara_js.h" "$WinStaging\runtime\datara_js.h" }
 
 # Installers & Assets
 if (Test-Path "$ProjectRoot\install.ps1") { Copy-Item -Force "$ProjectRoot\install.ps1" "$WinStaging\install.ps1" }
@@ -162,6 +163,7 @@ New-Item -ItemType Directory -Force -Path "$LinuxStaging\runtime" | Out-Null
 Copy-Item -Force -Recurse "$ProjectRoot\stdlib\*" "$LinuxStaging\stdlib"
 Copy-Item -Force "$ProjectRoot\src\runtime\datara_runtime.h" "$LinuxStaging\runtime\datara_runtime.h"
 Copy-Item -Force "$ProjectRoot\src\runtime\datara_runtime.c" "$LinuxStaging\runtime\datara_runtime.c"
+if (Test-Path "$ProjectRoot\src\runtime\datara_js.h") { Copy-Item -Force "$ProjectRoot\src\runtime\datara_js.h" "$LinuxStaging\runtime\datara_js.h" }
 Copy-Item -Force "$ProjectRoot\scripts\install.sh" "$LinuxStaging\install.sh"
 Copy-Item -Force "$ProjectRoot\README.md" "$LinuxStaging\README.md"
 if (Test-Path "$ProjectRoot\LICENSE") { Copy-Item -Force "$ProjectRoot\LICENSE" "$LinuxStaging\LICENSE" }
@@ -187,6 +189,7 @@ New-Item -ItemType Directory -Force -Path "$DarwinStaging\runtime" | Out-Null
 Copy-Item -Force -Recurse "$ProjectRoot\stdlib\*" "$DarwinStaging\stdlib"
 Copy-Item -Force "$ProjectRoot\src\runtime\datara_runtime.h" "$DarwinStaging\runtime\datara_runtime.h"
 Copy-Item -Force "$ProjectRoot\src\runtime\datara_runtime.c" "$DarwinStaging\runtime\datara_runtime.c"
+if (Test-Path "$ProjectRoot\src\runtime\datara_js.h") { Copy-Item -Force "$ProjectRoot\src\runtime\datara_js.h" "$DarwinStaging\runtime\datara_js.h" }
 Copy-Item -Force "$ProjectRoot\scripts\install.sh" "$DarwinStaging\install.sh"
 Copy-Item -Force "$ProjectRoot\README.md" "$DarwinStaging\README.md"
 if (Test-Path "$ProjectRoot\LICENSE") { Copy-Item -Force "$ProjectRoot\LICENSE" "$DarwinStaging\LICENSE" }

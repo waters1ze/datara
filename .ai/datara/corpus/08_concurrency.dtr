@@ -1,0 +1,12 @@
+// 08: Fearless Multi-Core Parallelism
+fn parallel_compute() {
+    parallel for i in 0..4 {
+        mut local_chunk = 0
+        local_chunk = local_chunk + (i * 10)
+    }
+}
+
+fn main() {
+    parallel_compute()
+    out "Parallel loop executed without data races"
+}

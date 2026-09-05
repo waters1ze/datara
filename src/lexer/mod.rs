@@ -3,6 +3,10 @@ pub mod tokens;
 use crate::diagnostics::{DiagnosticEngine, ErrorCode, SourceSpan};
 pub use tokens::{Token, TokenType};
 
+/// Keywords spelled with an internal `-`. These are the only identifiers the
+/// lexer may continue across a `-`; anywhere else `-` is the minus operator.
+const HYPHENATED_KEYWORDS: &[&str] = &["mut-view"];
+
 pub struct Lexer {
     chars: Vec<char>,
     pos: usize,
@@ -34,7 +38,7 @@ impl Lexer {
         }
 
         while !self.is_at_end() {
-            self.skip_whitespace_and_comments();
+            self.skip_whitespace_and_comments(diag);
             if self.is_at_end() {
                 break;
             }
@@ -677,15 +681,29 @@ impl Lexer {
 
                 _ if ch.is_alphabetic() || ch == '_' => {
                     let mut ident_str = ch.to_string();
-                    while !self.is_at_end()
-                        && (self.peek().is_alphanumeric()
-                            || self.peek() == '_'
-                            || self.peek() == '-')
+                    while !self.is_at_end() && (self.peek().is_alphanumeric() || self.peek() == '_')
                     {
-                        if self.peek() == '-' && !self.peek_next().is_alphabetic() {
-                            break;
-                        }
                         ident_str.push(self.advance());
+                    }
+
+                    // A `-` may only continue the identifier when the whole
+                    // word matches a known hyphenated keyword (e.g. `mut-view`);
+                    // otherwise it is the subtraction operator, so `x-y` must
+                    // lex as `x` `-` `y`.
+                    if self.peek() == '-' {
+                        let mut rest = String::new();
+                        let mut i = self.pos + 1;
+                        while i < self.chars.len() && self.chars[i].is_alphanumeric() {
+                            rest.push(self.chars[i]);
+                            i += 1;
+                        }
+                        let candidate = format!("{}-{}", ident_str, rest);
+                        if HYPHENATED_KEYWORDS.contains(&candidate.as_str()) {
+                            ident_str.push(self.advance()); // consume '-'
+                            while !self.is_at_end() && self.peek().is_alphanumeric() {
+                                ident_str.push(self.advance());
+                            }
+                        }
                     }
 
                     let span = SourceSpan::new(
@@ -806,7 +824,7 @@ impl Lexer {
         tokens
     }
 
-    fn skip_whitespace_and_comments(&mut self) {
+    fn skip_whitespace_and_comments(&mut self, diag: &mut DiagnosticEngine) {
         while !self.is_at_end() {
             match self.peek() {
                 ' ' | '\r' | '\t' => {
@@ -826,15 +844,25 @@ impl Lexer {
                     self.advance();
                     self.advance();
                     while !self.is_at_end() && !(self.peek() == '*' && self.peek_next() == '/') {
-                        if self.peek() == '\n' {
-                            self.line += 1;
-                            self.col = 1;
-                        }
                         self.advance();
                     }
                     if !self.is_at_end() {
                         self.advance();
                         self.advance();
+                    } else {
+                        // EOF inside a block comment: report it instead of
+                        // ending the comment silently.
+                        diag.error(
+                            ErrorCode::SyntaxUnterminatedComment,
+                            "Unterminated block comment".into(),
+                            Some(SourceSpan::new(
+                                self.line,
+                                self.col,
+                                self.line,
+                                self.col,
+                                self.file.clone(),
+                            )),
+                        );
                     }
                 }
                 _ => break,
@@ -944,7 +972,15 @@ impl Lexer {
     fn advance(&mut self) -> char {
         let ch = self.chars[self.pos];
         self.pos += 1;
-        self.col += 1;
+        if ch == '\n' {
+            // Match the newline handling in skip_whitespace_and_comments so
+            // spans stay correct even when '\n' is consumed indirectly (e.g.
+            // inside a string literal).
+            self.line += 1;
+            self.col = 1;
+        } else {
+            self.col += 1;
+        }
         ch
     }
 }

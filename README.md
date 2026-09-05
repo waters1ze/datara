@@ -882,6 +882,8 @@ let highest = max4(v1, v2)
 
 Both Cranelift (JIT/AOT) and LLVM AOT lower `float4`, `int4`, `dot`, `min4`, and `max4` to 128-bit SIMD vector operations with zero heap allocation, fully verified by `tests/test_regression_fixes.rs`.
 
+> **Status:** hardware SIMD is a design preview / not yet enforced on all backends — scalar fallbacks may be emitted depending on target CPU features and backend support.
+
 ---
 
 # 3. Standard Library API Reference
@@ -934,10 +936,17 @@ High-speed UTF-8 string manipulation and conversion primitives.
 | `str_trim` | `(s: Str) -> Str` | Strips leading and trailing whitespace |
 | `str_split` | `(s: Str, delimiter: Str) -> ListWrapper<Str>` | Splits string by delimiter |
 | `str_replace` | `(s: Str, from: Str, to: Str) -> Str` | Replaces occurrences of substring |
+| `str_repeat` | `(s: Str, count: Int) -> Str` | Repeats string `count` times |
+| `str_pad_left` | `(s: Str, total_len: Int, pad: Str) -> Str` | Pads string on the left |
+| `str_pad_right` | `(s: Str, total_len: Int, pad: Str) -> Str` | Pads string on the right |
+| `str_to_upper` | `(s: Str) -> Str` | Converts string to uppercase |
+| `str_to_lower` | `(s: Str) -> Str` | Converts string to lowercase |
 | `str_to_int` | `(s: Str) -> Int` | Parses string to 64-bit integer |
 | `str_to_float` | `(s: Str) -> Float` | Parses string to 64-bit float |
 | `int_to_str` | `(n: Int) -> Str` | Converts integer to string |
 | `float_to_str` | `(f: Float) -> Str` | Converts float to formatted string |
+| `format_percent` | `(val: Float, decimals: Int) -> Str` | Formats float as percentage |
+| `format_int_with_commas` | `(n: Int) -> Str` | Formats integer with comma thousands separators |
 
 ---
 
@@ -983,6 +992,8 @@ High-throughput networking primitives:
 - `UdpSocket` : UDP datagram transmission (`bind`, `send_to`, `receive_from`).
 - `HttpClient` : Asynchronous HTTP/1.1 and HTTP/2 requests (`get`, `post`, headers, status codes).
 
+> **Status:** design preview / not yet enforced — the async runtime layer behind these primitives is still under development; behavior may be synchronous under the hood.
+
 ---
 
 ### `stdlib.io` & `stdlib.sys`
@@ -1014,6 +1025,16 @@ Cryptographic hashing and encoding routines:
 
 Zero-JavaScript reactive frontend framework:
 - Compiles reactive Datara UI components directly into native desktop windows or lightweight, zero-JS Web interfaces.
+
+---
+
+### `stdlib.interop.js` & `stdlib.interop.node`
+
+High-speed, in-process JavaScript and Node.js interoperability (<40 KB cold footprint, <0.05 ms startup):
+- `JS.eval(code: Str) -> Str` : In-process JavaScript evaluation with scope and standard JS globals (`Math`, `JSON`, `console`, arrow functions).
+- `JS.call(fn_name: Str, arg0: Str, arg1: Str) -> Str` : Direct execution of JS functions with native Datara arguments.
+- `Node.require(module_name: Str) -> Bool` : CommonJS module resolution (`node_modules`, standard builtins `path`, `fs`, `crypto`, `os`).
+- `Node.call(fn_name: Str, args_json: Str) -> Str` : In-memory invocations of imported Node.js libraries.
 
 ---
 
@@ -1215,6 +1236,8 @@ forgen profile
 ```
 Generates `.forgen_profile/<project>.json` and measures execution time, stdout/stderr streams, and static call-site frequency distributions.
 
+> **Status:** runtime PGO profiling is a design preview / not yet enforced — profile data is collected, but it does not yet feed back into runtime-guided optimization decisions.
+
 ---
 
 ### `forgen format` (Official Code Formatter)
@@ -1319,6 +1342,8 @@ Output:
 [Forgen lint] Clean! 0 warnings across 33 files (verified in 4ms)
 ```
 
+> **Status:** runtime capability enforcement is a design preview / not yet enforced — the Effect Lattice is enforced statically at compile/lint time, but generated binaries do not yet enforce capability restrictions at runtime.
+
 ---
 
 ### `forgen explain <code|rule>`
@@ -1416,6 +1441,8 @@ forgen update
 ### `dpm` (Datara Package Manager)
 
 Datara includes its own dedicated, high-speed package manager: **`dpm`** (*Datara Package Manager*). Packages are distributed through the Content-Addressed Storage (CAS) **HyperGrid Registry**, cryptographically verified with SHA-256 Merkle hashes, and recorded in `datara.lock`.
+
+> **Status:** the HyperGrid network package registry is a design preview / not yet enforced — today the registry operates on local content-addressed storage; remote/network distribution and Merkle verification against a public registry are still under development.
 
 Commands are available via the standalone binary `dpm <command>` or via the compiler `forgen pkg <command>` / `forgen <command>`.
 

@@ -1,0 +1,436 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DataraStandardLibraryModulesCatalog",
+  "version": "1.0.0",
+  "embedded_modules_count": 33,
+  "modules": [
+    {
+      "path": "collections.list",
+      "types": [
+        "ListWrapper<T>"
+      ],
+      "methods": [
+        "get_head()",
+        "count()"
+      ]
+    },
+    {
+      "path": "collections.map",
+      "types": [
+        "MapWrapper<K, V>"
+      ],
+      "methods": [
+        "get(key)",
+        "insert(key, val)"
+      ]
+    },
+    {
+      "path": "crypto.hash",
+      "types": [
+        "Sha256",
+        "Md5"
+      ],
+      "methods": [
+        "digest(data)",
+        "hex()"
+      ]
+    },
+    {
+      "path": "database.kv",
+      "types": [
+        "KvStore"
+      ],
+      "methods": [
+        "set(key, val)",
+        "get(key)"
+      ]
+    },
+    {
+      "path": "database.redis",
+      "types": [
+        "RedisClient"
+      ],
+      "methods": [
+        "connect(url)",
+        "query(cmd)"
+      ]
+    },
+    {
+      "path": "database.sql",
+      "types": [
+        "SqlConnection"
+      ],
+      "methods": [
+        "query(sql)",
+        "execute(sql)"
+      ]
+    },
+    {
+      "path": "http.client",
+      "types": [
+        "HttpClient"
+      ],
+      "methods": [
+        "get(url)",
+        "post(url, body)"
+      ]
+    },
+    {
+      "path": "http.server",
+      "types": [
+        "HttpServer"
+      ],
+      "methods": [
+        "listen(port)",
+        "handle(req)"
+      ]
+    },
+    {
+      "path": "http.types",
+      "types": [
+        "HttpRequest",
+        "HttpResponse"
+      ],
+      "fields": [
+        "status: Int",
+        "body: Str",
+        "headers: Map<Str, Str>"
+      ]
+    },
+    {
+      "path": "interop.python",
+      "types": [
+        "PyBridge"
+      ],
+      "methods": [
+        "call(module, fn, args)"
+      ]
+    },
+    {
+      "path": "interop.rust",
+      "types": [
+        "RustBridge"
+      ],
+      "methods": [
+        "invoke(symbol, ptr)"
+      ]
+    },
+    {
+      "path": "io.args",
+      "types": [
+        "Args"
+      ],
+      "methods": [
+        "get(idx)",
+        "len()"
+      ]
+    },
+    {
+      "path": "io.env",
+      "types": [
+        "Env"
+      ],
+      "methods": [
+        "get_var(name)",
+        "set_var(name, val)"
+      ]
+    },
+    {
+      "path": "io.fs",
+      "types": [
+        "File",
+        "FileSystem"
+      ],
+      "methods": [
+        "read()",
+        "write(content)",
+        "append(content)",
+        "exists()"
+      ]
+    },
+    {
+      "path": "json.parser",
+      "types": [
+        "JsonParser"
+      ],
+      "methods": [
+        "parse(str) -> JsonValue"
+      ]
+    },
+    {
+      "path": "json.serializer",
+      "types": [
+        "JsonSerializer"
+      ],
+      "methods": [
+        "stringify(val) -> Str"
+      ]
+    },
+    {
+      "path": "json.types",
+      "types": [
+        "JsonValue"
+      ],
+      "variants": [
+        "Null",
+        "Bool(b)",
+        "Number(n)",
+        "String(s)",
+        "Array(arr)",
+        "Object(map)"
+      ]
+    },
+    {
+      "path": "math.math",
+      "types": [
+        "Math"
+      ],
+      "methods": [
+        "sqrt(x)",
+        "pow(b, e)",
+        "abs(x)",
+        "sin(x)",
+        "cos(x)",
+        "tan(x)",
+        "floor(x)",
+        "ceil(x)",
+        "round(x)",
+        "min(a, b)",
+        "max(a, b)"
+      ]
+    },
+    {
+      "path": "net.socket",
+      "types": [
+        "TcpSocket"
+      ],
+      "methods": [
+        "connect(host, port)",
+        "send(data)",
+        "recv()"
+      ]
+    },
+    {
+      "path": "result.option",
+      "types": [
+        "Maybe<T>"
+      ],
+      "fields": [
+        "is_some: Bool",
+        "value: T"
+      ],
+      "methods": [
+        "is_some()",
+        "is_none()",
+        "unwrap()",
+        "unwrap_or(default)"
+      ]
+    },
+    {
+      "path": "result.result",
+      "types": [
+        "Outcome<T>"
+      ],
+      "fields": [
+        "is_success: Bool",
+        "value: T",
+        "error_msg: Str"
+      ],
+      "methods": [
+        "is_ok()",
+        "is_err()",
+        "unwrap()",
+        "unwrap_or(default)"
+      ]
+    },
+    {
+      "path": "sys.process",
+      "types": [
+        "Process"
+      ],
+      "methods": [
+        "exec(cmd)",
+        "exit(code)"
+      ]
+    },
+    {
+      "path": "text.format",
+      "types": [
+        "Formatter"
+      ],
+      "methods": [
+        "pad_left(str, len)",
+        "pad_right(str, len)"
+      ]
+    },
+    {
+      "path": "text.string",
+      "types": [
+        "StringUtil"
+      ],
+      "methods": [
+        "to_upper(s)",
+        "to_lower(s)",
+        "trim(s)",
+        "split(s, sep)"
+      ]
+    },
+    {
+      "path": "time.clock",
+      "types": [
+        "Clock"
+      ],
+      "methods": [
+        "now_ms()",
+        "now_ns()",
+        "sleep(ms)"
+      ]
+    },
+    {
+      "path": "ui.components",
+      "types": [
+        "Button",
+        "Label",
+        "Container"
+      ],
+      "methods": [
+        "render()"
+      ]
+    },
+    {
+      "path": "ui.element",
+      "types": [
+        "UiElement"
+      ],
+      "fields": [
+        "tag: Str",
+        "id: Str"
+      ]
+    },
+    {
+      "path": "ui.native",
+      "types": [
+        "NativeWindow",
+        "Canvas"
+      ],
+      "methods": [
+        "create(title, w, h)",
+        "draw_rect(x,y,w,h,col)",
+        "draw_text(x,y,txt,col)"
+      ]
+    },
+    {
+      "path": "ui.page",
+      "types": [
+        "Page"
+      ],
+      "methods": [
+        "set_title(t)",
+        "mount(elem)"
+      ]
+    },
+    {
+      "path": "ui.reactive",
+      "types": [
+        "VNode"
+      ],
+      "methods": [
+        "new(tag, id, text)",
+        "set_text(text)",
+        "diff(other)"
+      ]
+    },
+    {
+      "path": "ui.styles",
+      "types": [
+        "StyleSheet"
+      ],
+      "methods": [
+        "add_rule(selector, css)"
+      ]
+    },
+    {
+      "path": "ai.tensor",
+      "types": [
+        "Tensor"
+      ],
+      "methods": [
+        "zeros(shape)",
+        "matmul(other)",
+        "relu()"
+      ]
+    },
+    {
+      "path": "sys.arena",
+      "types": [
+        "ArenaAllocator"
+      ],
+      "methods": [
+        "alloc(bytes)",
+        "reset()"
+      ]
+    },
+    {
+      "path": "stdlib.async.future",
+      "types": [
+        "Future"
+      ],
+      "methods": [
+        "ready(val)",
+        "pending()",
+        "failed(code)",
+        "is_ready()",
+        "unwrap()",
+        "join(other)"
+      ]
+    },
+    {
+      "path": "stdlib.async.task",
+      "types": [
+        "Task"
+      ],
+      "methods": [
+        "spawn(id, name)",
+        "complete(val)",
+        "fail(code)",
+        "is_done()",
+        "get_result()"
+      ]
+    },
+    {
+      "path": "stdlib.async.event_loop",
+      "types": [
+        "EventLoop"
+      ],
+      "methods": [
+        "new()",
+        "schedule(ticks)",
+        "run_until_complete()"
+      ]
+    },
+    {
+      "path": "stdlib.ui.native",
+      "types": [
+        "NativeWindow",
+        "Canvas"
+      ],
+      "methods": [
+        "create(title, w, h)",
+        "draw_rect(x,y,w,h,col)",
+        "draw_text(x,y,txt,col)",
+        "render()"
+      ]
+    },
+    {
+      "path": "stdlib.ui.reactive",
+      "types": [
+        "VNode"
+      ],
+      "methods": [
+        "new(tag, id, text)",
+        "set_text(text)",
+        "diff(other)"
+      ]
+    }
+  ]
+}

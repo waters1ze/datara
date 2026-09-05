@@ -1,0 +1,18 @@
+// Test 02: Classes and Behavior Direct Dispatch
+class Counter {
+    val: Int
+}
+
+behavior Counter {
+    increment(step: Int) -> Int => this.val + step
+}
+
+fn main() {
+    let c = Counter { val: 40 }
+    let res = c.increment(2)
+    if res == 42 {
+        out "PASS: classes_and_behaviors"
+    } else {
+        err "FAIL: classes_and_behaviors"
+    }
+}

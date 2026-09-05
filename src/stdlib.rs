@@ -15,6 +15,8 @@ pub fn get_embedded_stdlib_source(module_path: &str) -> Option<&'static str> {
         "http.types" => Some(include_str!("../stdlib/http/types.dtr")),
         "interop.python" => Some(include_str!("../stdlib/interop/python.dtr")),
         "interop.rust" => Some(include_str!("../stdlib/interop/rust.dtr")),
+        "interop.js" => Some(include_str!("../stdlib/interop/js.dtr")),
+        "interop.node" => Some(include_str!("../stdlib/interop/node.dtr")),
         "io.args" => Some(include_str!("../stdlib/io/args.dtr")),
         "io.env" => Some(include_str!("../stdlib/io/env.dtr")),
         "io.fs" => Some(include_str!("../stdlib/io/fs.dtr")),
@@ -47,6 +49,10 @@ pub fn get_embedded_stdlib_source(module_path: &str) -> Option<&'static str> {
         "sys.arena" => Some(include_str!("../stdlib/sys/arena.dtr")),
         "web.webgl" => Some(include_str!("../stdlib/web/webgl.dtr")),
         "web.webgpu" => Some(include_str!("../stdlib/web/webgpu.dtr")),
+        "ui.web" => Some(include_str!("../stdlib/ui/web.dtr")),
+        "async.task" => Some(include_str!("../stdlib/async/task.dtr")),
+        "async.future" => Some(include_str!("../stdlib/async/future.dtr")),
+        "async.event_loop" => Some(include_str!("../stdlib/async/event_loop.dtr")),
         _ => None,
     }
 }
@@ -63,6 +69,8 @@ pub const ALL_EMBEDDED_MODULES: &[&str] = &[
     "http.types",
     "interop.python",
     "interop.rust",
+    "interop.js",
+    "interop.node",
     "io.args",
     "io.env",
     "io.fs",
@@ -95,4 +103,7 @@ pub const ALL_EMBEDDED_MODULES: &[&str] = &[
     "sys.arena",
     "web.webgl",
     "web.webgpu",
+    "async.task",
+    "async.future",
+    "async.event_loop",
 ];

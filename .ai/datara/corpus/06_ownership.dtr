@@ -1,0 +1,15 @@
+// 06: Affine Ownership & Zero-Copy Views
+fn compute_with_view() {
+    mut data = 500
+    if true {
+        mut v = data.view()
+        out fmt"Borrowed view: {v}"
+    }
+    // Mutation is legal once the view is released
+    data = 750
+    out fmt"Updated source: {data}"
+}
+
+fn main() {
+    compute_with_view()
+}

@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DataraCompilerDiagnosticsSchema",
+  "version": "1.0.0",
+  "error_codes": {
+    "E-SYNTAX-001": {
+      "name": "SyntaxUnexpectedToken",
+      "description": "Unexpected token in source stream"
+    },
+    "E-SYNTAX-002": {
+      "name": "SyntaxUnterminatedString",
+      "description": "Unterminated string literal"
+    },
+    "E-SYNTAX-003": {
+      "name": "SyntaxUnterminatedComment",
+      "description": "Unterminated multi-line comment"
+    },
+    "E-SYNTAX-004": {
+      "name": "SyntaxInvalidNumber",
+      "description": "Invalid numeric literal format"
+    },
+    "E-SYNTAX-005": {
+      "name": "SyntaxInvalidChar",
+      "description": "Invalid character in input stream"
+    },
+    "E-SYNTAX-006": {
+      "name": "SyntaxExpectedExpression",
+      "description": "Expected an expression"
+    },
+    "E-SYNTAX-007": {
+      "name": "SyntaxExpectedIdentifier",
+      "description": "Expected an identifier"
+    },
+    "E-SYNTAX-008": {
+      "name": "SyntaxExpectedType",
+      "description": "Expected a type annotation"
+    },
+    "E-RESOLVE-001": {
+      "name": "ResolveUndefinedSymbol",
+      "description": "Undefined symbol reference in current scope"
+    },
+    "E-RESOLVE-002": {
+      "name": "ResolveDuplicateSymbol",
+      "description": "Duplicate symbol declaration"
+    },
+    "E-RESOLVE-003": {
+      "name": "ResolveUnknownType",
+      "description": "Unknown type identifier"
+    },
+    "E-RESOLVE-004": {
+      "name": "ResolveCircularDependency",
+      "description": "Circular module dependency detected"
+    },
+    "E-RESOLVE-005": {
+      "name": "ResolveUnreachableModule",
+      "description": "Unreachable module detected"
+    },
+    "E-TYPE-001": {
+      "name": "TypeMismatch",
+      "description": "Static type mismatch in assignment or function call"
+    },
+    "E-TYPE-002": {
+      "name": "TypeCannotInfer",
+      "description": "Unable to infer expression type"
+    },
+    "E-TYPE-003": {
+      "name": "TypeMissingReturn",
+      "description": "Non-unit function missing return value"
+    },
+    "E-TYPE-004": {
+      "name": "TypeInvalidBinaryOp",
+      "description": "Binary operator not defined for operand types"
+    },
+    "E-TYPE-005": {
+      "name": "TypeInvalidUnaryOp",
+      "description": "Unary operator not defined for operand type"
+    },
+    "E-TYPE-006": {
+      "name": "TypeInvalidMemberAccess",
+      "description": "Field or method does not exist on type"
+    },
+    "E-TYPE-007": {
+      "name": "TypeGenericMismatch",
+      "description": "Generic type argument mismatch"
+    },
+    "E-BORROW-001": {
+      "name": "BorrowUseAfterMove",
+      "description": "Use of moved value (use-after-move)"
+    },
+    "E-BORROW-002": {
+      "name": "BorrowCannotMutateImmutable",
+      "description": "Cannot mutate or reassign immutable binding"
+    },
+    "E-BORROW-003": {
+      "name": "BorrowConflictActiveView",
+      "description": "Cannot mutate value while active immutable view exists"
+    },
+    "E-BORROW-004": {
+      "name": "BorrowMultipleMutableViews",
+      "description": "Cannot create multiple concurrent mutable views"
+    },
+    "E-BORROW-005": {
+      "name": "BorrowEscapingView",
+      "description": "Escaping view: reference cannot outlive local binding"
+    },
+    "E-EFFECT-001": {
+      "name": "EffectImpureInPureContext",
+      "description": "Side effect occurred in pure context"
+    },
+    "E-EFFECT-002": {
+      "name": "EffectUnsafeOperation",
+      "description": "Unsafe operation without explicit unsafe justification block"
+    },
+    "E-EFFECT-003": {
+      "name": "EffectUnhandledIO",
+      "description": "Unhandled IO operation"
+    },
+    "E0940": {
+      "name": "SecurityViolation",
+      "description": "Security Violation: Operation requires capability token"
+    },
+    "E0941": {
+      "name": "ProofCarryingCodeViolation",
+      "description": "Proof-Carrying Code Violation: Unproven operation / unproven divisor"
+    },
+    "E0942": {
+      "name": "UncheckedFFIViolation",
+      "description": "Foreign call requires unsafe justification"
+    },
+    "E0943": {
+      "name": "DataRaceViolation",
+      "description": "Concurrency Violation: Potential data race across threads"
+    },
+    "E0945": {
+      "name": "InvariantViolation",
+      "description": "Class invariant cannot be proven upon method exit"
+    },
+    "E0946": {
+      "name": "TerminationViolation",
+      "description": "Cannot prove function termination in pure context"
+    },
+    "E0947": {
+      "name": "RangeViolation",
+      "description": "Value exceeds static type interval or array bounds"
+    },
+    "E0950": {
+      "name": "AllocationViolation",
+      "description": "Dynamic memory allocation in @no_alloc context"
+    },
+    "E0951": {
+      "name": "PanicViolation",
+      "description": "Unproven panic path in @no_panic context"
+    },
+    "E0310": {
+      "name": "NonExhaustiveMatch",
+      "description": "Non-exhaustive patterns in match expression"
+    },
+    "E0311": {
+      "name": "UnreachablePattern",
+      "description": "Unreachable pattern in match expression"
+    },
+    "E0420": {
+      "name": "DimensionMismatch",
+      "description": "Incompatible units of measure"
+    }
+  },
+  "lint_rules": {
+    "style::non_snake_case": {
+      "severity": "warning",
+      "fixable": true,
+      "target": "variables, parameters, functions, methods"
+    },
+    "style::non_camel_case_types": {
+      "severity": "warning",
+      "fixable": true,
+      "target": "classes, components, roles, packets, enums"
+    },
+    "perf::unnecessary_mut": {
+      "severity": "warning",
+      "fixable": true,
+      "target": "variables declared mut but never reassigned"
+    },
+    "style::unused_variable": {
+      "severity": "warning",
+      "fixable": false,
+      "target": "variables declared but never evaluated"
+    },
+    "style::prefer_for_loop": {
+      "severity": "warning",
+      "fixable": false,
+      "target": "while loops with manual index counters"
+    },
+    "style::bool_comparison": {
+      "severity": "warning",
+      "fixable": true,
+      "target": "redundant == true or == false comparisons"
+    }
+  }
+}

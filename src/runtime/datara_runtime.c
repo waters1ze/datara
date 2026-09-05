@@ -20,6 +20,7 @@
 #include <string.h>
 #include <math.h>
 #include "datara_runtime.h"
+#include "datara_js.h"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -28,6 +29,7 @@
 #include <windows.h>
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <dbghelp.h>
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -40,6 +42,15 @@
 #include <pthread.h>
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
+#endif
+#if defined(__has_include)
+#if __has_include(<execinfo.h>)
+#include <execinfo.h>
+#define DATARA_HAS_EXECINFO 1
+#endif
+#elif !defined(__musl__)
+#include <execinfo.h>
+#define DATARA_HAS_EXECINFO 1
 #endif
 #endif
 
@@ -128,7 +139,11 @@ static inline char* datara_scratch_alloc(size_t len) {
         return (char*)malloc(len + 1);
     }
     if (tls_scratch_offset + needed >= DATARA_SCRATCH_RING_SIZE) {
-        tls_scratch_offset = 0;
+        // Ring exhausted: fall back to the heap instead of wrapping around,
+        // which would silently overwrite strings that may still be live.
+        // The fallback block is intentionally never freed (the runtime leaks
+        // scratch strings by design) — that is safe, unlike corruption.
+        return (char*)malloc(len + 1);
     }
     char* p = &tls_scratch_ring[tls_scratch_offset];
     tls_scratch_offset += needed;
@@ -603,9 +618,99 @@ void datara_rt_eprintln(const char* s) {
     fflush(stderr);
 }
 
+void datara_rt_print_backtrace(void) {
+    fprintf(stderr, "stack backtrace:\n");
+#ifdef _WIN32
+    void* stack[64];
+    USHORT frames = CaptureStackBackTrace(1, 64, stack, NULL);
+    if (frames == 0) {
+        fprintf(stderr, "  (empty backtrace)\n");
+        fflush(stderr);
+        return;
+    }
+
+    HANDLE hProcess = GetCurrentProcess();
+    HMODULE hDbgHelp = LoadLibraryA("dbghelp.dll");
+    typedef BOOL (WINAPI *SymInitializeFn)(HANDLE, PCSTR, BOOL);
+    typedef BOOL (WINAPI *SymFromAddrFn)(HANDLE, DWORD64, PDWORD64, void*);
+    typedef BOOL (WINAPI *SymGetLineFromAddr64Fn)(HANDLE, DWORD64, PDWORD, void*);
+    typedef BOOL (WINAPI *SymCleanupFn)(HANDLE);
+
+    SymInitializeFn pSymInit = NULL;
+    SymFromAddrFn pSymFromAddr = NULL;
+    SymGetLineFromAddr64Fn pSymGetLine = NULL;
+    SymCleanupFn pSymCleanup = NULL;
+
+    if (hDbgHelp) {
+        pSymInit = (SymInitializeFn)GetProcAddress(hDbgHelp, "SymInitialize");
+        pSymFromAddr = (SymFromAddrFn)GetProcAddress(hDbgHelp, "SymFromAddr");
+        pSymGetLine = (SymGetLineFromAddr64Fn)GetProcAddress(hDbgHelp, "SymGetLineFromAddr64");
+        pSymCleanup = (SymCleanupFn)GetProcAddress(hDbgHelp, "SymCleanup");
+        if (pSymInit) {
+            pSymInit(hProcess, NULL, TRUE);
+        }
+    }
+
+    char buffer[sizeof(SYMBOL_INFO) + 256 * sizeof(char)];
+    PSYMBOL_INFO symbol = (PSYMBOL_INFO)buffer;
+    symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+    symbol->MaxNameLen = 255;
+
+    IMAGEHLP_LINE64 line_info;
+    memset(&line_info, 0, sizeof(IMAGEHLP_LINE64));
+    line_info.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+
+    for (USHORT i = 0; i < frames; i++) {
+        DWORD64 address = (DWORD64)(uintptr_t)stack[i];
+        const char* name = "???";
+        DWORD displacement = 0;
+        char loc[512] = {0};
+
+        if (pSymFromAddr && pSymFromAddr(hProcess, address, 0, symbol)) {
+            name = symbol->Name;
+        }
+
+        if (pSymGetLine && pSymGetLine(hProcess, address, &displacement, &line_info)) {
+            snprintf(loc, sizeof(loc), "      at %s:%lu", line_info.FileName, (unsigned long)line_info.LineNumber);
+        }
+
+        if (loc[0] != '\0') {
+            fprintf(stderr, "  %2u: %s\n%s (0x%llx)\n", (unsigned int)i, name, loc, (unsigned long long)address);
+        } else {
+            fprintf(stderr, "  %2u: %s (0x%llx)\n", (unsigned int)i, name, (unsigned long long)address);
+        }
+    }
+
+    if (hDbgHelp) {
+        if (pSymCleanup) pSymCleanup(hProcess);
+        FreeLibrary(hDbgHelp);
+    }
+#else
+#if defined(DATARA_HAS_EXECINFO)
+    void* stack[64];
+    int frames = backtrace(stack, 64);
+    char** symbols = backtrace_symbols(stack, frames);
+    if (symbols) {
+        for (int i = 1; i < frames; i++) {
+            fprintf(stderr, "  %2d: %s\n", i - 1, symbols[i]);
+        }
+        free(symbols);
+    } else {
+        for (int i = 1; i < frames; i++) {
+            fprintf(stderr, "  %2d: 0x%lx\n", i - 1, (unsigned long)(uintptr_t)stack[i]);
+        }
+    }
+#else
+    fprintf(stderr, "  (native backtrace not supported on this platform)\n");
+#endif
+#endif
+    fflush(stderr);
+}
+
 void datara_rt_panic(const char* s) {
     datara_rt_flush();
     fprintf(stderr, "panic: %s\n", s ? s : "explicit panic");
+    datara_rt_print_backtrace();
     fflush(stderr);
     exit(1);
 }
@@ -698,13 +803,17 @@ int64_t* datara_rt_list_set_unchecked(int64_t* list, int64_t idx, int64_t v) {
 
 typedef struct {
     int64_t capacity;
+    int64_t magic;
 } DataraListHeader;
+
+#define DATARA_LIST_MAGIC 0x4441544C49535430ULL
 
 int64_t* datara_rt_list_create_capacity(int64_t cap) {
     if (cap < 8) cap = 8;
     DataraListHeader* hdr = (DataraListHeader*)malloc(sizeof(DataraListHeader) + (size_t)(cap + 1) * sizeof(int64_t));
     if (!hdr) return NULL;
     hdr->capacity = cap;
+    hdr->magic = DATARA_LIST_MAGIC;
     int64_t* list = (int64_t*)(hdr + 1);
     list[0] = 0;
     return list;
@@ -724,7 +833,7 @@ int64_t* datara_rt_list_append(int64_t* list, int64_t v) {
     }
     int64_t count = list[0];
     DataraListHeader* hdr = ((DataraListHeader*)list) - 1;
-    if (hdr->capacity >= count && hdr->capacity < 1000000000LL) {
+    if (hdr->magic == DATARA_LIST_MAGIC && hdr->capacity >= count) {
         if (count + 1 > hdr->capacity) {
             int64_t new_cap = hdr->capacity * 2;
             if (new_cap < 8) new_cap = 8;
@@ -767,13 +876,21 @@ int64_t* datara_rt_slice(int64_t* list, int64_t start, int64_t end) {
     if (start < 0) start = 0;
     if (end > len) end = len;
     if (start >= end) {
-        int64_t* res = (int64_t*)malloc(sizeof(int64_t));
-        if (res) res[0] = 0;
+        int64_t count = 0;
+        DataraListHeader* hdr = (DataraListHeader*)malloc(sizeof(DataraListHeader) + (size_t)(count + 1) * sizeof(int64_t));
+        if (!hdr) return NULL;
+        hdr->capacity = count;
+        hdr->magic = DATARA_LIST_MAGIC;
+        int64_t* res = (int64_t*)(hdr + 1);
+        res[0] = count;
         return res;
     }
     int64_t count = end - start;
-    int64_t* res = (int64_t*)malloc((size_t)(count + 1) * sizeof(int64_t));
-    if (!res) return NULL;
+    DataraListHeader* hdr = (DataraListHeader*)malloc(sizeof(DataraListHeader) + (size_t)(count + 1) * sizeof(int64_t));
+    if (!hdr) return NULL;
+    hdr->capacity = count;
+    hdr->magic = DATARA_LIST_MAGIC;
+    int64_t* res = (int64_t*)(hdr + 1);
     res[0] = count;
     for (int64_t i = 0; i < count; i++) {
         res[i + 1] = list[start + i + 1];
@@ -783,8 +900,11 @@ int64_t* datara_rt_slice(int64_t* list, int64_t start, int64_t end) {
 
 int64_t* datara_rt_list_create_repeat(int64_t elem, int64_t count) {
     if (count < 0) count = 0;
-    int64_t* arr = (int64_t*)malloc((size_t)(count + 1) * sizeof(int64_t));
-    if (!arr) return NULL;
+    DataraListHeader* hdr = (DataraListHeader*)malloc(sizeof(DataraListHeader) + (size_t)(count + 1) * sizeof(int64_t));
+    if (!hdr) return NULL;
+    hdr->capacity = count;
+    hdr->magic = DATARA_LIST_MAGIC;
+    int64_t* arr = (int64_t*)(hdr + 1);
     arr[0] = count;
     for (int64_t i = 0; i < count; i++) {
         arr[i + 1] = elem;
@@ -792,22 +912,121 @@ int64_t* datara_rt_list_create_repeat(int64_t elem, int64_t count) {
     return arr;
 }
 
+static int64_t* datara_rt_list_create_from(const int64_t* vals, int64_t count) {
+    DataraListHeader* hdr = (DataraListHeader*)malloc(sizeof(DataraListHeader) + (size_t)(count + 1) * sizeof(int64_t));
+    if (!hdr) return NULL;
+    hdr->capacity = count;
+    hdr->magic = DATARA_LIST_MAGIC;
+    int64_t* arr = (int64_t*)(hdr + 1);
+    arr[0] = count;
+    for (int64_t i = 0; i < count; i++) {
+        arr[i + 1] = vals[i];
+    }
+    return arr;
+}
+
+int64_t* datara_rt_list_create_1(int64_t a) {
+    return datara_rt_list_create_from(&a, 1);
+}
+
+int64_t* datara_rt_list_create_2(int64_t a, int64_t b) {
+    int64_t vals[2] = { a, b };
+    return datara_rt_list_create_from(vals, 2);
+}
+
+int64_t* datara_rt_list_create_3(int64_t a, int64_t b, int64_t c) {
+    int64_t vals[3] = { a, b, c };
+    return datara_rt_list_create_from(vals, 3);
+}
+
+int64_t* datara_rt_list_create_4(int64_t a, int64_t b, int64_t c, int64_t d) {
+    int64_t vals[4] = { a, b, c, d };
+    return datara_rt_list_create_from(vals, 4);
+}
+
+int64_t* datara_rt_list_create_5(int64_t a, int64_t b, int64_t c, int64_t d, int64_t e) {
+    int64_t vals[5] = { a, b, c, d, e };
+    return datara_rt_list_create_from(vals, 5);
+}
+
+typedef struct {
+    int64_t capacity;
+    int64_t magic;
+} DataraMapHeader;
+
+#define DATARA_MAP_MAGIC 0x4441544D41503130ULL
+
 void* datara_rt_map_create(void) {
-    int64_t* map = (int64_t*)malloc(sizeof(int64_t));
-    if (!map) return NULL;
+    size_t init_cap = 8;
+    size_t total_bytes = sizeof(DataraMapHeader) + (1 + init_cap * 2) * sizeof(int64_t);
+    DataraMapHeader* hdr = (DataraMapHeader*)malloc(total_bytes);
+    if (!hdr) return NULL;
+    hdr->capacity = init_cap;
+    hdr->magic = DATARA_MAP_MAGIC;
+    int64_t* map = (int64_t*)(hdr + 1);
     map[0] = 0;
     return map;
 }
 
 int64_t* datara_rt_map_create_2(const char* k0, int64_t v0, const char* k1, int64_t v1) {
-    int64_t* map = (int64_t*)malloc(5 * sizeof(int64_t));
-    if (!map) return NULL;
+    size_t init_cap = 8;
+    size_t total_bytes = sizeof(DataraMapHeader) + (1 + init_cap * 2) * sizeof(int64_t);
+    DataraMapHeader* hdr = (DataraMapHeader*)malloc(total_bytes);
+    if (!hdr) return NULL;
+    hdr->capacity = init_cap;
+    hdr->magic = DATARA_MAP_MAGIC;
+    int64_t* map = (int64_t*)(hdr + 1);
     map[0] = 2;
     map[1] = (int64_t)k0;
     map[2] = v0;
     map[3] = (int64_t)k1;
     map[4] = v1;
     return map;
+}
+
+static int64_t* datara_rt_map_create_from(const char** keys, const int64_t* vals, int64_t n) {
+    size_t init_cap = 8;
+    if ((size_t)n > init_cap) init_cap = (size_t)n;
+    size_t total_bytes = sizeof(DataraMapHeader) + (1 + init_cap * 2) * sizeof(int64_t);
+    DataraMapHeader* hdr = (DataraMapHeader*)malloc(total_bytes);
+    if (!hdr) return NULL;
+    hdr->capacity = init_cap;
+    hdr->magic = DATARA_MAP_MAGIC;
+    int64_t* map = (int64_t*)(hdr + 1);
+    map[0] = n;
+    for (int64_t i = 0; i < n; i++) {
+        map[1 + i * 2] = (int64_t)keys[i];
+        map[2 + i * 2] = vals[i];
+    }
+    return map;
+}
+
+void* datara_rt_map_create_1(const char* k0, int64_t v0) {
+    const char* keys[1] = { k0 };
+    const int64_t vals[1] = { v0 };
+    return datara_rt_map_create_from(keys, vals, 1);
+}
+
+int64_t* datara_rt_map_create_3(const char* k0, int64_t v0, const char* k1, int64_t v1,
+                                const char* k2, int64_t v2) {
+    const char* keys[3] = { k0, k1, k2 };
+    const int64_t vals[3] = { v0, v1, v2 };
+    return datara_rt_map_create_from(keys, vals, 3);
+}
+
+int64_t* datara_rt_map_create_4(const char* k0, int64_t v0, const char* k1, int64_t v1,
+                                const char* k2, int64_t v2, const char* k3, int64_t v3) {
+    const char* keys[4] = { k0, k1, k2, k3 };
+    const int64_t vals[4] = { v0, v1, v2, v3 };
+    return datara_rt_map_create_from(keys, vals, 4);
+}
+
+int64_t* datara_rt_map_create_5(const char* k0, int64_t v0, const char* k1, int64_t v1,
+                                const char* k2, int64_t v2, const char* k3, int64_t v3,
+                                const char* k4, int64_t v4) {
+    const char* keys[5] = { k0, k1, k2, k3, k4 };
+    const int64_t vals[5] = { v0, v1, v2, v3, v4 };
+    return datara_rt_map_create_from(keys, vals, 5);
 }
 
 int64_t datara_rt_map_get(int64_t* map, const char* key) {
@@ -821,13 +1040,6 @@ int64_t datara_rt_map_get(int64_t* map, const char* key) {
     }
     return 0;
 }
-
-typedef struct {
-    int64_t capacity;
-    int64_t magic;
-} DataraMapHeader;
-
-#define DATARA_MAP_MAGIC 0x4441544D41503130ULL
 
 static inline DataraMapHeader* datara_rt_map_get_header(int64_t* map) {
     if (!map) return NULL;
@@ -1072,6 +1284,10 @@ const char* datara_rt_env_get(const char* key) {
 static int g_argc = 0;
 static char** g_argv = NULL;
 
+// Set to 1 when datara_rt_random_bytes falls back to the clock-seeded LCG
+// instead of the OS CSPRNG; exposed via datara_rt_rng_is_insecure().
+static int g_datara_rng_insecure = 0;
+
 void datara_rt_set_args(int argc, char** argv) {
     g_argc = argc;
     g_argv = argv;
@@ -1163,6 +1379,177 @@ const char* datara_rt_str_char_at(const char* s, int64_t idx) {
     if (!buf) return "";
     buf[0] = s[idx];
     buf[1] = '\0';
+    return buf;
+}
+
+const char* datara_rt_str_repeat(const char* s, int64_t count) {
+    if (!s || count <= 0) return "";
+    size_t slen = strlen(s);
+    if (slen == 0) return "";
+    if (count != 0 && slen > SIZE_MAX / (size_t)count) return NULL;
+    size_t total = slen * (size_t)count;
+    char* buf = datara_scratch_alloc(total);
+    if (!buf) return "";
+    char* p = buf;
+    for (int64_t i = 0; i < count; i++) {
+        memcpy(p, s, slen);
+        p += slen;
+    }
+    *p = '\0';
+    return buf;
+}
+
+const char* datara_rt_str_pad_left(const char* s, int64_t total_len, const char* pad) {
+    if (!s) s = "";
+    if (!pad || pad[0] == '\0') pad = " ";
+    int64_t slen = (int64_t)strlen(s);
+    if (slen >= total_len) return s;
+    int64_t pad_needed = total_len - slen;
+    size_t pad_len = strlen(pad);
+    char* buf = datara_scratch_alloc((size_t)total_len);
+    if (!buf) return s;
+    char* p = buf;
+    int64_t rem = pad_needed;
+    while (rem > 0) {
+        size_t take = (size_t)rem < pad_len ? (size_t)rem : pad_len;
+        memcpy(p, pad, take);
+        p += take;
+        rem -= (int64_t)take;
+    }
+    memcpy(p, s, (size_t)slen);
+    p += slen;
+    *p = '\0';
+    return buf;
+}
+
+const char* datara_rt_str_pad_right(const char* s, int64_t total_len, const char* pad) {
+    if (!s) s = "";
+    if (!pad || pad[0] == '\0') pad = " ";
+    int64_t slen = (int64_t)strlen(s);
+    if (slen >= total_len) return s;
+    int64_t pad_needed = total_len - slen;
+    size_t pad_len = strlen(pad);
+    char* buf = datara_scratch_alloc((size_t)total_len);
+    if (!buf) return s;
+    char* p = buf;
+    memcpy(p, s, (size_t)slen);
+    p += slen;
+    int64_t rem = pad_needed;
+    while (rem > 0) {
+        size_t take = (size_t)rem < pad_len ? (size_t)rem : pad_len;
+        memcpy(p, pad, take);
+        p += take;
+        rem -= (int64_t)take;
+    }
+    *p = '\0';
+    return buf;
+}
+
+const char* datara_rt_str_replace(const char* s, const char* target, const char* replacement) {
+    if (!s) return "";
+    if (!target || target[0] == '\0') return s;
+    if (!replacement) replacement = "";
+    size_t slen = strlen(s);
+    size_t tlen = strlen(target);
+    size_t rlen = strlen(replacement);
+
+    size_t count = 0;
+    const char* p = s;
+    while ((p = strstr(p, target)) != NULL) {
+        count++;
+        p += tlen;
+    }
+    if (count == 0) return s;
+
+    size_t new_len = slen + count * (rlen > tlen ? (rlen - tlen) : 0);
+    char* buf = datara_scratch_alloc(new_len);
+    if (!buf) return s;
+
+    char* dst = buf;
+    p = s;
+    const char* match;
+    while ((match = strstr(p, target)) != NULL) {
+        size_t seg = (size_t)(match - p);
+        memcpy(dst, p, seg);
+        dst += seg;
+        memcpy(dst, replacement, rlen);
+        dst += rlen;
+        p = match + tlen;
+    }
+    size_t rest = strlen(p);
+    memcpy(dst, p, rest);
+    dst[rest] = '\0';
+    return buf;
+}
+
+const char* datara_rt_str_to_upper(const char* s) {
+    if (!s) return "";
+    size_t len = strlen(s);
+    char* buf = datara_scratch_alloc(len);
+    if (!buf) return "";
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        if (c >= 'a' && c <= 'z') c = (char)(c - ('a' - 'A'));
+        buf[i] = c;
+    }
+    buf[len] = '\0';
+    return buf;
+}
+
+const char* datara_rt_str_to_lower(const char* s) {
+    if (!s) return "";
+    size_t len = strlen(s);
+    char* buf = datara_scratch_alloc(len);
+    if (!buf) return "";
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c + ('a' - 'A'));
+        buf[i] = c;
+    }
+    buf[len] = '\0';
+    return buf;
+}
+
+const char* datara_rt_format_percent(double val, int64_t decimals) {
+    if (decimals < 0) decimals = 0;
+    if (decimals > 10) decimals = 10;
+    char* buf = datara_scratch_alloc(32);
+    if (!buf) return "";
+    snprintf(buf, 32, "%.*f%%", (int)decimals, val * 100.0);
+    return buf;
+}
+
+const char* datara_rt_format_int_with_commas(int64_t n) {
+    char temp[32];
+    snprintf(temp, sizeof(temp), "%lld", (long long)n);
+    size_t len = strlen(temp);
+    size_t digits_start = (temp[0] == '-') ? 1 : 0;
+    size_t num_digits = len - digits_start;
+    size_t commas = (num_digits > 0) ? (num_digits - 1) / 3 : 0;
+
+    char* buf = datara_scratch_alloc(len + commas);
+    if (!buf) return "";
+
+    char* dst = buf;
+    if (digits_start) {
+        *dst++ = '-';
+    }
+
+    size_t first_group = num_digits % 3;
+    if (first_group == 0) first_group = 3;
+
+    const char* src = temp + digits_start;
+    memcpy(dst, src, first_group);
+    dst += first_group;
+    src += first_group;
+
+    while (*src) {
+        *dst++ = ',';
+        memcpy(dst, src, 3);
+        dst += 3;
+        src += 3;
+    }
+    *dst = '\0';
     return buf;
 }
 
@@ -1320,8 +1707,291 @@ void datara_rt_socket_close(int64_t sock) {
 #endif
 }
 
-const char* datara_rt_http_get(void) {
-    return "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK";
+// ---------------------------------------------------------------------------
+// HTTP (blocking HTTP/1.1 GET over the socket primitives above)
+// ---------------------------------------------------------------------------
+
+/* Upper bound on a downloaded body, mirroring the runtime's other
+ * bounded-resource conventions (scratch ring, socket recv caps). */
+#define DATARA_HTTP_MAX_BODY (16 * 1024 * 1024)
+
+static const char* datara_http_error(const char* msg) {
+    size_t prefix_len = strlen("HTTP_ERROR: ");
+    size_t msg_len = msg ? strlen(msg) : 0;
+    char* buf = datara_scratch_alloc(prefix_len + msg_len);
+    if (!buf) return "HTTP_ERROR: out of memory";
+    memcpy(buf, "HTTP_ERROR: ", prefix_len);
+    memcpy(buf + prefix_len, msg, msg_len);
+    buf[prefix_len + msg_len] = '\0';
+    return buf;
+}
+
+/* Case-insensitive comparison of n bytes. */
+static int datara_http_ci_eq(const char* a, const char* b, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        char ca = a[i], cb = b[i];
+        if (ca >= 'A' && ca <= 'Z') ca = (char)(ca + 32);
+        if (cb >= 'A' && cb <= 'Z') cb = (char)(cb + 32);
+        if (ca != cb) return 0;
+    }
+    return 1;
+}
+
+/* Case-insensitive search for `needle` inside the bounded region
+ * [hay, hay+hay_len). Returns a pointer to the match or NULL. */
+static const char* datara_http_ci_find(const char* hay, size_t hay_len,
+                                       const char* needle) {
+    size_t nlen = strlen(needle);
+    if (nlen == 0 || hay_len < nlen) return NULL;
+    for (size_t i = 0; i + nlen <= hay_len; i++) {
+        if (datara_http_ci_eq(hay + i, needle, nlen)) return hay + i;
+    }
+    return NULL;
+}
+
+/* Find a header line by name (case-insensitive) inside the header block
+ * [hdr, hdr+hdr_len). On success returns a pointer to the value (after the
+ * colon, leading whitespace skipped) and sets *vlen to its length;
+ * returns NULL when the header is absent. */
+static const char* datara_http_header_value(const char* hdr, size_t hdr_len,
+                                            const char* name, size_t* vlen) {
+    size_t nlen = strlen(name);
+    size_t i = 0;
+    while (i < hdr_len) {
+        size_t eol = i;
+        while (eol < hdr_len && hdr[eol] != '\n') eol++;
+        size_t line_len = eol - i;
+        if (line_len > 0 && hdr[i + line_len - 1] == '\r') line_len--;
+        if (line_len > nlen + 1 && hdr[i + nlen] == ':'
+            && datara_http_ci_eq(hdr + i, name, nlen)) {
+            size_t v = i + nlen + 1;
+            while (v < i + line_len && (hdr[v] == ' ' || hdr[v] == '\t')) v++;
+            *vlen = (i + line_len) - v;
+            return hdr + v;
+        }
+        i = eol + 1;
+    }
+    return NULL;
+}
+
+/* Decode an HTTP/1.1 chunked body in place: reads hex chunk-size lines
+ * (ignoring chunk extensions after ';'), copies each chunk's bytes down,
+ * skips the trailing CRLF, and stops at the 0-size terminating chunk
+ * (trailers are ignored). Returns the decoded length, or (size_t)-1 on
+ * malformed input / when the total exceeds DATARA_HTTP_MAX_BODY. */
+static size_t datara_http_decode_chunked(char* body, size_t body_len) {
+    size_t rd = 0, wr = 0;
+    for (;;) {
+        size_t line_end = rd;
+        while (line_end < body_len && body[line_end] != '\n') line_end++;
+        if (line_end >= body_len) return (size_t)-1;
+        size_t line_len = line_end - rd;
+        if (line_len > 0 && body[line_end - 1] == '\r') line_len--;
+        size_t size = 0;
+        size_t k = 0;
+        while (k < line_len) {
+            char c = body[rd + k];
+            int d;
+            if (c >= '0' && c <= '9') d = c - '0';
+            else if (c >= 'a' && c <= 'f') d = c - 'a' + 10;
+            else if (c >= 'A' && c <= 'F') d = c - 'A' + 10;
+            else break; /* chunk extensions (';...') or trailing junk */
+            size = size * 16 + (size_t)d;
+            if (size > DATARA_HTTP_MAX_BODY) return (size_t)-1;
+            k++;
+        }
+        if (k == 0) return (size_t)-1; /* no hex digits at all */
+        rd = line_end + 1;
+        if (size == 0) break; /* final chunk; ignore trailers */
+        if (size > body_len - rd) return (size_t)-1;
+        if (wr + size > DATARA_HTTP_MAX_BODY) return (size_t)-1;
+        memmove(body + wr, body + rd, size);
+        wr += size;
+        rd += size;
+        /* Skip the CRLF (tolerate a bare LF) after the chunk data. */
+        if (rd < body_len && body[rd] == '\r') rd++;
+        if (rd < body_len && body[rd] == '\n') {
+            rd++;
+        } else if (size > 0 && rd < body_len && body[rd - 1] != '\n') {
+            return (size_t)-1;
+        }
+    }
+    return wr;
+}
+
+const char* datara_rt_http_get(const char* url) {
+    if (!url || !url[0]) {
+        return datara_http_error("empty url");
+    }
+    datara_rt_ensure_sockets();
+
+    // Parse http://host[:port]/path — https is explicitly unsupported.
+    if (strncmp(url, "http://", 7) != 0) {
+        if (strncmp(url, "https://", 8) == 0) {
+            return datara_http_error("https not supported");
+        }
+        return datara_http_error("invalid url (expected http://...)");
+    }
+    const char* host_start = url + 7;
+    const char* path_start = strchr(host_start, '/');
+    const char* path = path_start ? path_start : "/";
+    size_t host_len = path_start ? (size_t)(path_start - host_start) : strlen(host_start);
+    if (host_len == 0 || host_len >= 256) {
+        return datara_http_error("invalid host");
+    }
+    char host[256];
+    memcpy(host, host_start, host_len);
+    host[host_len] = '\0';
+    int port = 80;
+    char* colon = strchr(host, ':');
+    if (colon) {
+        port = atoi(colon + 1);
+        *colon = '\0';
+        if (port <= 0 || port > 65535) {
+            return datara_http_error("invalid port");
+        }
+    }
+    if (!host[0]) {
+        return datara_http_error("invalid host");
+    }
+
+    int64_t sock = datara_rt_socket_create(1);
+    if (sock < 0) {
+        return datara_http_error("socket creation failed");
+    }
+    if (datara_rt_socket_connect(sock, host, (int64_t)port) != 0) {
+        datara_rt_socket_close(sock);
+        return datara_http_error("connection failed");
+    }
+
+    char req[2048];
+    int rl = snprintf(req, sizeof(req),
+                      "GET %s HTTP/1.1\r\nHost: %s\r\nConnection: close\r\n\r\n",
+                      path, host);
+    if (rl <= 0 || (size_t)rl >= sizeof(req)) {
+        datara_rt_socket_close(sock);
+        return datara_http_error("request too long");
+    }
+    size_t total_sent = 0;
+    while (total_sent < (size_t)rl) {
+#ifdef _WIN32
+        int n = send((SOCKET)sock, req + total_sent, (int)((size_t)rl - total_sent), 0);
+        if (n == SOCKET_ERROR) {
+#else
+        ssize_t n = send((int)sock, req + total_sent, (size_t)rl - total_sent, 0);
+        if (n <= 0) {
+#endif
+            datara_rt_socket_close(sock);
+            return datara_http_error("send failed");
+        }
+        total_sent += (size_t)n;
+    }
+
+    // Read the full response until EOF.
+    size_t cap = 64 * 1024;
+    size_t len = 0;
+    char* raw = (char*)malloc(cap);
+    if (!raw) {
+        datara_rt_socket_close(sock);
+        return datara_http_error("out of memory");
+    }
+    for (;;) {
+        if (len + 8192 + 1 > cap) {
+            if (cap >= DATARA_HTTP_MAX_BODY) {
+                free(raw);
+                datara_rt_socket_close(sock);
+                return datara_http_error("response too large");
+            }
+            cap *= 2;
+            char* grown = (char*)realloc(raw, cap);
+            if (!grown) {
+                free(raw);
+                datara_rt_socket_close(sock);
+                return datara_http_error("out of memory");
+            }
+            raw = grown;
+        }
+#ifdef _WIN32
+        int n = recv((SOCKET)sock, raw + len, 8192, 0);
+#else
+        ssize_t n = recv((int)sock, raw + len, 8192, 0);
+#endif
+        if (n == 0) break;
+        if (n < 0) {
+            free(raw);
+            datara_rt_socket_close(sock);
+            return datara_http_error("recv failed");
+        }
+        len += (size_t)n;
+    }
+    datara_rt_socket_close(sock);
+
+    // Skip headers up to \r\n\r\n (tolerate bare \n\n for lenient servers).
+    char* body = NULL;
+    for (size_t i = 0; i + 3 < len; i++) {
+        if (raw[i] == '\r' && raw[i + 1] == '\n' && raw[i + 2] == '\r' && raw[i + 3] == '\n') {
+            body = raw + i + 4;
+            break;
+        }
+    }
+    if (!body) {
+        for (size_t i = 0; i + 1 < len; i++) {
+            if (raw[i] == '\n' && raw[i + 1] == '\n') {
+                body = raw + i + 2;
+                break;
+            }
+        }
+    }
+    if (!body) {
+        free(raw);
+        return datara_http_error("malformed response");
+    }
+
+    // Header block spans [raw, body); it includes the separator, which the
+    // per-line header scanner tolerates.
+    const char* hdr = raw;
+    size_t hdr_len = (size_t)(body - raw);
+    size_t body_len = len - hdr_len;
+
+    size_t te_vlen = 0;
+    const char* te = datara_http_header_value(hdr, hdr_len, "transfer-encoding", &te_vlen);
+    if (te && datara_http_ci_find(te, te_vlen, "chunked")) {
+        size_t decoded = datara_http_decode_chunked((char*)body, body_len);
+        if (decoded == (size_t)-1) {
+            free(raw);
+            return datara_http_error("malformed chunked body");
+        }
+        body_len = decoded;
+    } else {
+        // Honor Content-Length when present: return exactly that many bytes
+        // of the body. If the server sent fewer bytes than advertised
+        // (early close), fall back to what actually arrived.
+        size_t cl_vlen = 0;
+        const char* cl = datara_http_header_value(hdr, hdr_len, "content-length", &cl_vlen);
+        if (cl && cl_vlen > 0) {
+            size_t declared = 0;
+            size_t k = 0;
+            for (; k < cl_vlen; k++) {
+                char c = cl[k];
+                if (c < '0' || c > '9') break;
+                declared = declared * 10 + (size_t)(c - '0');
+                if (declared > DATARA_HTTP_MAX_BODY) break;
+            }
+            if (k == cl_vlen && declared <= body_len && declared <= DATARA_HTTP_MAX_BODY) {
+                body_len = declared;
+            }
+        }
+    }
+
+    char* out = datara_scratch_alloc(body_len);
+    if (!out) {
+        free(raw);
+        return datara_http_error("out of memory");
+    }
+    memcpy(out, body, body_len);
+    out[body_len] = '\0';
+    free(raw);
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -1352,8 +2022,8 @@ int64_t datara_rt_math_ctz(int64_t v) {
     return (int64_t)__builtin_ctzll((unsigned long long)v);
 #endif
 }
-int64_t datara_rt_math_shr(int64_t v, int64_t s) { return v >> s; }
-int64_t datara_rt_math_shl(int64_t v, int64_t s) { return v << s; }
+int64_t datara_rt_math_shr(int64_t v, int64_t s) { return v >> (s & 63); }
+int64_t datara_rt_math_shl(int64_t v, int64_t s) { return (int64_t)((uint64_t)v << (s & 63)); }
 int64_t datara_rt_math_xor(int64_t a, int64_t b) { return a ^ b; }
 int64_t datara_rt_math_and(int64_t a, int64_t b) { return a & b; }
 int64_t datara_rt_math_or(int64_t a, int64_t b) { return a | b; }
@@ -1531,7 +2201,7 @@ const char* datara_rt_base64_decode(const char* input) {
         int c = input[i + 2] == '=' ? 0 : b64_rev[(uint8_t)input[i + 2]];
         int d = input[i + 3] == '=' ? 0 : b64_rev[(uint8_t)input[i + 3]];
 
-        if (a < 0 || b < 0) { free(decoded); return ""; }
+        if (a < 0 || b < 0 || c < 0 || d < 0) { free(decoded); return ""; }
 
         uint32_t triple = (a << 18) | (b << 12) | (c << 6) | d;
         if (j < out_len) decoded[j++] = (triple >> 16) & 0xFF;
@@ -1566,6 +2236,9 @@ int64_t datara_rt_random_bytes(uint8_t* buf, int64_t len) {
         if (r > 0) return (int64_t)r;
     }
 #endif
+    // Insecure clock-seeded LCG fallback: mark it so callers can detect that
+    // the bytes are not cryptographically random (datara_rt_rng_is_insecure).
+    g_datara_rng_insecure = 1;
     // High-entropy fallback using splitmix64 / xorshift with clock
     int64_t seed = datara_rt_now_precise_ms();
     for (int64_t i = 0; i < len; i++) {
@@ -1573,6 +2246,10 @@ int64_t datara_rt_random_bytes(uint8_t* buf, int64_t len) {
         buf[i] = (uint8_t)((seed >> 32) ^ (seed & 0xFF));
     }
     return len;
+}
+
+int datara_rt_rng_is_insecure(void) {
+    return g_datara_rng_insecure;
 }
 
 const char* datara_rt_uuid_v4(void) {
@@ -1597,6 +2274,26 @@ const char* datara_rt_uuid_v4(void) {
 // ---------------------------------------------------------------------------
 // Native UI Dialogs (Cross-platform)
 // ---------------------------------------------------------------------------
+
+// Escape a string for use inside a double-quoted shell argument. Escapes
+// backslash, double quote, dollar and backtick so untrusted message/title
+// text cannot terminate the quoting, expand shell variables or inject
+// commands into `system()` invocations built from osascript/zenity.
+static void datara_shell_escape_double(const char* src, char* dst, size_t dst_size) {
+    size_t j = 0;
+    if (dst_size == 0) return;
+    dst[0] = '\0';
+    if (!src) return;
+    for (size_t i = 0; src[i] != '\0' && j + 2 < dst_size; i++) {
+        char c = src[i];
+        if (c == '\\' || c == '"' || c == '$' || c == '`') {
+            dst[j++] = '\\';
+        }
+        dst[j++] = c;
+    }
+    dst[j] = '\0';
+}
+
 int64_t datara_rt_dialog_info(const char* title, const char* msg) {
 #ifdef _WIN32
     HMODULE hUser = LoadLibraryA("user32.dll");
@@ -1610,14 +2307,20 @@ int64_t datara_rt_dialog_info(const char* title, const char* msg) {
     }
 #elif defined(__APPLE__)
     if (msg && title) {
-        char cmd[1024];
-        snprintf(cmd, sizeof(cmd), "osascript -e 'display dialog \"%s\" with title \"%s\" buttons {\"OK\"} default button \"OK\"'", msg, title);
+        char cmd[2048];
+        char emsg[512], etitle[512];
+        datara_shell_escape_double(msg, emsg, sizeof(emsg));
+        datara_shell_escape_double(title, etitle, sizeof(etitle));
+        snprintf(cmd, sizeof(cmd), "osascript -e 'display dialog \"%s\" with title \"%s\" buttons {\"OK\"} default button \"OK\"'", emsg, etitle);
         if (system(cmd) == 0) return 1;
     }
 #else
     if (getenv("DISPLAY") || getenv("WAYLAND_DISPLAY")) {
-        char cmd[1024];
-        snprintf(cmd, sizeof(cmd), "zenity --info --title=\"%s\" --text=\"%s\" 2>/dev/null", title ? title : "Info", msg ? msg : "");
+        char cmd[2048];
+        char emsg[512], etitle[512];
+        datara_shell_escape_double(msg ? msg : "", emsg, sizeof(emsg));
+        datara_shell_escape_double(title ? title : "Info", etitle, sizeof(etitle));
+        snprintf(cmd, sizeof(cmd), "zenity --info --title=\"%s\" --text=\"%s\" 2>/dev/null", etitle, emsg);
         if (system(cmd) == 0) return 1;
     }
 #endif
@@ -1639,14 +2342,20 @@ int64_t datara_rt_dialog_alert(const char* title, const char* msg) {
     }
 #elif defined(__APPLE__)
     if (msg && title) {
-        char cmd[1024];
-        snprintf(cmd, sizeof(cmd), "osascript -e 'display alert \"%s\" message \"%s\" as warning'", title, msg);
+        char cmd[2048];
+        char emsg[512], etitle[512];
+        datara_shell_escape_double(msg, emsg, sizeof(emsg));
+        datara_shell_escape_double(title, etitle, sizeof(etitle));
+        snprintf(cmd, sizeof(cmd), "osascript -e 'display alert \"%s\" message \"%s\" as warning'", etitle, emsg);
         if (system(cmd) == 0) return 1;
     }
 #else
     if (getenv("DISPLAY") || getenv("WAYLAND_DISPLAY")) {
-        char cmd[1024];
-        snprintf(cmd, sizeof(cmd), "zenity --warning --title=\"%s\" --text=\"%s\" 2>/dev/null", title ? title : "Warning", msg ? msg : "");
+        char cmd[2048];
+        char emsg[512], etitle[512];
+        datara_shell_escape_double(msg ? msg : "", emsg, sizeof(emsg));
+        datara_shell_escape_double(title ? title : "Warning", etitle, sizeof(etitle));
+        snprintf(cmd, sizeof(cmd), "zenity --warning --title=\"%s\" --text=\"%s\" 2>/dev/null", etitle, emsg);
         if (system(cmd) == 0) return 1;
     }
 #endif
@@ -1668,15 +2377,21 @@ int64_t datara_rt_dialog_confirm(const char* title, const char* msg) {
     }
 #elif defined(__APPLE__)
     if (msg && title) {
-        char cmd[1024];
-        snprintf(cmd, sizeof(cmd), "osascript -e 'display dialog \"%s\" with title \"%s\" buttons {\"Cancel\", \"OK\"} default button \"OK\"'", msg, title);
+        char cmd[2048];
+        char emsg[512], etitle[512];
+        datara_shell_escape_double(msg, emsg, sizeof(emsg));
+        datara_shell_escape_double(title, etitle, sizeof(etitle));
+        snprintf(cmd, sizeof(cmd), "osascript -e 'display dialog \"%s\" with title \"%s\" buttons {\"Cancel\", \"OK\"} default button \"OK\"'", emsg, etitle);
         int res = system(cmd);
         return (res == 0) ? 1 : 0;
     }
 #else
     if (getenv("DISPLAY") || getenv("WAYLAND_DISPLAY")) {
-        char cmd[1024];
-        snprintf(cmd, sizeof(cmd), "zenity --question --title=\"%s\" --text=\"%s\" 2>/dev/null", title ? title : "Confirm", msg ? msg : "");
+        char cmd[2048];
+        char emsg[512], etitle[512];
+        datara_shell_escape_double(msg ? msg : "", emsg, sizeof(emsg));
+        datara_shell_escape_double(title ? title : "Confirm", etitle, sizeof(etitle));
+        snprintf(cmd, sizeof(cmd), "zenity --question --title=\"%s\" --text=\"%s\" 2>/dev/null", etitle, emsg);
         int res = system(cmd);
         return (res == 0) ? 1 : 0;
     }
@@ -1742,16 +2457,22 @@ void datara_rt_free(void* ptr) {
     }
 }
 
+// Strings produced by the runtime live in TLS static buffers (tls_int_bufs),
+// inside the shared tls_scratch_ring block, or are heap blocks that the
+// runtime intentionally never frees (see the note near datara_rt_bool_to_str).
+// Generated code calls str_free speculatively, so there is no ownership
+// tracking that would let us prove a pointer is a plain heap allocation.
+// Freeing any of the above would corrupt the heap, so this is a documented
+// no-op: runtime strings leak (by design), but nothing is ever corrupted.
+// Lists and maps carry tracked headers and are freed by their own *_free.
 void datara_rt_str_free(const char* s) {
-    if (s && s[0] != '\0' && s != "true" && s != "false" && s != "None") {
-        free((void*)s);
-    }
+    (void)s;
 }
 
 void datara_rt_list_free(void* list) {
     if (!list) return;
     DataraListHeader* hdr = ((DataraListHeader*)list) - 1;
-    if (hdr->capacity > 0 && hdr->capacity < 1000000000LL) {
+    if (hdr->magic == DATARA_LIST_MAGIC) {
         free(hdr);
     } else {
         free(list);
@@ -2065,6 +2786,22 @@ void datara_rt_arena_reset(int64_t saved_top) {
 // ---------------------------------------------------------------------------
 // First-Class SIMD 4D Vector Math
 // ---------------------------------------------------------------------------
+// SSE2 intrinsics are used for the hot vector operations when the target is
+// x86-64 / SSE2-capable. Everything falls back to a portable scalar path
+// otherwise, and datara_rt_simd_enabled() reports which path is compiled in.
+#if defined(__x86_64__) || defined(_M_X64) || defined(__SSE2__) || (defined(_MSC_VER) && !defined(_M_ARM64))
+#define DATARA_SIMD_SSE2 1
+#include <emmintrin.h>
+#endif
+
+int datara_rt_simd_enabled(void) {
+#if defined(DATARA_SIMD_SSE2)
+    return 1;
+#else
+    return 0;
+#endif
+}
+
 DataraFloat4 datara_rt_float4(double x, double y, double z, double w) {
     DataraFloat4 v;
     v.x = (float)x; v.y = (float)y; v.z = (float)z; v.w = (float)w;
@@ -2078,6 +2815,86 @@ DataraInt4 datara_rt_int4(int64_t x, int64_t y, int64_t z, int64_t w) {
 }
 
 double datara_rt_float4_dot(DataraFloat4 a, DataraFloat4 b) {
+#if defined(DATARA_SIMD_SSE2)
+    /* One packed multiply + SSE2 shuffle/add horizontal reduction. */
+    __m128 va = _mm_loadu_ps(&a.x);
+    __m128 vb = _mm_loadu_ps(&b.x);
+    __m128 prod = _mm_mul_ps(va, vb);
+    /* Round 1: add lanes (1,0,3,2) -> partial sums in both low lanes. */
+    __m128 shuf = _mm_shuffle_ps(prod, prod, _MM_SHUFFLE(2, 3, 0, 1));
+    __m128 sums = _mm_add_ps(prod, shuf);
+    /* Round 2: add lanes (2,3,0,1) -> full sum broadcast to all lanes. */
+    shuf = _mm_shuffle_ps(sums, sums, _MM_SHUFFLE(1, 0, 3, 2));
+    sums = _mm_add_ps(sums, shuf);
+    return (double)_mm_cvtss_f32(sums);
+#else
     return (double)(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w);
+#endif
+}
+
+DataraFloat4 datara_rt_float4_min4(DataraFloat4 a, DataraFloat4 b) {
+    DataraFloat4 out;
+#if defined(DATARA_SIMD_SSE2)
+    __m128 va = _mm_loadu_ps(&a.x);
+    __m128 vb = _mm_loadu_ps(&b.x);
+    _mm_storeu_ps(&out.x, _mm_min_ps(va, vb));
+#else
+    out.x = a.x < b.x ? a.x : b.x;
+    out.y = a.y < b.y ? a.y : b.y;
+    out.z = a.z < b.z ? a.z : b.z;
+    out.w = a.w < b.w ? a.w : b.w;
+#endif
+    return out;
+}
+
+DataraFloat4 datara_rt_float4_max4(DataraFloat4 a, DataraFloat4 b) {
+    DataraFloat4 out;
+#if defined(DATARA_SIMD_SSE2)
+    __m128 va = _mm_loadu_ps(&a.x);
+    __m128 vb = _mm_loadu_ps(&b.x);
+    _mm_storeu_ps(&out.x, _mm_max_ps(va, vb));
+#else
+    out.x = a.x > b.x ? a.x : b.x;
+    out.y = a.y > b.y ? a.y : b.y;
+    out.z = a.z > b.z ? a.z : b.z;
+    out.w = a.w > b.w ? a.w : b.w;
+#endif
+    return out;
+}
+
+DataraInt4 datara_rt_int4_min4(DataraInt4 a, DataraInt4 b) {
+    DataraInt4 out;
+#if defined(DATARA_SIMD_SSE2)
+    /* SSE2 has no integer min/max for 32-bit lanes: compare, then blend
+       with and/andnot (select a where a > b for min, else b). */
+    __m128i va = _mm_loadu_si128((const __m128i*)&a.x);
+    __m128i vb = _mm_loadu_si128((const __m128i*)&b.x);
+    __m128i gt = _mm_cmpgt_epi32(va, vb);
+    _mm_storeu_si128((__m128i*)&out.x,
+                     _mm_or_si128(_mm_and_si128(gt, vb), _mm_andnot_si128(gt, va)));
+#else
+    out.x = a.x < b.x ? a.x : b.x;
+    out.y = a.y < b.y ? a.y : b.y;
+    out.z = a.z < b.z ? a.z : b.z;
+    out.w = a.w < b.w ? a.w : b.w;
+#endif
+    return out;
+}
+
+DataraInt4 datara_rt_int4_max4(DataraInt4 a, DataraInt4 b) {
+    DataraInt4 out;
+#if defined(DATARA_SIMD_SSE2)
+    __m128i va = _mm_loadu_si128((const __m128i*)&a.x);
+    __m128i vb = _mm_loadu_si128((const __m128i*)&b.x);
+    __m128i gt = _mm_cmpgt_epi32(va, vb);
+    _mm_storeu_si128((__m128i*)&out.x,
+                     _mm_or_si128(_mm_and_si128(gt, va), _mm_andnot_si128(gt, vb)));
+#else
+    out.x = a.x > b.x ? a.x : b.x;
+    out.y = a.y > b.y ? a.y : b.y;
+    out.z = a.z > b.z ? a.z : b.z;
+    out.w = a.w > b.w ? a.w : b.w;
+#endif
+    return out;
 }
 

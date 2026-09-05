@@ -107,13 +107,14 @@ impl ProfileGuidedOptimizer {
     /// Ingest PGO profile data and boost optimization budgets for hot paths
     pub fn apply_profile_to_optimizer(optimizer: &mut Optimizer, profile: &ProfileData) {
         let measured = profile.is_runtime_measured();
+        let mut hot_count = 0usize;
         for (func_name, &call_count) in &profile.hot_functions {
             if call_count > 50 {
                 // Static call-graph counts are not execution counts and must
                 // never change optimization budgets. A runtime profile is the
                 // only source that can authorize a PGO budget mutation.
                 if measured {
-                    optimizer.cost_model.apply_pgo_boost(true);
+                    hot_count += 1;
                     optimizer.trace.record(
                         "PGO",
                         func_name,
@@ -140,6 +141,11 @@ impl ProfileGuidedOptimizer {
                 }
             }
         }
+        // The boost is a single budget adjustment: applying it once per hot
+        // function would multiply the threshold by 2^hot_count.
+        if hot_count > 0 {
+            optimizer.cost_model.apply_pgo_boost(true);
+        }
     }
 
     /// Full-cycle PGO optimization on DMIR module using gathered runtime profile
@@ -154,7 +160,12 @@ impl ProfileGuidedOptimizer {
         optimizer.inline_pure_functions(module);
 
         // 2. Intra-procedural optimizations (Branch re-ordering & SROA)
-        for (name, f) in module.functions.iter_mut() {
+        // Iterate in sorted-name order so per-function side effects (trace
+        // records, block edits) apply deterministically.
+        let mut fn_names: Vec<String> = module.functions.keys().cloned().collect();
+        fn_names.sort();
+        for name in fn_names {
+            let f = module.functions.get_mut(&name).unwrap();
             optimizer.optimize_function(f);
 
             // If branch is heavily biased towards hot path, optimize block layout
@@ -180,6 +191,13 @@ impl ProfileGuidedOptimizer {
                     }
                 }
             }
+        }
+
+        // Fail-closed verification, mirroring Optimizer::run_mutating_pass:
+        // a PGO mutation that corrupts DMIR must abort instead of being
+        // tolerated.
+        if let Err(error) = crate::dmir::verify_module(module) {
+            panic!("DMIR verification failed after PGO optimization: {}", error);
         }
     }
 }

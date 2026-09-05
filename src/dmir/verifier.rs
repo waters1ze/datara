@@ -12,7 +12,12 @@ use super::{BasicBlockId, Function, Inst, Module, Terminator, ValueId};
 ///   arguments) are used only after their definition in the same block, or in
 ///   a block dominated by the defining block.
 pub fn verify_module(module: &Module) -> Result<(), String> {
-    for (name, function) in &module.functions {
+    // Sort function names so verification — and any error it reports — has a
+    // deterministic order regardless of HashMap iteration order.
+    let mut names: Vec<&String> = module.functions.keys().collect();
+    names.sort();
+    for name in names {
+        let function = &module.functions[name];
         verify_function(function).map_err(|error| format!("{}: {}", name, error))?;
     }
     Ok(())

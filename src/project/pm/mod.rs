@@ -1785,7 +1785,10 @@ pub fn run_dpm_cli_args(args: &[String]) {
                 println!("   Digest:       {}", pkg.digest);
                 println!("   Entry:        {}", pkg.entry);
                 if !pkg.capabilities.is_empty() {
-                    println!("   Capabilities: [{}]", pkg.capabilities.join(", "));
+                    println!(
+                        "   Capabilities (detected heuristically): [{}]",
+                        pkg.capabilities.join(", ")
+                    );
                 }
                 let f_list: Vec<&String> = pkg.files.keys().collect();
                 println!(
@@ -1809,7 +1812,10 @@ pub fn run_dpm_cli_args(args: &[String]) {
                 Ok(pkg) => {
                     println!("[====.] Generated Merkle digest: {}", pkg.digest);
                     if !pkg.capabilities.is_empty() {
-                        println!("   Audited Capabilities: {}", pkg.capabilities.join(", "));
+                        println!(
+                            "   Detected Capabilities (heuristic): {}",
+                            pkg.capabilities.join(", ")
+                        );
                     }
                     println!(
                         "[DONE] Package '{}' (v{}) published successfully to DPM Registry",

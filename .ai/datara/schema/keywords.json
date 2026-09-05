@@ -1,0 +1,255 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DataraKeywordsCatalog",
+  "version": "1.0.0",
+  "description": "Exhaustive compiler-grounded catalog of Datara keywords, declarations, and forbidden syntax.",
+  "declarations": [
+    {
+      "keyword": "fn",
+      "role": "Function declaration",
+      "syntax": "fn name(p1: T1, p2: T2) -> RetType { ... }"
+    },
+    {
+      "keyword": "let",
+      "role": "Immutable variable binding (promoted to registers via Mem2Reg)",
+      "syntax": "let x: Int = 10"
+    },
+    {
+      "keyword": "mut",
+      "role": "Strictly typed mutable variable binding",
+      "syntax": "mut x: Int = 10"
+    },
+    {
+      "keyword": "val",
+      "role": "Gradual / inferred immutable container binding",
+      "syntax": "val x = 10"
+    },
+    {
+      "keyword": "class",
+      "role": "Data record structure with zero-vtable direct dispatch",
+      "syntax": "class Name { field: Type }"
+    },
+    {
+      "keyword": "entity",
+      "role": "Domain entity declaration (alias of class)",
+      "syntax": "entity User with Timestamped { name: Str }"
+    },
+    {
+      "keyword": "behavior",
+      "role": "Method implementation block for a class/entity",
+      "syntax": "behavior User { fn greet() -> Str => fmt\"Hi {name}\" }"
+    },
+    {
+      "keyword": "component",
+      "role": "Flat composable state container inlined at compile time",
+      "syntax": "component Audit { created_at: Int }"
+    },
+    {
+      "keyword": "role",
+      "role": "Contract interface defining required method signatures",
+      "syntax": "role Payable { pay(amount: Int) -> Int }"
+    },
+    {
+      "keyword": "enum",
+      "role": "Algebraic Data Type (ADT) with payload variants",
+      "syntax": "enum Shape { Circle(Float), Rect(Float, Float), Point }"
+    },
+    {
+      "keyword": "packet",
+      "role": "Zero-copy packed network/binary layout",
+      "syntax": "packet Header { magic: Int, len: Int }"
+    },
+    {
+      "keyword": "flow",
+      "role": "Pipeline stage keyword or workflow definition",
+      "syntax": "|> flow step or flow process() { ... }"
+    },
+    {
+      "keyword": "process",
+      "role": "Named pipeline workflow (alias of flow)",
+      "syntax": "process run_order(o: Order) -> Bool { ... }"
+    },
+    {
+      "keyword": "task",
+      "role": "Asynchronous task declaration",
+      "syntax": "task Worker { ... }"
+    },
+    {
+      "keyword": "use",
+      "role": "Module or symbol import declaration",
+      "syntax": "use stdlib.math.Math or use core.User"
+    },
+    {
+      "keyword": "type",
+      "role": "Type alias or contract-refined type definition",
+      "syntax": "type NonZero = Int where val != 0"
+    },
+    {
+      "keyword": "comptime",
+      "role": "Compile-time constant expression folding",
+      "syntax": "let x: Int = comptime { 1024 * 64 }"
+    }
+  ],
+  "control_flow": [
+    {
+      "keyword": "if",
+      "syntax": "if cond { ... } else { ... }"
+    },
+    {
+      "keyword": "else",
+      "syntax": "else if cond { ... } else { ... }"
+    },
+    {
+      "keyword": "while",
+      "syntax": "while cond { ... }"
+    },
+    {
+      "keyword": "for",
+      "syntax": "for item in 0..100 { ... }"
+    },
+    {
+      "keyword": "in",
+      "syntax": "for x in list or idx: Int in 0..<len"
+    },
+    {
+      "keyword": "match",
+      "syntax": "match expr { Shape.Circle(r) => ..., _ => ... }"
+    },
+    {
+      "keyword": "return",
+      "syntax": "return value"
+    },
+    {
+      "keyword": "break",
+      "syntax": "break"
+    },
+    {
+      "keyword": "continue",
+      "syntax": "continue"
+    }
+  ],
+  "concurrency_and_resources": [
+    {
+      "keyword": "parallel",
+      "syntax": "parallel for i in 0..N { ... } or parallel { task_a() task_b() }"
+    },
+    {
+      "keyword": "with",
+      "syntax": "with resource = acquire() { ... }"
+    },
+    {
+      "keyword": "unsafe",
+      "syntax": "unsafe(justification: \"...\") { ... }"
+    }
+  ],
+  "verification_and_contracts": [
+    {
+      "keyword": "require",
+      "syntax": "require condition, \"Error message\""
+    },
+    {
+      "keyword": "ensure",
+      "syntax": "ensure result >= 0"
+    },
+    {
+      "keyword": "where",
+      "syntax": "type Valid = Int where val > 0"
+    },
+    {
+      "keyword": "pure",
+      "syntax": "pure fn add(a: Int, b: Int) -> Int => a + b"
+    }
+  ],
+  "operators_and_flow": [
+    {
+      "keyword": "then",
+      "syntax": "data then step1() then step2()"
+    },
+    {
+      "keyword": "or",
+      "syntax": "parse() or fallback_value"
+    },
+    {
+      "keyword": "out",
+      "syntax": "out expr"
+    },
+    {
+      "keyword": "err",
+      "syntax": "err expr"
+    },
+    {
+      "keyword": "view",
+      "syntax": "let v = view data or data.view()"
+    },
+    {
+      "keyword": "this",
+      "syntax": "this.field or this.method()"
+    },
+    {
+      "keyword": "using",
+      "syntax": "class Order using Timestamped { id: Int }"
+    },
+    {
+      "keyword": "replaces",
+      "syntax": "replaces Base.method() { ... }"
+    }
+  ],
+  "deprecated_and_illegal": [
+    {
+      "token": ":=",
+      "status": "FATAL_ERROR",
+      "code": "E-SYNTAX-001",
+      "diagnostic": "Operator ':=' is deprecated. Use 'let' or 'mut'"
+    },
+    {
+      "token": "try / catch",
+      "status": "REMOVED",
+      "code": "E-SYNTAX-001",
+      "diagnostic": "try/catch removed. Use Outcome<T>, Maybe<T>, '?', and 'or'"
+    },
+    {
+      "token": "extends / from",
+      "status": "REMOVED",
+      "code": "E-SYNTAX-001",
+      "diagnostic": "Inheritance removed. Use 'using Component' flat composition and 'role'"
+    },
+    {
+      "token": "Lone & or |",
+      "status": "FATAL_ERROR",
+      "code": "E-SYNTAX-001",
+      "diagnostic": "No lone & or |. Use &&, ||, |>, or bitwise functions and(a,b), or(a,b)"
+    }
+  ],
+  "attributes": [
+    {
+      "attribute": "@derive",
+      "description": "Synthesizes trait methods at compile time without vtables",
+      "supported_traits": [
+        {
+          "trait": "Display",
+          "method": "to_string() -> Str"
+        },
+        {
+          "trait": "Json",
+          "method": "to_json() -> Str"
+        },
+        {
+          "trait": "Serialize",
+          "method": "to_json() -> Str"
+        },
+        {
+          "trait": "Deserialize",
+          "method": "from_json(s: Str) -> Self"
+        },
+        {
+          "trait": "Hash",
+          "method": "hash() -> Int"
+        },
+        {
+          "trait": "Clone",
+          "method": "clone() -> Self"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+// Test 04: Pipe-forward and 'then' Chaining
+fn mul_two(x: Int) -> Int => x * 2
+fn sub_five(x: Int) -> Int => x - 5
+
+fn main() {
+    let r1 = 20 |> mul_two() |> sub_five()
+    let r2 = 20 then mul_two() then sub_five()
+    if r1 == 35 && r2 == 35 {
+        out "PASS: pipeline_dataflow"
+    } else {
+        err "FAIL: pipeline_dataflow"
+    }
+}

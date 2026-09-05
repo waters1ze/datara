@@ -30,7 +30,12 @@ impl SemanticAdaptationEngine {
             return;
         }
 
-        for f in module.functions.values_mut() {
+        // Sorted-name iteration so adaptation decisions and log entries are
+        // deterministic regardless of HashMap ordering.
+        let mut fn_names: Vec<String> = module.functions.keys().cloned().collect();
+        fn_names.sort();
+        for fname in fn_names {
+            let f = module.functions.get_mut(&fname).unwrap();
             // 1. Data representation adaptation (Scalar vs Stack vs Heap)
             RepresentationAdapter::adapt_representation(f, &mut self.log);
 

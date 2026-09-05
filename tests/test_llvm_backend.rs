@@ -133,12 +133,11 @@ fn main() {
 }
 
 #[test]
-fn test_llvm_ir_file_saved_when_compiling_with_llvm() {
+fn test_llvm_ir_generated_when_compiling_with_llvm() {
     let temp_dir = std::env::temp_dir().join("forgen_llvm_test");
     let _ = fs::create_dir_all(&temp_dir);
     let src_path = temp_dir.join("test_app.dtr");
     let exe_path = temp_dir.join("test_app.exe");
-    let ll_path = temp_dir.join("test_app.ll");
 
     fs::write(
         &src_path,
@@ -154,25 +153,26 @@ fn main() {
     let res = compiler.compile_file(&src_path, Some(&exe_path));
 
     assert!(res.success, "Compilation must succeed: {:?}", res.error);
-    assert!(
-        ll_path.exists(),
-        "The .ll file must be generated on disk: {}",
-        ll_path.display()
-    );
 
-    let ll_content = fs::read_to_string(&ll_path).unwrap();
+    // The LLVM pipeline emits the IR into the CompilationResult. When a
+    // Clang/LLC toolchain is available the on-disk `.ll` is an intermediate
+    // (written under `.forgen_cache/build/`) and is removed again after the
+    // AOT compile consumes it, so the IR is verified through the result
+    // rather than through a file that only exists on toolchain-less hosts.
+    let llvm = res
+        .llvm_source
+        .expect("LLVM IR source must be generated when compiling with --llvm");
     assert!(
-        ll_content.contains("Hello from LLVM backend!"),
+        llvm.contains("Hello from LLVM backend!"),
         "LLVM IR must contain string literal"
     );
     assert!(
-        ll_content.contains("datara_rt_out_str"),
+        llvm.contains("datara_rt_out_str"),
         "LLVM IR must call datara_rt_out_str"
     );
 
     // Cleanup
     let _ = fs::remove_file(&src_path);
-    let _ = fs::remove_file(&ll_path);
     let _ = fs::remove_file(&exe_path);
     let _ = fs::remove_dir(&temp_dir);
 }

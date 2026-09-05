@@ -171,6 +171,48 @@ fn parse_file_doc_items(content: &str, file_path: &str) -> Vec<DocItem> {
     items
 }
 
+/// Escapes characters that are special in HTML text/attribute contexts,
+/// so user-derived strings (names, doc comments) can never inject markup.
+fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// Escapes a string for safe inclusion inside a JSON string literal
+/// (quotes, backslashes, and control characters).
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// Escapes a value destined for the embedded JSON payload of the SPA.
+/// The values are later rendered via innerHTML, so HTML metacharacters
+/// are neutralized first, then the result is made JSON-valid.
+fn json_html_escape(s: &str) -> String {
+    json_escape(&html_escape(s))
+}
+
 fn render_spa_html(modules: &[DocModule]) -> String {
     let mut modules_json = String::new();
     modules_json.push('[');
@@ -180,8 +222,8 @@ fn render_spa_html(modules: &[DocModule]) -> String {
         }
         modules_json.push_str(&format!(
             r#"{{"name":"{}","path":"{}","items":["#,
-            m.name,
-            m.path.replace('\\', "/")
+            json_html_escape(&m.name),
+            json_html_escape(&m.path.replace('\\', "/"))
         ));
         for (j, item) in m.items.iter().enumerate() {
             if j > 0 {
@@ -189,13 +231,13 @@ fn render_spa_html(modules: &[DocModule]) -> String {
             }
             modules_json.push_str(&format!(
                 r#"{{"name":"{}","kind":"{}","sig":"{}","doc":"{}","effects":[{}]}}"#,
-                item.name,
-                item.kind,
-                item.signature.replace('"', "\\\""),
-                item.doc_comment.replace('"', "\\\""),
+                json_html_escape(&item.name),
+                json_html_escape(&item.kind),
+                json_html_escape(&item.signature),
+                json_html_escape(&item.doc_comment),
                 item.effects
                     .iter()
-                    .map(|e| format!("\"{}\"", e))
+                    .map(|e| format!("\"{}\"", json_html_escape(e)))
                     .collect::<Vec<_>>()
                     .join(",")
             ));
@@ -315,4 +357,41 @@ fn render_spa_html(modules: &[DocModule]) -> String {
 </html>
 "#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_doc_content_is_html_and_json_escaped() {
+        let modules = vec![DocModule {
+            name: "evil\"module".to_string(),
+            path: "src/evil.dtr".to_string(),
+            items: vec![DocItem {
+                name: "steal".to_string(),
+                kind: "fn".to_string(),
+                signature: "pub fn steal()".to_string(),
+                doc_comment: "Says \"hi\" <script>alert('xss')</script>".to_string(),
+                file: "src/evil.dtr".to_string(),
+                effects: vec!["pure".to_string()],
+            }],
+        }];
+
+        let html = render_spa_html(&modules);
+
+        // No raw script injection or unescaped quotes may reach the output.
+        assert!(
+            !html.contains("<script>alert"),
+            "doc comment must not be interpolated raw into HTML"
+        );
+        assert!(
+            !html.contains(r#""Says "hi""#),
+            "unescaped double quotes must not break the embedded JSON"
+        );
+        // The escaped forms must be present instead.
+        assert!(html.contains("&lt;script&gt;"));
+        assert!(html.contains("&quot;hi&quot;"));
+        assert!(html.contains("evil&quot;module"));
+    }
 }

@@ -1,0 +1,14 @@
+// Test 13: FVRP Range Refinement and Bounds Assertion
+fn check_range(val: Int<0..100>) -> Int {
+    let bound: Int<0..100> = val
+    return bound
+}
+
+fn main() {
+    let res = check_range(50)
+    if res == 50 {
+        out "PASS: fvrp_bounds"
+    } else {
+        err "FAIL: fvrp_bounds"
+    }
+}

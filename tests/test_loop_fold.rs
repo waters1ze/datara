@@ -146,9 +146,12 @@ fn main() {
         .decision_trace
         .iter()
         .any(|r| r.pass == "LoopFold" && r.decision == "Applied");
+    // Float loop folding is disabled pending bit-exactness analysis: the
+    // closed forms are not bit-exact with IEEE-754 sequential addition. The
+    // loop must be left unmodified and still produce the correct result.
     assert!(
-        applied,
-        "LoopFold pass must report Applied for float sum loop"
+        !applied,
+        "LoopFold must not fold float sum loops (not bit-exact with sequential addition)"
     );
 
     let exe_path = res.exe_path.expect("executable path missing");

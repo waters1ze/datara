@@ -3,6 +3,7 @@
 *.obj
 *.tmp.cs
 *.pdb
+*.ilk
 *.lib
 *.a
 /runtime/

@@ -1,0 +1,10 @@
+[package]
+name = "datara_template"
+version = "0.1.0"
+entry = "src/main.dtr"
+edition = "2026"
+description = "Canonical starter template for Datara applications"
+
+[profiles.release]
+opt_level = "3"
+lto = true

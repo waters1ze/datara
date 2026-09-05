@@ -215,6 +215,7 @@ fn discover_msvc() -> LinkerSpec {
             "kernel32.lib".into(),
             "user32.lib".into(),
             "ws2_32.lib".into(),
+            "dbghelp.lib".into(),
         ],
         is_available,
     }
@@ -414,19 +415,28 @@ pub fn run_windows_build_tools_installer() -> bool {
     }
     script_candidates.push(PathBuf::from(r"scripts\install_build_tools.ps1"));
 
-    let script = script_candidates.into_iter().find(|p| p.exists());
+    // SECURITY: never download and execute an installer script from the
+    // network. Only a script that ships with the local toolchain/installer
+    // is executed; otherwise we point the user at the official download.
+    let Some(script_path) = script_candidates.into_iter().find(|p| p.exists()) else {
+        println!(
+            "[Forgen setup-tools] No local installer script found (expected scripts\\install_build_tools.ps1)."
+        );
+        println!(
+            "[Forgen setup-tools] Install MSVC Build Tools manually (never auto-executed from the network):"
+        );
+        println!(
+            "[Forgen setup-tools]   https://visualstudio.microsoft.com/visual-cpp-build-tools/"
+        );
+        println!(
+            "[Forgen setup-tools]   or: winget install Microsoft.VisualStudio.2022.BuildTools"
+        );
+        return false;
+    };
 
     let mut cmd = Command::new("powershell.exe");
     cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass"]);
-    if let Some(script_path) = script {
-        cmd.arg("-File").arg(script_path);
-    } else {
-        cmd.arg("-Command").arg(
-            "[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; \
-             $s = (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/waters1ze/datara/main/scripts/install_build_tools.ps1'); \
-             Invoke-Expression $s"
-        );
-    }
+    cmd.arg("-File").arg(&script_path);
 
     match cmd.status() {
         Ok(status) => status.success(),
@@ -457,6 +467,8 @@ pub fn link_args(
     match spec.flavor {
         LinkerFlavor::Msvc => {
             args.push("/NOLOGO".into());
+            args.push("/INCREMENTAL:NO".into());
+            args.push("/DEBUG".into());
             if is_shared {
                 args.push("/DLL".into());
                 args.push("/NOENTRY".into());
@@ -590,6 +602,8 @@ pub fn compile_with_llc(
     ll_path: &Path,
     output_exe: &Path,
     opt_level: &str,
+    target_triple: Option<&str>,
+    _debug_info: bool,
 ) -> Result<(), String> {
     let opt_flag = match opt_level {
         "0" | "debug" => "-O0",
@@ -598,10 +612,34 @@ pub fn compile_with_llc(
         _ => "-O3",
     };
     let opt_bin = llc.with_file_name(if cfg!(windows) { "opt.exe" } else { "opt" });
-    let bc_path = output_exe.with_extension("bc");
+    // Temp paths must be unique per call, not per process: parallel
+    // compilations inside one process share a pid, so a bare
+    // `{stem}_{pid}.bc` lets one compile's opt/link/delete race overwrite or
+    // remove another's file. A per-call sequence number plus an absolute
+    // cache path makes the temp files collision-free and cwd-independent.
+    static LLC_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let llc_seq = LLC_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let cache_build_dir = env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(".forgen_cache")
+        .join("build");
+    let _ = std::fs::create_dir_all(&cache_build_dir);
+    let stem = output_exe
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("out");
+    let pid = std::process::id();
+    let bc_path = if cache_build_dir.exists() {
+        cache_build_dir.join(format!("{}_{}_{}.bc", stem, pid, llc_seq))
+    } else {
+        output_exe.with_extension("bc")
+    };
     let input_for_llc = if opt_bin.exists() {
         let mut opt_cmd = Command::new(&opt_bin);
         opt_cmd.arg(opt_flag);
+        if let Some(target) = target_triple {
+            opt_cmd.arg(format!("-mtriple={}", target));
+        }
         opt_cmd.arg(ll_path);
         opt_cmd.arg("-o").arg(&bc_path);
         let opt_res = opt_cmd.output();
@@ -618,11 +656,18 @@ pub fn compile_with_llc(
         ll_path.to_path_buf()
     };
 
-    let obj_path = output_exe.with_extension("obj");
+    let obj_path = if cache_build_dir.exists() {
+        cache_build_dir.join(format!("{}_{}_{}.obj", stem, pid, llc_seq))
+    } else {
+        output_exe.with_extension("obj")
+    };
     let mut cmd = Command::new(llc);
     cmd.arg(opt_flag);
     cmd.arg("-filetype=obj");
     cmd.arg("-relocation-model=pic");
+    if let Some(target) = target_triple {
+        cmd.arg(format!("-mtriple={}", target));
+    }
     cmd.arg(&input_for_llc);
     cmd.arg("-o").arg(&obj_path);
     let res = cmd
@@ -666,6 +711,7 @@ pub fn compile_with_llc(
         ));
     }
     let _ = std::fs::remove_file(&obj_path);
+    let _ = std::fs::remove_file(output_exe.with_extension("ilk"));
     Ok(())
 }
 
@@ -675,6 +721,8 @@ pub fn compile_with_clang(
     runtime_c_path: Option<&Path>,
     output_exe: &Path,
     opt_level: &str,
+    target_triple: Option<&str>,
+    debug_info: bool,
 ) -> Result<(), String> {
     if let Some(clang) = find_clang() {
         let opt_flag = match opt_level {
@@ -686,13 +734,27 @@ pub fn compile_with_clang(
         let run_clang = |use_lto: bool| -> Result<std::process::Output, String> {
             let mut cmd = Command::new(&clang);
             cmd.arg(opt_flag);
+            if let Some(target) = target_triple {
+                cmd.arg(format!("--target={}", target));
+            }
+            if debug_info {
+                cmd.arg("-g");
+                let is_win_target = target_triple
+                    .map(|t| t.contains("windows"))
+                    .unwrap_or(cfg!(windows));
+                if is_win_target {
+                    cmd.arg("-gcodeview");
+                }
+            }
             if use_lto {
                 cmd.arg("-flto");
                 if cfg!(windows) && find_lld().is_some() {
                     cmd.arg("-fuse-ld=lld");
                 }
             }
-            cmd.arg("-march=native");
+            if target_triple.is_none() {
+                cmd.arg("-march=native");
+            }
             cmd.arg(ll_path);
             if let Some(rt) = runtime_c_path
                 && rt.exists()
@@ -700,10 +762,14 @@ pub fn compile_with_clang(
                 cmd.arg(rt);
             }
             cmd.arg("-o").arg(output_exe);
-            if cfg!(windows) {
+            let is_win_target = target_triple
+                .map(|t| t.contains("windows"))
+                .unwrap_or(cfg!(windows));
+            if is_win_target {
                 cmd.arg("-lws2_32");
                 cmd.arg("-luser32");
                 cmd.arg("-lkernel32");
+                cmd.arg("-ldbghelp");
             } else {
                 cmd.arg("-lm");
                 cmd.arg("-lpthread");
@@ -733,7 +799,14 @@ pub fn compile_with_clang(
     }
 
     if let Some(llc) = find_llc() {
-        return compile_with_llc(&llc, ll_path, output_exe, opt_level);
+        return compile_with_llc(
+            &llc,
+            ll_path,
+            output_exe,
+            opt_level,
+            target_triple,
+            debug_info,
+        );
     }
 
     Err("Neither Clang nor LLC found on system toolchain".to_string())
@@ -778,6 +851,7 @@ pub fn compile_shared_with_clang(
         cmd.arg("-lws2_32");
         cmd.arg("-luser32");
         cmd.arg("-lkernel32");
+        cmd.arg("-ldbghelp");
     } else {
         cmd.arg("-lm");
         cmd.arg("-lpthread");

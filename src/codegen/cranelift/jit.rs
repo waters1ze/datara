@@ -32,6 +32,7 @@ unsafe extern "C" {
     pub fn datara_rt_print(s: *const c_char);
     pub fn datara_rt_eprintln(s: *const c_char);
     pub fn datara_rt_panic(s: *const c_char);
+    pub fn datara_rt_print_backtrace();
     pub fn datara_rt_assert(cond: i64, msg: *const c_char);
     pub fn datara_rt_len(s: *const c_char) -> i64;
 
@@ -76,6 +77,41 @@ unsafe extern "C" {
     pub fn datara_rt_str_to_float(s: *const c_char) -> f64;
     pub fn datara_rt_str_substring(s: *const c_char, start: i64, len: i64) -> *const c_char;
     pub fn datara_rt_str_char_at(s: *const c_char, idx: i64) -> *const c_char;
+    pub fn datara_rt_str_repeat(s: *const c_char, count: i64) -> *const c_char;
+    pub fn datara_rt_str_pad_left(
+        s: *const c_char,
+        total_len: i64,
+        pad: *const c_char,
+    ) -> *const c_char;
+    pub fn datara_rt_str_pad_right(
+        s: *const c_char,
+        total_len: i64,
+        pad: *const c_char,
+    ) -> *const c_char;
+    pub fn datara_rt_str_replace(
+        s: *const c_char,
+        target: *const c_char,
+        replacement: *const c_char,
+    ) -> *const c_char;
+    pub fn datara_rt_str_to_upper(s: *const c_char) -> *const c_char;
+    pub fn datara_rt_str_to_lower(s: *const c_char) -> *const c_char;
+    pub fn datara_rt_format_percent(val: f64, decimals: i64) -> *const c_char;
+    pub fn datara_rt_format_int_with_commas(n: i64) -> *const c_char;
+
+    pub fn datara_js_eval(code: *const c_char) -> *const c_char;
+    pub fn datara_js_eval_int(code: *const c_char) -> i64;
+    pub fn datara_js_eval_float(code: *const c_char) -> f64;
+    pub fn datara_js_require(module_name: *const c_char) -> i64;
+    pub fn datara_js_call(fn_name: *const c_char, args_json: *const c_char) -> *const c_char;
+    pub fn datara_js_call_0(fn_name: *const c_char) -> *const c_char;
+    pub fn datara_js_call_1(fn_name: *const c_char, arg0: *const c_char) -> *const c_char;
+    pub fn datara_js_call_2(
+        fn_name: *const c_char,
+        arg0: *const c_char,
+        arg1: *const c_char,
+    ) -> *const c_char;
+    pub fn datara_js_set_global(name: *const c_char, json_val: *const c_char) -> i64;
+    pub fn datara_js_get_global(name: *const c_char) -> *const c_char;
 
     pub fn datara_rt_file_read(path: *const c_char) -> *const c_char;
     pub fn datara_rt_file_write(path: *const c_char, content: *const c_char) -> i64;
@@ -103,6 +139,30 @@ unsafe extern "C" {
     pub fn datara_rt_range_str(start: i64, end: i64) -> *const c_char;
     pub fn datara_rt_map_create() -> *mut ();
     pub fn datara_rt_map_create_2(k1: i64, v1: i64, k2: i64, v2: i64) -> *mut ();
+    pub fn datara_rt_map_create_1(k1: i64, v1: i64) -> *mut ();
+    pub fn datara_rt_map_create_3(k1: i64, v1: i64, k2: i64, v2: i64, k3: i64, v3: i64) -> *mut ();
+    pub fn datara_rt_map_create_4(
+        k1: i64,
+        v1: i64,
+        k2: i64,
+        v2: i64,
+        k3: i64,
+        v3: i64,
+        k4: i64,
+        v4: i64,
+    ) -> *mut ();
+    pub fn datara_rt_map_create_5(
+        k1: i64,
+        v1: i64,
+        k2: i64,
+        v2: i64,
+        k3: i64,
+        v3: i64,
+        k4: i64,
+        v4: i64,
+        k5: i64,
+        v5: i64,
+    ) -> *mut ();
     pub fn datara_rt_map_insert(map: *mut i64, key: *const c_char, val: i64) -> *mut i64;
     pub fn datara_rt_map_get(map: *mut i64, key: *const c_char) -> i64;
     pub fn datara_rt_map_free(map: *mut ());
@@ -115,7 +175,7 @@ unsafe extern "C" {
     pub fn datara_rt_socket_send(sock: i64, data: *const c_char) -> i64;
     pub fn datara_rt_socket_recv(sock: i64, max_bytes: i64) -> *const c_char;
     pub fn datara_rt_socket_close(sock: i64);
-    pub fn datara_rt_http_get() -> *const c_char;
+    pub fn datara_rt_http_get(url: *const c_char) -> *const c_char;
 
     pub fn datara_rt_sha256(input: *const c_char) -> *const c_char;
     pub fn datara_rt_base64_encode(input: *const c_char) -> *const c_char;
@@ -204,6 +264,8 @@ pub fn register_runtime_symbols(builder: &mut JITBuilder) {
     reg!("eprintln", datara_rt_eprintln);
     reg!("datara_rt_panic", datara_rt_panic);
     reg!("panic", datara_rt_panic);
+    reg!("datara_rt_print_backtrace", datara_rt_print_backtrace);
+    reg!("print_backtrace", datara_rt_print_backtrace);
     reg!("datara_rt_assert", datara_rt_assert);
     reg!("assert", datara_rt_assert);
     reg!("datara_rt_len", datara_rt_len);
@@ -246,6 +308,46 @@ pub fn register_runtime_symbols(builder: &mut JITBuilder) {
     reg!("str_substring", datara_rt_str_substring);
     reg!("datara_rt_str_char_at", datara_rt_str_char_at);
     reg!("str_char_at", datara_rt_str_char_at);
+    reg!("datara_rt_str_repeat", datara_rt_str_repeat);
+    reg!("str_repeat", datara_rt_str_repeat);
+    reg!("datara_rt_str_pad_left", datara_rt_str_pad_left);
+    reg!("str_pad_left", datara_rt_str_pad_left);
+    reg!("datara_rt_str_pad_right", datara_rt_str_pad_right);
+    reg!("str_pad_right", datara_rt_str_pad_right);
+    reg!("datara_rt_str_replace", datara_rt_str_replace);
+    reg!("str_replace", datara_rt_str_replace);
+    reg!("datara_rt_str_to_upper", datara_rt_str_to_upper);
+    reg!("str_to_upper", datara_rt_str_to_upper);
+    reg!("datara_rt_str_to_lower", datara_rt_str_to_lower);
+    reg!("str_to_lower", datara_rt_str_to_lower);
+    reg!("datara_rt_format_percent", datara_rt_format_percent);
+    reg!("format_percent", datara_rt_format_percent);
+    reg!(
+        "datara_rt_format_int_with_commas",
+        datara_rt_format_int_with_commas
+    );
+    reg!("format_int_with_commas", datara_rt_format_int_with_commas);
+
+    reg!("datara_js_eval", datara_js_eval);
+    reg!("js_eval", datara_js_eval);
+    reg!("datara_js_eval_int", datara_js_eval_int);
+    reg!("js_eval_int", datara_js_eval_int);
+    reg!("datara_js_eval_float", datara_js_eval_float);
+    reg!("js_eval_float", datara_js_eval_float);
+    reg!("datara_js_require", datara_js_require);
+    reg!("js_require", datara_js_require);
+    reg!("datara_js_call", datara_js_call);
+    reg!("js_call", datara_js_call);
+    reg!("datara_js_call_0", datara_js_call_0);
+    reg!("js_call_0", datara_js_call_0);
+    reg!("datara_js_call_1", datara_js_call_1);
+    reg!("js_call_1", datara_js_call_1);
+    reg!("datara_js_call_2", datara_js_call_2);
+    reg!("js_call_2", datara_js_call_2);
+    reg!("datara_js_set_global", datara_js_set_global);
+    reg!("js_set_global", datara_js_set_global);
+    reg!("datara_js_get_global", datara_js_get_global);
+    reg!("js_get_global", datara_js_get_global);
 
     reg!("datara_rt_file_read", datara_rt_file_read);
     reg!("file_read", datara_rt_file_read);
@@ -290,6 +392,10 @@ pub fn register_runtime_symbols(builder: &mut JITBuilder) {
     reg!("datara_rt_range_str", datara_rt_range_str);
     reg!("datara_rt_map_create", datara_rt_map_create);
     reg!("datara_rt_map_create_2", datara_rt_map_create_2);
+    reg!("datara_rt_map_create_1", datara_rt_map_create_1);
+    reg!("datara_rt_map_create_3", datara_rt_map_create_3);
+    reg!("datara_rt_map_create_4", datara_rt_map_create_4);
+    reg!("datara_rt_map_create_5", datara_rt_map_create_5);
     reg!("datara_rt_map_insert", datara_rt_map_insert);
     reg!("datara_rt_map_get", datara_rt_map_get);
     reg!("datara_rt_map_free", datara_rt_map_free);
@@ -409,7 +515,14 @@ pub unsafe fn run_jit_entry(
     let mut c_strings = Vec::with_capacity(args.len() + 1);
     c_strings.push(CString::new("forgen").unwrap_or_default());
     for a in args {
-        c_strings.push(CString::new(a.as_str()).unwrap_or_default());
+        // An argument containing an interior NUL cannot round-trip through a
+        // C argv; drop it with a warning instead of silently passing "".
+        match CString::new(a.as_str()) {
+            Ok(c) => c_strings.push(c),
+            Err(_) => {
+                eprintln!("warning: dropping command-line argument containing NUL byte");
+            }
+        }
     }
     let c_ptrs: Vec<*const c_char> = c_strings.iter().map(|s| s.as_ptr()).collect();
     let argc = c_ptrs.len() as i32;

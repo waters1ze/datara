@@ -346,7 +346,13 @@ fn promote_function_inner(function: &mut Function, next: &mut usize) -> Result<u
     }
 
     let mut promotable: Vec<String> = Vec::new();
-    for (name, sites) in assigns.iter() {
+    // Iterate deterministically: a bare HashMap iteration makes the promotable
+    // order — and therefore phi block-param order and fresh ValueIds — vary
+    // run to run. Sort the candidate names before visiting them.
+    let mut assign_names: Vec<&String> = assigns.keys().collect();
+    assign_names.sort();
+    for name in assign_names {
+        let sites = &assigns[name];
         if bad_names.contains(name) {
             continue;
         }

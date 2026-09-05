@@ -492,6 +492,10 @@ pub enum Expr {
         expr: Box<Expr>,
         span: SourceSpan,
     },
+    /// A braced block used in expression position, e.g. a match/decide/select
+    /// arm body: `{ let y = 2; y }`. The trailing expression (if any) is the
+    /// block's value; `None` means the block evaluates to Unit.
+    Block(Vec<Stmt>, Option<Box<Expr>>, SourceSpan),
 }
 
 impl Expr {
@@ -518,7 +522,8 @@ impl Expr {
             | Expr::ErrorPropagate(_, s)
             | Expr::OrRecovery { span: s, .. }
             | Expr::ArrayRepeatLiteral { span: s, .. }
-            | Expr::Comptime { span: s, .. } => s,
+            | Expr::Comptime { span: s, .. }
+            | Expr::Block(_, _, s) => s,
         }
     }
 }

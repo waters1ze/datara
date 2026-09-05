@@ -222,8 +222,15 @@ impl ControlFlowGraph {
                     let mut runner = p;
                     let target_idom = self.idom.get(&b).copied().unwrap_or(b);
                     while runner != target_idom && runner != self.entry {
+                        // A predecessor unreachable from the entry has no
+                        // idom: the walk can never advance, so stop for this
+                        // predecessor instead of spinning forever.
+                        let next = match self.idom.get(&runner) {
+                            Some(&next) if next != runner => next,
+                            _ => break,
+                        };
                         df.entry(runner).or_default().insert(b);
-                        runner = self.idom.get(&runner).copied().unwrap_or(runner);
+                        runner = next;
                     }
                 }
             }

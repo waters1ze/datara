@@ -22,6 +22,7 @@ pub enum Os {
 pub enum Abi {
     Msvc,
     Gnu,
+    Musl,
     SysV,
     Wasm,
 }
@@ -320,13 +321,78 @@ impl TargetInfo {
             }
             Os::Linux => {
                 let abi_str = match self.abi {
-                    Abi::Gnu => "gnu",
+                    Abi::Musl => "musl",
                     _ => "gnu",
                 };
                 format!("{}-unknown-linux-{}", arch_str, abi_str)
             }
             Os::MacOS => format!("{}-apple-darwin", arch_str),
             Os::Unknown | Os::Wasi => format!("{}-unknown-unknown", arch_str),
+        }
+    }
+
+    /// Parse a target triple string (e.g. `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-musl`, `aarch64-apple-darwin`, `wasm32-unknown-unknown`).
+    pub fn from_triple(triple: &str) -> Result<Self, String> {
+        let t = triple.to_lowercase();
+        if t.contains("wasm32") || t == "wasm" {
+            return Ok(Self::wasm32());
+        }
+        if t.contains("aarch64") || t.contains("arm64") {
+            if t.contains("darwin") || t.contains("macos") || t.contains("apple") {
+                return Ok(Self::aarch64_macos());
+            }
+            if t.contains("windows") {
+                return Ok(Self::aarch64_windows());
+            }
+            if t.contains("linux") {
+                if t.contains("musl") {
+                    let mut info = Self::generic_aarch64(Os::Linux);
+                    info.abi = Abi::Musl;
+                    return Ok(info);
+                }
+                return Ok(Self::aarch64_linux());
+            }
+            return Ok(Self::generic_aarch64(Os::Linux));
+        }
+        if t.contains("x86_64") || t.contains("amd64") {
+            if t.contains("darwin") || t.contains("macos") || t.contains("apple") {
+                return Ok(Self::x86_64_macos());
+            }
+            if t.contains("windows") {
+                if t.contains("gnu") {
+                    return Ok(Self::generic_x86_64(Os::Windows, Abi::Gnu));
+                }
+                return Ok(Self::x86_64_windows());
+            }
+            if t.contains("linux") {
+                if t.contains("musl") {
+                    let mut info = Self::generic_x86_64(Os::Linux, Abi::Musl);
+                    info.abi = Abi::Musl;
+                    return Ok(info);
+                }
+                return Ok(Self::x86_64_linux());
+            }
+            return Ok(Self::generic_x86_64(Os::Linux, Abi::Gnu));
+        }
+
+        // Shorthand names: "windows", "linux", "macos"
+        match t.as_str() {
+            "windows" | "win64" => Ok(Self::x86_64_windows()),
+            "linux" => Ok(Self::x86_64_linux()),
+            "macos" | "darwin" => Ok(Self::aarch64_macos()),
+            _ => Err(format!(
+                "Unsupported target triple '{}'. Supported targets include:\n\
+                 - x86_64-pc-windows-msvc\n\
+                 - x86_64-pc-windows-gnu\n\
+                 - x86_64-unknown-linux-gnu\n\
+                 - x86_64-unknown-linux-musl\n\
+                 - aarch64-unknown-linux-gnu\n\
+                 - aarch64-unknown-linux-musl\n\
+                 - aarch64-apple-darwin\n\
+                 - x86_64-apple-darwin\n\
+                 - wasm32-unknown-unknown",
+                triple
+            )),
         }
     }
 

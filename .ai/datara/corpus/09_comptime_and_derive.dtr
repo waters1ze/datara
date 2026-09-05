@@ -1,0 +1,14 @@
+// 09: Compile-Time Constant Folding & Structural @derive
+@derive(Display, Json, Hash, Clone)
+class DeviceInfo {
+    id: Int
+    serial: Str
+    is_online: Bool
+}
+
+fn main() {
+    // Evaluated at compile time with zero runtime cost
+    let max_buffer: Int = comptime { 1024 * 64 }
+    let dev = DeviceInfo { id: 101, serial: "SN-99882", is_online: true }
+    out fmt"Buffer: {max_buffer}, Device: {dev.to_string()}, JSON: {dev.to_json()}, Hash: {dev.hash()}"
+}

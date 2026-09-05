@@ -77,7 +77,7 @@ impl<'a> SecurityVerifier<'a> {
             let p_ty = p
                 .type_node
                 .as_ref()
-                .map(|t| self.type_checker.resolve_type_node(t))
+                .map(|t| self.type_checker.resolve_type_node(t, diag))
                 .unwrap_or(DataraType::Int);
             symbols.insert(p.name.clone(), p_ty);
             outer_vars.insert(p.name.clone());
@@ -159,7 +159,7 @@ impl<'a> SecurityVerifier<'a> {
             let p_ty = p
                 .type_node
                 .as_ref()
-                .map(|t| self.type_checker.resolve_type_node(t))
+                .map(|t| self.type_checker.resolve_type_node(t, diag))
                 .unwrap_or(DataraType::Int);
             symbols.insert(p.name.clone(), p_ty);
             outer_vars.insert(p.name.clone());
@@ -688,7 +688,7 @@ impl<'a> SecurityVerifier<'a> {
                 self.verify_expr(init, ctx, diag);
 
                 let init_ty = if let Some(tn) = type_node {
-                    self.type_checker.resolve_type_node(tn)
+                    self.type_checker.resolve_type_node(tn, diag)
                 } else if let Some(ty) = self.type_checker.symbol_types.get(name) {
                     ty.clone()
                 } else {
@@ -1503,6 +1503,33 @@ impl<'a> SecurityVerifier<'a> {
                 }
             }
             Expr::Literal(_, _) | Expr::Identifier(_, _) => {}
+            Expr::Block(stmts, value, _) => {
+                // Arm-body block: walk the nested statements' expressions so
+                // they still pass through the security gates.
+                for s in stmts {
+                    match s {
+                        Stmt::Expr(e, _)
+                        | Stmt::Out(e, _)
+                        | Stmt::Err(e, _)
+                        | Stmt::Let { init: e, .. }
+                        | Stmt::Mut { init: e, .. }
+                        | Stmt::Val { init: e, .. }
+                        | Stmt::Const { init: e, .. }
+                        | Stmt::CompactBind { init: e, .. } => self.verify_expr(e, ctx, diag),
+                        Stmt::Assign {
+                            target, value: v, ..
+                        } => {
+                            self.verify_expr(target, ctx, diag);
+                            self.verify_expr(v, ctx, diag);
+                        }
+                        Stmt::Return(Some(e), _) => self.verify_expr(e, ctx, diag),
+                        _ => {}
+                    }
+                }
+                if let Some(v) = value {
+                    self.verify_expr(v, ctx, diag);
+                }
+            }
         }
     }
 

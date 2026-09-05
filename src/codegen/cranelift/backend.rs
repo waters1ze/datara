@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use cranelift_codegen::ir::{
@@ -294,6 +295,23 @@ impl RealCraneliftBackend {
             .declare_function("datara_rt_list_get", Linkage::Import, &rt_list_get_sig)
             .map_err(|e| e.to_string())?;
 
+        // datara_rt_list_create(cap) -> ptr: used by the lowering fallback
+        // for list literals larger than the fixed-arity constructors.
+        let mut rt_list_create_sig = Signature::new(call_conv);
+        rt_list_create_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_list_create_sig
+            .returns
+            .push(AbiParam::new(clif_types::I64));
+        let rt_list_create_id = module
+            .declare_function(
+                "datara_rt_list_create",
+                Linkage::Import,
+                &rt_list_create_sig,
+            )
+            .map_err(|e| e.to_string())?;
+
         // datara_rt_list_len(ptr) -> I64 shares the two-arg I64 signature;
         // declaring it with the single-param list_get shape would misalign
         // the ABI, so give it its own exact signature.
@@ -428,6 +446,10 @@ impl RealCraneliftBackend {
             (rt_list_get_id, rt_list_get_sig),
         );
         func_ids.insert(
+            "datara_rt_list_create".into(),
+            (rt_list_create_id, rt_list_create_sig),
+        );
+        func_ids.insert(
             "datara_rt_list_len".into(),
             (rt_list_len_id, rt_list_len_sig),
         );
@@ -490,6 +512,30 @@ impl RealCraneliftBackend {
             "datara_rt_map_create_2".into(),
             (rt_map_create_2_id, rt_map_create_2_sig),
         );
+        // datara_rt_map_create() -> ptr: 0-arg constructor used by the
+        // lowering fallback for empty and oversized map literals.
+        {
+            let mut sig = Signature::new(call_conv);
+            sig.returns.push(AbiParam::new(clif_types::I64));
+            let id = module
+                .declare_function("datara_rt_map_create", Linkage::Import, &sig)
+                .map_err(|e| e.to_string())?;
+            func_ids.insert("datara_rt_map_create".into(), (id, sig));
+        }
+        // The DMIR lowering emits `datara_rt_map_create_{n}` for an n-entry
+        // map literal, so every supported arity must have a declaration.
+        for (n, params) in [(1usize, 2usize), (3, 6), (4, 8), (5, 10)] {
+            let name = format!("datara_rt_map_create_{}", n);
+            let mut sig = Signature::new(call_conv);
+            for _ in 0..params {
+                sig.params.push(AbiParam::new(clif_types::I64));
+            }
+            sig.returns.push(AbiParam::new(clif_types::I64));
+            let id = module
+                .declare_function(&name, Linkage::Import, &sig)
+                .map_err(|e| e.to_string())?;
+            func_ids.insert(name, (id, sig));
+        }
         func_ids.insert("datara_rt_map_get".into(), (rt_map_get_id, rt_map_get_sig));
         func_ids.insert(
             "datara_rt_map_insert".into(),
@@ -1109,6 +1155,268 @@ impl RealCraneliftBackend {
         );
         func_ids.insert("char_at".into(), (rt_str_char_at_id, rt_str_char_at_sig));
 
+        // str_repeat(s: ptr, count: i64) -> ptr
+        let mut rt_str_repeat_sig = Signature::new(call_conv);
+        rt_str_repeat_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_str_repeat_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_str_repeat_sig
+            .returns
+            .push(AbiParam::new(clif_types::I64));
+        let rt_str_repeat_id = module
+            .declare_function("datara_rt_str_repeat", Linkage::Import, &rt_str_repeat_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_str_repeat".into(),
+            (rt_str_repeat_id, rt_str_repeat_sig.clone()),
+        );
+        func_ids.insert(
+            "str_repeat".into(),
+            (rt_str_repeat_id, rt_str_repeat_sig.clone()),
+        );
+        func_ids.insert("repeat".into(), (rt_str_repeat_id, rt_str_repeat_sig));
+
+        // str_pad_left(s: ptr, total_len: i64, pad: ptr) -> ptr
+        let mut rt_str_pad_sig = Signature::new(call_conv);
+        rt_str_pad_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_str_pad_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_str_pad_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_str_pad_sig.returns.push(AbiParam::new(clif_types::I64));
+        let rt_str_pad_left_id = module
+            .declare_function("datara_rt_str_pad_left", Linkage::Import, &rt_str_pad_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_str_pad_left".into(),
+            (rt_str_pad_left_id, rt_str_pad_sig.clone()),
+        );
+        func_ids.insert(
+            "str_pad_left".into(),
+            (rt_str_pad_left_id, rt_str_pad_sig.clone()),
+        );
+        func_ids.insert(
+            "pad_left".into(),
+            (rt_str_pad_left_id, rt_str_pad_sig.clone()),
+        );
+
+        // str_pad_right(s: ptr, total_len: i64, pad: ptr) -> ptr
+        let rt_str_pad_right_id = module
+            .declare_function("datara_rt_str_pad_right", Linkage::Import, &rt_str_pad_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_str_pad_right".into(),
+            (rt_str_pad_right_id, rt_str_pad_sig.clone()),
+        );
+        func_ids.insert(
+            "str_pad_right".into(),
+            (rt_str_pad_right_id, rt_str_pad_sig.clone()),
+        );
+        func_ids.insert(
+            "pad_right".into(),
+            (rt_str_pad_right_id, rt_str_pad_sig.clone()),
+        );
+
+        // str_replace(s: ptr, target: ptr, replacement: ptr) -> ptr
+        let rt_str_replace_id = module
+            .declare_function("datara_rt_str_replace", Linkage::Import, &rt_str_pad_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_str_replace".into(),
+            (rt_str_replace_id, rt_str_pad_sig.clone()),
+        );
+        func_ids.insert(
+            "str_replace".into(),
+            (rt_str_replace_id, rt_str_pad_sig.clone()),
+        );
+        func_ids.insert("replace".into(), (rt_str_replace_id, rt_str_pad_sig));
+
+        // str_to_upper(s: ptr) -> ptr
+        let mut rt_str_case_sig = Signature::new(call_conv);
+        rt_str_case_sig.params.push(AbiParam::new(clif_types::I64));
+        rt_str_case_sig.returns.push(AbiParam::new(clif_types::I64));
+        let rt_str_to_upper_id = module
+            .declare_function("datara_rt_str_to_upper", Linkage::Import, &rt_str_case_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_str_to_upper".into(),
+            (rt_str_to_upper_id, rt_str_case_sig.clone()),
+        );
+        func_ids.insert(
+            "str_to_upper".into(),
+            (rt_str_to_upper_id, rt_str_case_sig.clone()),
+        );
+        func_ids.insert(
+            "to_upper".into(),
+            (rt_str_to_upper_id, rt_str_case_sig.clone()),
+        );
+
+        // str_to_lower(s: ptr) -> ptr
+        let rt_str_to_lower_id = module
+            .declare_function("datara_rt_str_to_lower", Linkage::Import, &rt_str_case_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_str_to_lower".into(),
+            (rt_str_to_lower_id, rt_str_case_sig.clone()),
+        );
+        func_ids.insert(
+            "str_to_lower".into(),
+            (rt_str_to_lower_id, rt_str_case_sig.clone()),
+        );
+        func_ids.insert("to_lower".into(), (rt_str_to_lower_id, rt_str_case_sig));
+
+        // format_percent(val: f64, decimals: i64) -> ptr
+        let mut rt_format_pct_sig = Signature::new(call_conv);
+        rt_format_pct_sig
+            .params
+            .push(AbiParam::new(clif_types::F64));
+        rt_format_pct_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_format_pct_sig
+            .returns
+            .push(AbiParam::new(clif_types::I64));
+        let rt_format_pct_id = module
+            .declare_function(
+                "datara_rt_format_percent",
+                Linkage::Import,
+                &rt_format_pct_sig,
+            )
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_format_percent".into(),
+            (rt_format_pct_id, rt_format_pct_sig.clone()),
+        );
+        func_ids.insert(
+            "format_percent".into(),
+            (rt_format_pct_id, rt_format_pct_sig),
+        );
+
+        // format_int_with_commas(n: i64) -> ptr
+        let mut rt_format_commas_sig = Signature::new(call_conv);
+        rt_format_commas_sig
+            .params
+            .push(AbiParam::new(clif_types::I64));
+        rt_format_commas_sig
+            .returns
+            .push(AbiParam::new(clif_types::I64));
+        let rt_format_commas_id = module
+            .declare_function(
+                "datara_rt_format_int_with_commas",
+                Linkage::Import,
+                &rt_format_commas_sig,
+            )
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_rt_format_int_with_commas".into(),
+            (rt_format_commas_id, rt_format_commas_sig.clone()),
+        );
+        func_ids.insert(
+            "format_int_with_commas".into(),
+            (rt_format_commas_id, rt_format_commas_sig),
+        );
+
+        // JS Interop
+        let mut js_eval_sig = Signature::new(call_conv);
+        js_eval_sig.params.push(AbiParam::new(clif_types::I64));
+        js_eval_sig.returns.push(AbiParam::new(clif_types::I64));
+        let js_eval_id = module
+            .declare_function("datara_js_eval", Linkage::Import, &js_eval_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert("datara_js_eval".into(), (js_eval_id, js_eval_sig.clone()));
+        func_ids.insert("js_eval".into(), (js_eval_id, js_eval_sig.clone()));
+
+        let js_require_id = module
+            .declare_function("datara_js_require", Linkage::Import, &js_eval_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_js_require".into(),
+            (js_require_id, js_eval_sig.clone()),
+        );
+        func_ids.insert("js_require".into(), (js_require_id, js_eval_sig.clone()));
+
+        let js_eval_int_id = module
+            .declare_function("datara_js_eval_int", Linkage::Import, &js_eval_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_js_eval_int".into(),
+            (js_eval_int_id, js_eval_sig.clone()),
+        );
+        func_ids.insert("js_eval_int".into(), (js_eval_int_id, js_eval_sig.clone()));
+
+        let mut js_eval_flt_sig = Signature::new(call_conv);
+        js_eval_flt_sig.params.push(AbiParam::new(clif_types::I64));
+        js_eval_flt_sig.returns.push(AbiParam::new(clif_types::F64));
+        let js_eval_flt_id = module
+            .declare_function("datara_js_eval_float", Linkage::Import, &js_eval_flt_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_js_eval_float".into(),
+            (js_eval_flt_id, js_eval_flt_sig.clone()),
+        );
+        func_ids.insert("js_eval_float".into(), (js_eval_flt_id, js_eval_flt_sig));
+
+        let mut js_2_str_sig = Signature::new(call_conv);
+        js_2_str_sig.params.push(AbiParam::new(clif_types::I64));
+        js_2_str_sig.params.push(AbiParam::new(clif_types::I64));
+        js_2_str_sig.returns.push(AbiParam::new(clif_types::I64));
+        let js_call_id = module
+            .declare_function("datara_js_call", Linkage::Import, &js_2_str_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert("datara_js_call".into(), (js_call_id, js_2_str_sig.clone()));
+        func_ids.insert("js_call".into(), (js_call_id, js_2_str_sig.clone()));
+
+        let js_call_0_id = module
+            .declare_function("datara_js_call_0", Linkage::Import, &js_eval_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_js_call_0".into(),
+            (js_call_0_id, js_eval_sig.clone()),
+        );
+        func_ids.insert("js_call_0".into(), (js_call_0_id, js_eval_sig.clone()));
+
+        let js_call_1_id = module
+            .declare_function("datara_js_call_1", Linkage::Import, &js_2_str_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_js_call_1".into(),
+            (js_call_1_id, js_2_str_sig.clone()),
+        );
+        func_ids.insert("js_call_1".into(), (js_call_1_id, js_2_str_sig.clone()));
+
+        let mut js_3_str_sig = Signature::new(call_conv);
+        js_3_str_sig.params.push(AbiParam::new(clif_types::I64));
+        js_3_str_sig.params.push(AbiParam::new(clif_types::I64));
+        js_3_str_sig.params.push(AbiParam::new(clif_types::I64));
+        js_3_str_sig.returns.push(AbiParam::new(clif_types::I64));
+        let js_call_2_id = module
+            .declare_function("datara_js_call_2", Linkage::Import, &js_3_str_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_js_call_2".into(),
+            (js_call_2_id, js_3_str_sig.clone()),
+        );
+        func_ids.insert("js_call_2".into(), (js_call_2_id, js_3_str_sig));
+
+        let js_set_global_id = module
+            .declare_function("datara_js_set_global", Linkage::Import, &js_2_str_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_js_set_global".into(),
+            (js_set_global_id, js_2_str_sig.clone()),
+        );
+        func_ids.insert("js_set_global".into(), (js_set_global_id, js_2_str_sig));
+
+        let js_get_global_id = module
+            .declare_function("datara_js_get_global", Linkage::Import, &js_eval_sig)
+            .map_err(|e| e.to_string())?;
+        func_ids.insert(
+            "datara_js_get_global".into(),
+            (js_get_global_id, js_eval_sig.clone()),
+        );
+        func_ids.insert("js_get_global".into(), (js_get_global_id, js_eval_sig));
+
         // String equality: datara_rt_str_eq
         let mut rt_str_eq_sig = Signature::new(call_conv);
         rt_str_eq_sig.params.push(AbiParam::new(clif_types::I64));
@@ -1295,8 +1603,10 @@ impl RealCraneliftBackend {
         );
         func_ids.insert("socket_close".into(), (rt_sock_close_id, rt_sock_close_sig));
 
-        // Network: http_get
+        // Network: http_get (takes the URL; a missing argument is tolerated
+        // so legacy zero-arg `http_get()` calls still compile through codegen)
         let mut rt_http_get_sig = Signature::new(call_conv);
+        rt_http_get_sig.params.push(AbiParam::new(clif_types::I64));
         rt_http_get_sig.returns.push(AbiParam::new(clif_types::I64));
         let rt_http_get_id = module
             .declare_function("datara_rt_http_get", Linkage::Import, &rt_http_get_sig)
@@ -1701,13 +2011,46 @@ impl RealCraneliftBackend {
         string_return_funcs.insert("datara_rt_exec".into());
         string_return_funcs.insert("process_output".into());
         string_return_funcs.insert("exec".into());
+        string_return_funcs.insert("datara_rt_str_repeat".into());
+        string_return_funcs.insert("str_repeat".into());
+        string_return_funcs.insert("repeat".into());
+        string_return_funcs.insert("datara_rt_str_pad_left".into());
+        string_return_funcs.insert("str_pad_left".into());
+        string_return_funcs.insert("pad_left".into());
+        string_return_funcs.insert("datara_rt_str_pad_right".into());
+        string_return_funcs.insert("str_pad_right".into());
+        string_return_funcs.insert("pad_right".into());
+        string_return_funcs.insert("datara_rt_str_replace".into());
+        string_return_funcs.insert("str_replace".into());
+        string_return_funcs.insert("replace".into());
+        string_return_funcs.insert("datara_rt_str_to_upper".into());
+        string_return_funcs.insert("str_to_upper".into());
+        string_return_funcs.insert("to_upper".into());
+        string_return_funcs.insert("datara_rt_str_to_lower".into());
+        string_return_funcs.insert("str_to_lower".into());
+        string_return_funcs.insert("to_lower".into());
+        string_return_funcs.insert("datara_rt_format_percent".into());
+        string_return_funcs.insert("format_percent".into());
+        string_return_funcs.insert("datara_rt_format_int_with_commas".into());
+        string_return_funcs.insert("format_int_with_commas".into());
+        string_return_funcs.insert("datara_js_eval".into());
+        string_return_funcs.insert("js_eval".into());
+        string_return_funcs.insert("datara_js_require".into());
+        string_return_funcs.insert("js_require".into());
+        string_return_funcs.insert("datara_js_call".into());
+        string_return_funcs.insert("js_call".into());
+        string_return_funcs.insert("datara_js_call_0".into());
+        string_return_funcs.insert("js_call_0".into());
+        string_return_funcs.insert("datara_js_call_1".into());
+        string_return_funcs.insert("js_call_1".into());
+        string_return_funcs.insert("datara_js_call_2".into());
+        string_return_funcs.insert("js_call_2".into());
+        string_return_funcs.insert("datara_js_get_global".into());
+        string_return_funcs.insert("js_get_global".into());
 
         for (fn_name, func) in &dmir_module.functions {
             if func.return_type == "String" || func.return_type == "Str" {
                 string_return_funcs.insert(fn_name.clone());
-                if let Some(short) = fn_name.split('_').next_back() {
-                    string_return_funcs.insert(short.to_string());
-                }
             }
         }
 
@@ -1879,6 +2222,9 @@ impl RealCraneliftBackend {
             let mut list_vids: std::collections::HashSet<ValueId> =
                 std::collections::HashSet::new();
             let mut list_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
+            // Values holding a map pointer produced by `datara_rt_map_create*`.
+            let mut map_vids: std::collections::HashSet<ValueId> = std::collections::HashSet::new();
+            let mut map_vars: std::collections::HashSet<String> = std::collections::HashSet::new();
             let mut var_to_class: HashMap<String, String> = HashMap::new();
             let mut val_to_class: HashMap<ValueId, String> = HashMap::new();
 
@@ -1903,6 +2249,10 @@ impl RealCraneliftBackend {
                 {
                     var_to_class.insert(p_name.clone(), p_type.clone());
                     val_to_class.insert(*p_val, p_type.clone());
+                }
+                if p_type == "Map" {
+                    map_vars.insert(p_name.clone());
+                    map_vids.insert(*p_val);
                 }
 
                 let var = builder.declare_var(self.clif_type(p_type));
@@ -1970,6 +2320,9 @@ impl RealCraneliftBackend {
                             if list_vars.contains(name) {
                                 list_vids.insert(*dest);
                             }
+                            if map_vars.contains(name) {
+                                map_vids.insert(*dest);
+                            }
                             if let Some(c) = var_to_class.get(name) {
                                 val_to_class.insert(*dest, c.clone());
                             }
@@ -1987,6 +2340,9 @@ impl RealCraneliftBackend {
                             }
                             if list_vids.contains(value) {
                                 list_vars.insert(name.clone());
+                            }
+                            if map_vids.contains(value) {
+                                map_vars.insert(name.clone());
                             }
                             if let Some(c) = val_to_class.get(value) {
                                 var_to_class.insert(name.clone(), c.clone());
@@ -2028,14 +2384,30 @@ impl RealCraneliftBackend {
                             if is_string {
                                 let conv_ref =
                                     module.declare_func_in_func(rt_int_to_str_id, builder.func);
-                                let l_str = if left_is_str || (ty == "String" && !right_is_str) {
+                                let bool_to_str_ref =
+                                    module.declare_func_in_func(rt_bool_to_str_id, builder.func);
+                                let flt_to_str_ref =
+                                    module.declare_func_in_func(rt_flt_to_str_id, builder.func);
+                                let l_str = if left_is_str {
                                     raw_lv
+                                } else if bool_vids.contains(left) {
+                                    let call = builder.ins().call(bool_to_str_ref, &[raw_lv]);
+                                    builder.inst_results(call)[0]
+                                } else if lv_ty == clif_types::F64 {
+                                    let call = builder.ins().call(flt_to_str_ref, &[raw_lv]);
+                                    builder.inst_results(call)[0]
                                 } else {
                                     let call = builder.ins().call(conv_ref, &[raw_lv]);
                                     builder.inst_results(call)[0]
                                 };
                                 let r_str = if right_is_str {
                                     raw_rv
+                                } else if bool_vids.contains(right) {
+                                    let call = builder.ins().call(bool_to_str_ref, &[raw_rv]);
+                                    builder.inst_results(call)[0]
+                                } else if rv_ty == clif_types::F64 {
+                                    let call = builder.ins().call(flt_to_str_ref, &[raw_rv]);
+                                    builder.inst_results(call)[0]
                                 } else {
                                     let call = builder.ins().call(conv_ref, &[raw_rv]);
                                     builder.inst_results(call)[0]
@@ -2256,7 +2628,10 @@ impl RealCraneliftBackend {
                                         builder.ins().uextend(clif_types::I64, c)
                                     }
                                     "==" => {
-                                        if string_vids.contains(left) || string_vids.contains(right)
+                                        if string_vids.contains(left)
+                                            || string_vids.contains(right)
+                                            || ty == "String"
+                                            || ty.contains("Str")
                                         {
                                             let (eq_id, _) =
                                                 func_ids.get("datara_rt_str_eq").unwrap();
@@ -2274,7 +2649,10 @@ impl RealCraneliftBackend {
                                         }
                                     }
                                     "!=" => {
-                                        if string_vids.contains(left) || string_vids.contains(right)
+                                        if string_vids.contains(left)
+                                            || string_vids.contains(right)
+                                            || ty == "String"
+                                            || ty.contains("Str")
                                         {
                                             let (eq_id, _) =
                                                 func_ids.get("datara_rt_str_eq").unwrap();
@@ -2510,17 +2888,29 @@ impl RealCraneliftBackend {
                             // datara_rt_list_create_N for the exact literal
                             // length, so a fixed set of runtime symbols can
                             // never cover every arity. Build the
-                            // [count, e0..eN-1] block inline for any N.
+                            // DataraListHeader + [count, e0..eN-1] block
+                            // inline for any N, mirroring the C runtime
+                            // layout (append/free read the header).
                             if let Some(rest) = func.strip_prefix("datara_rt_list_create_")
                                 && let Ok(n) = rest.parse::<usize>()
                             {
+                                const LIST_HEADER_SIZE: i64 = 16; // { capacity: i64, magic: i64 }
+                                const LIST_MAGIC: i64 = 0x4441544C49535430; // DATARA_LIST_MAGIC
                                 let malloc_ref =
                                     module.declare_func_in_func(malloc_id, builder.func);
-                                let size_val =
-                                    builder.ins().iconst(clif_types::I64, ((n + 1) * 8) as i64);
+                                let size_val = builder.ins().iconst(
+                                    clif_types::I64,
+                                    LIST_HEADER_SIZE + ((n + 1) * 8) as i64,
+                                );
                                 let call_inst = builder.ins().call(malloc_ref, &[size_val]);
-                                let slot_addr = builder.inst_results(call_inst)[0];
+                                let hdr_addr = builder.inst_results(call_inst)[0];
+                                let slot_addr =
+                                    builder.ins().iadd_imm_s(hdr_addr, LIST_HEADER_SIZE);
                                 let flags = cranelift_codegen::ir::MachMemFlags::new();
+                                let cap_val = builder.ins().iconst(clif_types::I64, n as i64);
+                                let magic_val = builder.ins().iconst(clif_types::I64, LIST_MAGIC);
+                                builder.ins().store(flags, cap_val, hdr_addr, 0);
+                                builder.ins().store(flags, magic_val, hdr_addr, 8);
                                 let count_val = builder.ins().iconst(clif_types::I64, n as i64);
                                 builder.ins().store(flags, count_val, slot_addr, 0);
                                 for (i, a) in args.iter().enumerate() {
@@ -2629,14 +3019,22 @@ impl RealCraneliftBackend {
                                     };
                                     matched
                                         .or_else(|| {
-                                            func_ids
-                                                .iter()
-                                                .find(|(k, _)| {
+                                            // Collect all suffix matches and pick the
+                                            // smallest name deterministically; a bare
+                                            // HashMap-order `find` made the dispatch
+                                            // target vary run to run.
+                                            let mut candidates: Vec<&String> = func_ids
+                                                .keys()
+                                                .filter(|k| {
                                                     k.split_once('_')
                                                         .map(|(_, m)| m == func)
                                                         .unwrap_or(false)
                                                 })
-                                                .map(|(k, v)| (v.0, k.clone()))
+                                                .collect();
+                                            candidates.sort();
+                                            candidates
+                                                .first()
+                                                .map(|k| (func_ids[*k].0, (*k).clone()))
                                         })
                                         .unwrap_or({
                                             if std::env::var("DATARA_CODEGEN_TRACE").is_ok() {
@@ -2685,18 +3083,59 @@ impl RealCraneliftBackend {
                             let callee_ref =
                                 module.declare_func_in_func(resolved_callee_id, builder.func);
                             let is_str_concat = callee_name.starts_with("datara_rt_str_concat");
+                            let conv_ref =
+                                module.declare_func_in_func(rt_int_to_str_id, builder.func);
+                            let bool_to_str_ref =
+                                module.declare_func_in_func(rt_bool_to_str_id, builder.func);
+                            let flt_to_str_ref =
+                                module.declare_func_in_func(rt_flt_to_str_id, builder.func);
                             let mut arg_vals = Vec::new();
                             for a in args {
-                                if let Some(&av) = val_map.get(a) {
-                                    let final_av = if is_str_concat && !string_vids.contains(a) {
-                                        let conv_ref = module
-                                            .declare_func_in_func(rt_int_to_str_id, builder.func);
-                                        let call = builder.ins().call(conv_ref, &[av]);
-                                        builder.inst_results(call)[0]
+                                // Preserve arity: a missing value must still
+                                // occupy its argument slot in the signature.
+                                let av = val_map
+                                    .get(a)
+                                    .copied()
+                                    .unwrap_or_else(|| builder.ins().iconst(clif_types::I64, 0));
+                                let final_av = if is_str_concat && !string_vids.contains(a) {
+                                    let call = if bool_vids.contains(a) {
+                                        builder.ins().call(bool_to_str_ref, &[av])
+                                    } else if builder.func.dfg.value_type(av) == clif_types::F64 {
+                                        builder.ins().call(flt_to_str_ref, &[av])
                                     } else {
-                                        av
+                                        builder.ins().call(conv_ref, &[av])
                                     };
-                                    arg_vals.push(final_av);
+                                    builder.inst_results(call)[0]
+                                } else {
+                                    av
+                                };
+                                arg_vals.push(final_av);
+                            }
+                            // http_get historically had a zero-arg builtin
+                            // signature; keep `http_get()` calls compilable by
+                            // padding a null URL argument.
+                            if callee_name.ends_with("http_get") && arg_vals.is_empty() {
+                                arg_vals.push(builder.ins().iconst(clif_types::I64, 0));
+                            }
+                            // The runtime ABI is all-I64 (collections store
+                            // floats as their IEEE bit pattern). An F64 value
+                            // passed against an I64 param fails Cranelift
+                            // verification, so bitcast per the declared sig.
+                            if let Some((_, callee_sig)) = func_ids.get(&callee_name) {
+                                for (i, av) in arg_vals.iter_mut().enumerate() {
+                                    if builder.func.dfg.value_type(*av) == clif_types::F64
+                                        && callee_sig
+                                            .params
+                                            .get(i)
+                                            .map(|p| p.value_type == clif_types::I64)
+                                            .unwrap_or(false)
+                                    {
+                                        *av = builder.ins().bitcast(
+                                            clif_types::I64,
+                                            cranelift_codegen::ir::MemFlagsData::new(),
+                                            *av,
+                                        );
+                                    }
                                 }
                             }
                             let call_inst = builder.ins().call(callee_ref, &arg_vals);
@@ -2735,6 +3174,9 @@ impl RealCraneliftBackend {
                                 {
                                     list_vids.insert(*dest);
                                 }
+                                if ty == "Map" || func.starts_with("datara_rt_map_create") {
+                                    map_vids.insert(*dest);
+                                }
                             }
                         }
                         Inst::MethodCall {
@@ -2751,13 +3193,28 @@ impl RealCraneliftBackend {
                                     .unwrap_or_else(|| builder.ins().iconst(clif_types::I64, 0)),
                             ];
                             for a in args {
-                                if let Some(&av) = val_map.get(a) {
-                                    all_args.push(av);
-                                }
+                                // Preserve arity: a missing value must still
+                                // occupy its argument slot in the signature.
+                                let av = val_map
+                                    .get(a)
+                                    .copied()
+                                    .unwrap_or_else(|| builder.ins().iconst(clif_types::I64, 0));
+                                all_args.push(av);
                             }
                             // List and String protocol methods: dispatch on the object's
                             // runtime shape, not the class method table.
-                            let list_special = if list_vids.contains(object) {
+                            let list_special = if map_vids.contains(object) {
+                                // Map protocol: without this branch a `map.get(k)`
+                                // falls into the name-suffix fallback, which can
+                                // dispatch to an unrelated runtime function whose
+                                // signature mismatch then fails Cranelift
+                                // verification.
+                                match method.as_str() {
+                                    "get" | "at" => Some(rt_map_get_id),
+                                    "insert" | "set" | "add" | "put" => Some(rt_map_insert_id),
+                                    _ => None,
+                                }
+                            } else if list_vids.contains(object) {
                                 match method.as_str() {
                                     "length" | "count" | "len" => Some(rt_list_len_id),
                                     "get" | "at" => Some(rt_list_get_id),
@@ -2882,12 +3339,29 @@ impl RealCraneliftBackend {
                             class_name,
                             fields,
                         } => {
+                            // Conservative escape analysis: if the struct's
+                            // pointer can outlive this frame — returned,
+                            // stored into another object or variable, passed
+                            // to a call/method, or inserted into a map/list
+                            // (a runtime call) — it must live on the heap.
                             let escapes = f.return_type == *class_name
-                                || f.blocks.iter().any(|b| match &b.terminator {
-                                    Terminator::Return {
-                                        value: Some(ret_val),
-                                    } => ret_val == dest,
-                                    _ => false,
+                                || f.blocks.iter().any(|b| {
+                                    let returned = match &b.terminator {
+                                        Terminator::Return {
+                                            value: Some(ret_val),
+                                        } => ret_val == dest,
+                                        _ => false,
+                                    };
+                                    returned
+                                        || b.instructions.iter().any(|inst| match inst {
+                                            Inst::SetField { value, .. } => value == dest,
+                                            Inst::AssignVar { value, .. } => value == dest,
+                                            Inst::Call { args, .. } => args.contains(dest),
+                                            Inst::MethodCall { object, args, .. } => {
+                                                object == dest || args.contains(dest)
+                                            }
+                                            _ => false,
+                                        })
                                 });
                             let byte_size = ((fields.len() * 8).max(16)) as u32;
                             let slot_addr = if !escapes {
@@ -3417,15 +3891,25 @@ impl RealCraneliftBackend {
                 .get("main")
                 .map(|(_, s)| s.params.len())
                 .unwrap_or(0);
-            if main_param_count == 0 {
-                builder.ins().call(main_fn_ref, &[]);
+            let main_call = if main_param_count == 0 {
+                builder.ins().call(main_fn_ref, &[])
             } else {
-                let dummy_cap = builder.ins().iconst(clif_types::I64, 0xCAFE);
-                builder.ins().call(main_fn_ref, &[dummy_cap]);
-            }
-
-            let zero = builder.ins().iconst(clif_types::I32, 0);
-            builder.ins().return_(&[zero]);
+                // Never hand main a bogus pointer: pass NULL. Program args
+                // are read through datara_rt_args_* (populated above via
+                // datara_rt_set_args), mirroring the JIT entry.
+                let null_arg = builder.ins().iconst(clif_types::I64, 0);
+                builder.ins().call(main_fn_ref, &[null_arg])
+            };
+            // Propagate datara_main's result so `main` returning a nonzero
+            // Int reaches the process exit code.
+            let ret_val = match builder.inst_results(main_call).first().copied() {
+                Some(v) if builder.func.dfg.value_type(v) == clif_types::I64 => {
+                    builder.ins().ireduce(clif_types::I32, v)
+                }
+                Some(v) if builder.func.dfg.value_type(v) == clif_types::I32 => v,
+                _ => builder.ins().iconst(clif_types::I32, 0),
+            };
+            builder.ins().return_(&[ret_val]);
 
             builder.seal_all_blocks();
             builder.finalize(frontend_config);
@@ -3462,10 +3946,41 @@ impl RealCraneliftBackend {
         };
 
         if let Some(parent) = abs_out.parent() {
-            let _ = fs::create_dir_all(parent);
+            fs::create_dir_all(parent).map_err(|e| {
+                format!(
+                    "Failed to create output directory '{}': {}",
+                    parent.display(),
+                    e
+                )
+            })?;
         }
 
-        let obj_path = abs_out.with_extension("obj");
+        // The object file must be unique per compilation, not per process:
+        // concurrent compilations inside one process (e.g. parallel tests)
+        // share a pid, so a bare `{stem}_{pid}.obj` name let one compile's
+        // link/delete race overwrite or remove another's object, producing
+        // LNK1181 or — worse — an exe linked from the WRONG program's object
+        // bytes. A per-call sequence number plus an absolute cache path makes
+        // the temp object collision-free and cwd-independent.
+        static OBJ_SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = OBJ_SEQ.fetch_add(1, Ordering::Relaxed);
+        let cache_build_dir = std::env::current_dir()
+            .map_err(|e| format!("Failed to resolve current directory: {}", e))?
+            .join(".forgen_cache")
+            .join("build");
+        fs::create_dir_all(&cache_build_dir).map_err(|e| {
+            format!(
+                "Failed to create build cache directory '{}': {}",
+                cache_build_dir.display(),
+                e
+            )
+        })?;
+        let stem = abs_out
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("out");
+        let obj_filename = format!("{}_{}_{}.obj", stem, std::process::id(), seq);
+        let obj_path = cache_build_dir.join(obj_filename);
         fs::write(&obj_path, obj_bytes)
             .map_err(|e| format!("Failed to write object file: {}", e))?;
 
@@ -3503,6 +4018,8 @@ impl RealCraneliftBackend {
         };
 
         if output.status.success() && abs_out.exists() {
+            let _ = fs::remove_file(&obj_path);
+            let _ = fs::remove_file(abs_out.with_extension("ilk"));
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;

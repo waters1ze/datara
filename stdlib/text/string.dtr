@@ -37,4 +37,28 @@ behavior StringUtils {
     to_int(s: Str) -> Int {
         return str_to_int(s)
     }
+
+    repeat(s: Str, count: Int) -> Str {
+        return str_repeat(s, count)
+    }
+
+    pad_left(s: Str, total_len: Int, pad: Str) -> Str {
+        return str_pad_left(s, total_len, pad)
+    }
+
+    pad_right(s: Str, total_len: Int, pad: Str) -> Str {
+        return str_pad_right(s, total_len, pad)
+    }
+
+    replace(s: Str, target: Str, replacement: Str) -> Str {
+        return str_replace(s, target, replacement)
+    }
+
+    to_upper(s: Str) -> Str {
+        return str_to_upper(s)
+    }
+
+    to_lower(s: Str) -> Str {
+        return str_to_lower(s)
+    }
 }

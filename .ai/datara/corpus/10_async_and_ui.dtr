@@ -1,0 +1,29 @@
+// 10: Async Proactor Runtime & Native/Reactive UI
+use stdlib.async.future
+use stdlib.async.task
+use stdlib.async.event_loop
+use stdlib.ui.native
+use stdlib.ui.reactive
+
+fn main() {
+    let f1 = Future.ready("payload_a")
+    let f2 = Future.ready("payload_b")
+    let joined = f1.join(f2)
+
+    mut t = Task.spawn(1, "background_worker")
+    t = t.complete(joined.unwrap())
+
+    mut ev_loop = EventLoop.new()
+    ev_loop = ev_loop.schedule(1)
+    let ticks = ev_loop.run_until_complete()
+
+    let win = NativeWindow.create("Dashboard", 640, 480)
+    mut canvas = win.canvas
+    canvas = canvas.draw_rect(10, 10, 50, 50, "green")
+
+    let vnode1 = VNode.new("button", "btn_ok", "Submit")
+    let vnode2 = vnode1.set_text("Done")
+    let patch = vnode1.diff(vnode2)
+
+    out fmt"Task done: {t.is_done()}, ticks: {ticks}, patch: {patch}"
+}

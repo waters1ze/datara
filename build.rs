@@ -22,6 +22,7 @@ use std::path::PathBuf;
 fn main() {
     println!("cargo:rerun-if-changed=src/runtime/datara_runtime.c");
     println!("cargo:rerun-if-changed=src/runtime/datara_runtime.h");
+    println!("cargo:rerun-if-changed=src/runtime/datara_js.h");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".into()));
     let runtime_dir = manifest_dir.join("src").join("runtime");
@@ -37,6 +38,7 @@ fn main() {
         println!("cargo:rustc-link-lib=ws2_32");
         println!("cargo:rustc-link-lib=user32");
         println!("cargo:rustc-link-lib=advapi32");
+        println!("cargo:rustc-link-lib=dbghelp");
         let pf = env::var("ProgramFiles(x86)").unwrap_or_else(|_| "C:\\Program Files (x86)".into());
         let msvc_base = PathBuf::from(&pf).join("Microsoft Visual Studio");
         if let Ok(entries) = std::fs::read_dir(&msvc_base) {
@@ -122,21 +124,41 @@ fn main() {
         );
     }
 
-    // Mirror the latest archive to runtime/ directory for installer and release packages
+    // Mirror the latest archive to runtime/ directory for installer and release
+    // packages. Packaging relies on this copy, so surface failures as a cargo
+    // warning instead of silently ignoring them.
     let dest_runtime_dir = PathBuf::from("runtime");
-    let _ = std::fs::create_dir_all(&dest_runtime_dir);
-    let _ = std::fs::copy(
+    if let Err(e) = std::fs::create_dir_all(&dest_runtime_dir) {
+        println!(
+            "cargo:warning=Failed to create runtime/ mirror directory: {}",
+            e
+        );
+    } else if let Err(e) = std::fs::copy(
         &archive,
         dest_runtime_dir.join(archive.file_name().unwrap()),
-    );
+    ) {
+        println!(
+            "cargo:warning=Failed to mirror runtime archive into runtime/: {}",
+            e
+        );
+    }
 
     if let Ok(home) = env::var("DATARA_HOME") {
         let home_runtime_dir = PathBuf::from(home).join("runtime");
-        let _ = std::fs::create_dir_all(&home_runtime_dir);
-        let _ = std::fs::copy(
+        if let Err(e) = std::fs::create_dir_all(&home_runtime_dir) {
+            println!(
+                "cargo:warning=Failed to create $DATARA_HOME/runtime directory: {}",
+                e
+            );
+        } else if let Err(e) = std::fs::copy(
             &archive,
             home_runtime_dir.join(archive.file_name().unwrap()),
-        );
+        ) {
+            println!(
+                "cargo:warning=Failed to mirror runtime archive into $DATARA_HOME/runtime: {}",
+                e
+            );
+        }
     }
 
     println!("cargo:rustc-env=DATARA_RUNTIME_LIB={}", archive.display());

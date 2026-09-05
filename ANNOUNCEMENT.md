@@ -61,6 +61,8 @@ After extensive engineering, we're publicly launching **Datara v0.1.0** — an o
 * **Dual Backend:** Cranelift delivers instant 30–50ms compilation for local iteration and interactive JIT REPL (`forgen repl`), while `--llvm` emits heavily optimized machine code with adaptive SIMD vectorization.
 * **Complete Developer Tooling:** Everything is built into the single `forgen` binary: formatter, test runner, linter, LSP server, documentation generator, and C99/C++ header export.
 
+> **Honest status note:** hardware SIMD vectorization is a design preview / not yet enforced on all backends — scalar fallbacks may be emitted depending on target CPU features and backend support. The same applies to the async runtime, runtime PGO profiling, the network package registry, and runtime capability enforcement (all currently enforced statically or operating locally only).
+
 ### 60-Second Quick Start
 
 **Windows (PowerShell):**

@@ -1,0 +1,20 @@
+// Test 12: Async Proactor Runtime and Reactive VNode Diffing
+use stdlib.async.future
+use stdlib.async.task
+use stdlib.ui.reactive
+
+fn main() {
+    let f1 = Future.ready("ok")
+    mut t = Task.spawn(42, "job")
+    t = t.complete(f1.unwrap())
+    
+    let v1 = VNode.new("span", "badge", "Old")
+    let v2 = v1.set_text("New")
+    let patch = v1.diff(v2)
+    
+    if t.is_done() && patch.len() > 0 {
+        out "PASS: async_runtime"
+    } else {
+        err "FAIL: async_runtime"
+    }
+}

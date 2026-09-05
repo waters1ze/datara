@@ -1,0 +1,10 @@
+// 01: Language Fundamentals & Expressions
+fn add(a: Int, b: Int) -> Int => a + b
+
+fn main() {
+    let x: Int = 10
+    mut y: Int = 20
+    y = y + 5
+    let sum = add(x, y)
+    out fmt"Calculated sum: {sum}"
+}

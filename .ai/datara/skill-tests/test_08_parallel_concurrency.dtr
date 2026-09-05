@@ -1,0 +1,8 @@
+// Test 08: Parallel For Loop without Data Races
+fn main() {
+    parallel for i in 0..4 {
+        mut local = i * 10
+        local = local + 5
+    }
+    out "PASS: parallel_concurrency"
+}

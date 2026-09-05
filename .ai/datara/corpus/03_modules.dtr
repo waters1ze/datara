@@ -1,0 +1,8 @@
+// 03: Standard Library Integration
+use stdlib.math.Math
+
+fn main() {
+    let val_sq = Math.sqrt(16.0)
+    let val_max = Math.max(10.5, 42.1)
+    out fmt"Square root: {val_sq}, Max value: {val_max}"
+}

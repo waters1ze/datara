@@ -1,0 +1,13 @@
+// Test 09: Standard Library Math and ListWrapper
+use stdlib.math.Math
+use stdlib.collections.list.ListWrapper
+
+fn main() {
+    let sq = Math.sqrt(49.0)
+    let lw = ListWrapper<Int> { length: 5, head: 10 }
+    if sq == 7.0 && lw.count() == 5 {
+        out "PASS: stdlib_math_collections"
+    } else {
+        err "FAIL: stdlib_math_collections"
+    }
+}

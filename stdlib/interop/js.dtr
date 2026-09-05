@@ -1,0 +1,33 @@
+﻿class JS {
+    version: Str
+}
+
+behavior JS {
+    eval(code: Str) -> Str {
+        return js_eval(code)
+    }
+
+    eval_int(code: Str) -> Int {
+        return js_eval_int(code)
+    }
+
+    eval_float(code: Str) -> Float {
+        return js_eval_float(code)
+    }
+
+    call(fn_name: Str, args_json: Str) -> Str {
+        return js_call(fn_name, args_json)
+    }
+
+    set_global(name: Str, json_val: Str) -> Int {
+        return js_set_global(name, json_val)
+    }
+
+    get_global(name: Str) -> Str {
+        return js_get_global(name)
+    }
+}
+
+// Known limitation: the low-level `js_require` / `datara_js_require` FFI
+// returns a raw i64 handle with no accessor API, so its result cannot be
+// used from Datara code. Prefer the eval/call/get_global wrappers above.

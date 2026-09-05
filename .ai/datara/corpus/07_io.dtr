@@ -1,0 +1,12 @@
+// 07: Proof-Carrying Code & Safe Math
+fn calculate_safe_ratio(numerator: Float, denominator: Float) -> Float
+    require denominator != 0.0, "Denominator cannot be 0"
+    ensure result >= 0.0
+{
+    return numerator / denominator
+}
+
+fn main() {
+    let ratio = calculate_safe_ratio(100.0, 4.0)
+    out fmt"Safe ratio: {ratio}"
+}

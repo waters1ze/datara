@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DataraGrammarAndSyntaxRules",
+  "version": "1.0.0",
+  "description": "Full grammar constructs, string templates, pipeline patterns, and AST productions.",
+  "string_interpolation": {
+    "plain_strings": {
+      "syntax": "\"Hello {name}\"",
+      "behavior": "100% pure literal string. Braces are NEVER interpolated.",
+      "rule": "Do not expect {var} to expand in standard quotes."
+    },
+    "interpolated_templates": {
+      "prefixes": [
+        "fmt",
+        "$",
+        "f"
+      ],
+      "syntax": "fmt\"Hello {name} (age: {age})\"",
+      "behavior": "Zero-allocation Stream Fusion compiles expression directly into destination buffer.",
+      "rule": "Always prefix with 'fmt', '$', or 'f' when referencing variables."
+    }
+  },
+  "function_declarations": {
+    "full_body": "fn calculate(a: Int, b: Int) -> Int {\n    return a + b\n}",
+    "expression_body": "fn calculate(a: Int, b: Int) -> Int => a + b",
+    "pure_annotation": "pure fn add(a: Int, b: Int) -> Int => a + b",
+    "contract_annotated": "fn safe_div(a: Int, b: Int in 1..100) -> Int\n    require b != 0, \"Divisor cannot be 0\"\n    ensure result >= 0\n{\n    return a / b\n}"
+  },
+  "pipeline_syntax": {
+    "pipe_forward": "data |> step1() |> step2()",
+    "natural_then": "data then step1() then step2()",
+    "rule": "Both lower to identical Evidence Gate pipeline IR. 'flow' keyword is only a pipeline stage marker."
+  },
+  "error_handling_operators": {
+    "try_unpack": {
+      "symbol": "?",
+      "usage": "let port = parse_port(s)?",
+      "behavior": "Unpacks value on success; immediately executes early return on Outcome/Maybe failure."
+    },
+    "fallback": {
+      "symbol": "or",
+      "usage": "let port = parse_port(s) or 8080",
+      "behavior": "Evaluates left; if error or none, returns right-hand fallback expression."
+    }
+  },
+  "bitwise_rules": {
+    "allowed": [
+      "and(a, b)",
+      "or(a, b)",
+      "xor(a, b)",
+      "shl(a, k)",
+      "shr(a, k)",
+      "ctz(a)"
+    ],
+    "forbidden": [
+      "a & b",
+      "a | b"
+    ],
+    "diagnostic": "Lone '&' and '|' are illegal. Compiler suggests '&&', '||', or '|>'."
+  },
+  "comptime_and_derive": {
+    "comptime_block": {
+      "syntax": "let val: Type = comptime { expr }",
+      "behavior": "Evaluated during AST expansion and constant folded directly into AST literal"
+    },
+    "derive_attribute": {
+      "syntax": "@derive(Trait1, Trait2)\nclass Name { ... }",
+      "behavior": "Synthesizes to_string, to_json, from_json, hash, and clone methods"
+    }
+  },
+  "fvrp_syntax": {
+    "range": "val: Int<min..max>",
+    "units": "val: Float<unit>"
+  }
+}

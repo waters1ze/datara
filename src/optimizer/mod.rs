@@ -378,8 +378,31 @@ impl Optimizer {
                 f(then_val);
                 f(else_val);
             }
-            Inst::WhileLoop { cond_val, .. } => f(cond_val),
-            Inst::TryCatch { .. } => {}
+            Inst::WhileLoop {
+                condition_insts,
+                cond_val,
+                body_insts,
+            } => {
+                for ci in condition_insts {
+                    self.visit_inst_vids(ci, f);
+                }
+                for bi in body_insts {
+                    self.visit_inst_vids(bi, f);
+                }
+                f(cond_val);
+            }
+            Inst::TryCatch {
+                try_insts,
+                catch_insts,
+                ..
+            } => {
+                for ti in try_insts {
+                    self.visit_inst_vids(ti, f);
+                }
+                for ci in catch_insts {
+                    self.visit_inst_vids(ci, f);
+                }
+            }
             Inst::Return { value } => {
                 if let Some(v) = value {
                     f(v);
@@ -779,20 +802,6 @@ impl Optimizer {
 
         let mut inlined_set: HashSet<String> = HashSet::new();
 
-        let mut candidates_by_method: HashMap<String, Vec<&Function>> = HashMap::new();
-        for (name, f) in &candidates {
-            let mut start = 0;
-            while let Some(idx) = name[start..].find('_') {
-                let actual_idx = start + idx;
-                let suffix = &name[actual_idx + 1..];
-                candidates_by_method
-                    .entry(suffix.to_string())
-                    .or_default()
-                    .push(f);
-                start = actual_idx + 1;
-            }
-        }
-
         let mut caller_names: Vec<String> = module.functions.keys().cloned().collect();
         caller_names.sort();
 
@@ -802,7 +811,10 @@ impl Optimizer {
             }
             let caller_fn = module.functions.get_mut(caller_name).unwrap();
 
-            let mut fresh_base = self.max_value_id_in_function(caller_fn) + 1000;
+            // ValueIds are module-wide, so freshly minted ids must start past
+            // every id already allocated in the caller and advance by the
+            // callee's own id span to keep successive inlines disjoint.
+            let mut fresh_base = self.max_value_id_in_function(caller_fn) + 1;
             let mut val_to_class: HashMap<ValueId, String> = HashMap::new();
             let mut var_to_class: HashMap<String, String> = HashMap::new();
 
@@ -851,7 +863,12 @@ impl Optimizer {
                     let inlined_candidate = match &inst {
                         Inst::Call {
                             dest, func, args, ..
-                        } => candidates.get(func).map(|c| (*dest, c, args.clone())),
+                        } => candidates
+                            .get(func)
+                            // An arity mismatch means this call resolves to
+                            // something else; splicing would bind wrong params.
+                            .filter(|c| c.params.len() == args.len())
+                            .map(|c| (*dest, c, args.clone())),
                         Inst::MethodCall {
                             dest,
                             object,
@@ -862,21 +879,21 @@ impl Optimizer {
                             let mut all_args = vec![*object];
                             all_args.extend(args.iter().copied());
 
+                            // Without a known receiver class, do not guess:
+                            // a suffix match can pick a different class's
+                            // method, so only an exact Class_method candidate
+                            // (or a free function of the same name) qualifies.
                             let direct_name = val_to_class
                                 .get(object)
                                 .map(|c| format!("{}_{}", c, method));
                             let callee = direct_name
                                 .as_ref()
                                 .and_then(|name| candidates.get(name))
-                                .or_else(|| candidates.get(method))
+                                .filter(|c| c.params.len() == all_args.len())
                                 .or_else(|| {
-                                    candidates_by_method.get(method).and_then(|matches| {
-                                        if matches.len() == 1 {
-                                            Some(matches[0])
-                                        } else {
-                                            None
-                                        }
-                                    })
+                                    candidates
+                                        .get(method)
+                                        .filter(|c| c.params.len() == all_args.len())
                                 });
                             callee.map(|c| (*dest, c, all_args))
                         }
@@ -884,6 +901,8 @@ impl Optimizer {
                     };
 
                     if let Some((call_dest, callee, inlined_args)) = inlined_candidate {
+                        let callee_max = self.max_value_id_in_function(callee);
+                        let stride = callee_max + 1;
                         let mut val_map: HashMap<ValueId, ValueId> = HashMap::new();
                         for b in &callee.blocks {
                             for ci in &b.instructions {
@@ -934,7 +953,7 @@ impl Optimizer {
                             subst.insert(call_dest, ret_v);
                         }
 
-                        fresh_base += 1000;
+                        fresh_base += stride;
                         inlined_set.insert(callee.name.clone());
                         self.report.functions_inlined += 1;
                         continue;
@@ -966,6 +985,15 @@ impl Optimizer {
     }
 
     fn dead_symbol_elimination(&mut self, module: &mut Module) {
+        // Conservative guard: reachability is seeded from `main` only. For a
+        // module without a `main` (e.g. a library), every function is a
+        // potential entry point, so keep them all.
+        if !module.functions.contains_key("main") {
+            self.report.reachable_symbols = module.functions.len();
+            self.report.removed_symbols = 0;
+            return;
+        }
+
         let mut reachable: HashSet<String> = HashSet::new();
         let mut worklist: Vec<String> = Vec::new();
 
@@ -1268,6 +1296,15 @@ impl Optimizer {
                     continue;
                 }
 
+                // Both arms execute unconditionally after conversion, so a
+                // trapping op (`/`, `%` on integers) in either arm could fault
+                // on inputs the original program never executed.
+                if then_b.instructions.iter().any(Self::may_trap)
+                    || else_b.instructions.iter().any(Self::may_trap)
+                {
+                    continue;
+                }
+
                 candidate = Some((b_idx, *then_block, *else_block, then_target, *cond));
                 break;
             }
@@ -1299,25 +1336,54 @@ impl Optimizer {
                 _ => return false,
             };
 
-            // Infer the select operand type from constant-producing arm
+            // Infer the select operand types from value-producing arm
             // instructions so a Float/String diamond is not mislabelled "Int".
-            let mut val_ty: HashMap<ValueId, &'static str> = HashMap::new();
+            let mut val_ty: HashMap<ValueId, String> = HashMap::new();
             for inst in then_b.instructions.iter().chain(else_b.instructions.iter()) {
                 match inst {
                     Inst::ConstInt { dest, .. } => {
-                        val_ty.insert(*dest, "Int");
+                        val_ty.insert(*dest, "Int".to_string());
                     }
                     Inst::ConstFloat { dest, .. } => {
-                        val_ty.insert(*dest, "Float");
+                        val_ty.insert(*dest, "Float".to_string());
                     }
                     Inst::ConstBool { dest, .. } => {
-                        val_ty.insert(*dest, "Bool");
+                        val_ty.insert(*dest, "Bool".to_string());
                     }
                     Inst::ConstStr { dest, .. } => {
-                        val_ty.insert(*dest, "String");
+                        val_ty.insert(*dest, "String".to_string());
+                    }
+                    Inst::BinOp { dest, ty, .. } => {
+                        val_ty.insert(*dest, ty.clone());
+                    }
+                    Inst::GetField { dest, ty, .. } => {
+                        val_ty.insert(*dest, ty.clone());
+                    }
+                    Inst::UnOp {
+                        dest, op, operand, ..
+                    } if op == "copy" => {
+                        if let Some(t) = val_ty.get(operand) {
+                            val_ty.insert(*dest, t.clone());
+                        }
                     }
                     _ => {}
                 }
+            }
+
+            // Determine the Select type for every differing arg pair up front.
+            // If a pair's type cannot be proven — or the two arms disagree —
+            // refuse the transformation instead of guessing a type.
+            let mut sel_types: Vec<Option<String>> = Vec::new();
+            for (t_val, e_val) in then_args.iter().zip(else_args.iter()) {
+                if t_val == e_val {
+                    sel_types.push(None);
+                    continue;
+                }
+                let sel_ty = match (val_ty.get(t_val), val_ty.get(e_val)) {
+                    (Some(t), Some(e)) if t == e => Some(t.clone()),
+                    _ => return false,
+                };
+                sel_types.push(sel_ty);
             }
 
             let block = &mut f.blocks[b_idx];
@@ -1327,23 +1393,18 @@ impl Optimizer {
             block.instructions.extend(else_b.instructions);
 
             let mut merged_args = Vec::new();
-            for (t_val, e_val) in then_args.iter().zip(else_args.iter()) {
+            for ((t_val, e_val), sel_ty) in then_args.iter().zip(else_args.iter()).zip(sel_types) {
                 if t_val == e_val {
                     merged_args.push(*t_val);
-                } else {
+                } else if let Some(sel_ty) = sel_ty {
                     max_id += 1;
                     let sel_dest = ValueId(max_id);
-                    let sel_ty = val_ty
-                        .get(t_val)
-                        .or_else(|| val_ty.get(e_val))
-                        .copied()
-                        .unwrap_or("Int");
                     block.instructions.push(Inst::Select {
                         dest: sel_dest,
                         cond,
                         then_val: *t_val,
                         else_val: *e_val,
-                        ty: sel_ty.into(),
+                        ty: sel_ty,
                     });
                     merged_args.push(sel_dest);
                 }
@@ -2031,7 +2092,7 @@ impl Optimizer {
 
         for block in &mut f.blocks {
             let mut new_instructions = Vec::new();
-            for inst in &block.instructions {
+            for (inst_idx, inst) in block.instructions.iter().enumerate() {
                 if let Inst::AssignVar { name, .. } = inst
                     && !loaded_vars.contains(name)
                 {
@@ -2052,6 +2113,19 @@ impl Optimizer {
                     }
                     _ => false,
                 };
+                // Hybrid-SSA variable reads have no side effects in this IR:
+                // a LoadVar only loads from the logical variable store, so a
+                // dead one is removable (its feeding store is removed by the
+                // AssignVar rule above).
+                let is_load_var = matches!(inst, Inst::LoadVar { .. });
+                // StructInit is a pure allocation: removing a dead one is
+                // allocation elision.
+                let is_struct_init = matches!(inst, Inst::StructInit { .. });
+                // FormatStr / Select / Decide are pure value computations.
+                let is_pure_value = matches!(
+                    inst,
+                    Inst::FormatStr { .. } | Inst::Select { .. } | Inst::Decide { .. }
+                );
                 let is_pure = is_pure_call
                     || matches!(
                         inst,
@@ -2061,7 +2135,10 @@ impl Optimizer {
                             | Inst::ConstBool { .. }
                             | Inst::BinOp { .. }
                             | Inst::UnOp { .. }
-                    );
+                    )
+                    || is_load_var
+                    || is_struct_init
+                    || is_pure_value;
                 if is_pure && !Self::may_trap(inst) {
                     let dest_id = match inst {
                         Inst::ConstInt { dest, .. }
@@ -2070,7 +2147,12 @@ impl Optimizer {
                         | Inst::ConstBool { dest, .. }
                         | Inst::BinOp { dest, .. }
                         | Inst::UnOp { dest, .. }
-                        | Inst::Call { dest, .. } => dest,
+                        | Inst::Call { dest, .. }
+                        | Inst::LoadVar { dest, .. }
+                        | Inst::StructInit { dest, .. }
+                        | Inst::FormatStr { dest, .. }
+                        | Inst::Select { dest, .. }
+                        | Inst::Decide { dest, .. } => dest,
                         _ => unreachable!(),
                     };
                     if !used_values.contains(dest_id) {
@@ -2078,6 +2160,19 @@ impl Optimizer {
                         changed = true;
                         continue;
                     }
+                }
+                // GetField can fault on a null object, so it is only removable
+                // when the object was produced by a StructInit earlier in the
+                // same block (known non-null, no cross-block uncertainty).
+                if let Inst::GetField { dest, object, .. } = inst
+                    && !used_values.contains(dest)
+                    && block.instructions[..inst_idx]
+                        .iter()
+                        .any(|prev| matches!(prev, Inst::StructInit { dest: d, .. } if d == object))
+                {
+                    self.report.dead_instructions_removed += 1;
+                    changed = true;
+                    continue;
                 }
                 new_instructions.push(inst.clone());
             }

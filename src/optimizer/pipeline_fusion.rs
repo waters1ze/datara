@@ -23,6 +23,10 @@ impl PipelineFusionOptimizer {
         // 1. String Concatenation Fusion
         total_fused += Self::fuse_string_concatenations(f, &uses, trace);
 
+        // Recompute use counts: concat fusion rewrote instructions, so the
+        // stale map would misreport single-use intermediates below.
+        let uses = Self::count_uses(f);
+
         // 2. Arithmetic Pipeline Reassociation
         total_fused += Self::fuse_arithmetic_chains(f, &uses, trace);
 

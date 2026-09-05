@@ -1,0 +1,30 @@
+// 02: Classes, Enums, and ADTs
+enum Status {
+    Active,
+    Pending(Int),
+    Inactive
+}
+
+class Account {
+    id: Int
+    balance: Float
+}
+
+behavior Account {
+    is_solvent() -> Bool => balance >= 0.0
+}
+
+fn describe_status(s: Status) -> Str {
+    match s {
+        Status.Active => "Active account",
+        Status.Pending(days) => fmt"Pending for {days} days",
+        Status.Inactive => "Inactive account",
+        _ => "Unknown"
+    }
+}
+
+fn main() {
+    let acc = Account { id: 101, balance: 250.75 }
+    let st = Status.Pending(3)
+    out fmt"Account #{acc.id} solvent: {acc.is_solvent()}, status: {describe_status(st)}"
+}

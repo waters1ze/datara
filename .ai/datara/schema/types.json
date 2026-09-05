@@ -1,0 +1,160 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DataraTypeSystemSchema",
+  "version": "1.0.0",
+  "description": "Comprehensive schema of Datara types, memory representations, semantics, and subtyping rules.",
+  "primitive_types": [
+    {
+      "name": "Int",
+      "size_bytes": 8,
+      "llvm_type": "i64",
+      "cranelift_type": "I64",
+      "description": "64-bit signed two's complement integer"
+    },
+    {
+      "name": "Float",
+      "size_bytes": 8,
+      "llvm_type": "double",
+      "cranelift_type": "F64",
+      "description": "IEEE-754 64-bit double precision floating point"
+    },
+    {
+      "name": "Bool",
+      "size_bytes": 1,
+      "llvm_type": "i1 / i8",
+      "cranelift_type": "I8",
+      "description": "Boolean type (true or false)"
+    },
+    {
+      "name": "Str",
+      "size_bytes": 16,
+      "aliases": [
+        "String"
+      ],
+      "description": "UTF-8 byte buffer with length (fat pointer: ptr + len)"
+    },
+    {
+      "name": "Void",
+      "size_bytes": 0,
+      "aliases": [
+        "Unit"
+      ],
+      "description": "Unit return type for side-effecting operations without output"
+    }
+  ],
+  "composite_types": [
+    {
+      "name": "List<T>",
+      "category": "Dynamic Array",
+      "description": "Contiguous dynamically resizable vector with zero-cost indexing and slice views"
+    },
+    {
+      "name": "Map<K, V>",
+      "category": "Associative Hash Map",
+      "description": "High performance robin-hood hash table"
+    },
+    {
+      "name": "Outcome<T>",
+      "category": "Result Type",
+      "module": "stdlib.result.result",
+      "fields": [
+        "is_success: Bool",
+        "value: T",
+        "error_msg: Str"
+      ]
+    },
+    {
+      "name": "Maybe<T>",
+      "category": "Option Type",
+      "module": "stdlib.result.option",
+      "fields": [
+        "is_some: Bool",
+        "value: T"
+      ]
+    },
+    {
+      "name": "Future<T>",
+      "category": "Async / Proactor",
+      "module": "stdlib.async.future",
+      "description": "Zero-allocation asynchronous computation promise"
+    },
+    {
+      "name": "Capability<Cap>",
+      "category": "Security Token",
+      "description": "Zero-cost static witness token granting access to restricted OS effects (FileRead, FileWrite, NetworkConnect, ProcessExec)"
+    },
+    {
+      "name": "Future",
+      "category": "Async / Proactor",
+      "module": "stdlib.async.future",
+      "description": "State machine future (ready, pending, failed)"
+    },
+    {
+      "name": "Task",
+      "category": "Async / Proactor",
+      "module": "stdlib.async.task",
+      "description": "Schedulable background task"
+    },
+    {
+      "name": "EventLoop",
+      "category": "Async / Proactor",
+      "module": "stdlib.async.event_loop",
+      "description": "Tick-driven asynchronous proactor executor"
+    },
+    {
+      "name": "NativeWindow",
+      "category": "UI / Canvas",
+      "module": "stdlib.ui.native",
+      "description": "Native OS window container with canvas drawing"
+    },
+    {
+      "name": "VNode",
+      "category": "UI / Reactive",
+      "module": "stdlib.ui.reactive",
+      "description": "Virtual DOM node with diff-patch algorithm"
+    }
+  ],
+  "nominal_and_adt": [
+    {
+      "category": "class",
+      "memory_layout": "C-compatible struct",
+      "dispatch": "Monomorphic static direct dispatch (0 vtables)"
+    },
+    {
+      "category": "entity",
+      "memory_layout": "Class with domain identity and lifecycle tracking",
+      "composition": "Flat component inlining"
+    },
+    {
+      "category": "component",
+      "memory_layout": "Zero runtime overhead inlined fields into host class/entity"
+    },
+    {
+      "category": "enum",
+      "memory_layout": "Tagged union (tag: i32 + max_payload_size union)"
+    },
+    {
+      "category": "packet",
+      "memory_layout": "Packed binary representation (#repr(packed)), 0 padding"
+    }
+  ],
+  "coercion_rules": {
+    "implicit_casts": "NONE. Datara forbids silent numeric promotion or lossy casts.",
+    "explicit_casts": "Use 'as' operator (e.g., 3.14 as Int) or math functions (math_floor, math_round).",
+    "boolean_eval": "No truthiness for integers or pointers. Explicit comparisons required (if x != 0)."
+  },
+  "refinements": [
+    {
+      "name": "FVRP Range Refinement",
+      "syntax": "Int<min..max>",
+      "example": "let port: Int<1024..65535> = val",
+      "llvm_lowering": "Emits @llvm.assume and !range metadata nodes (!{i64 min, i64 max})"
+    },
+    {
+      "name": "Units of Measure",
+      "syntax": "Float<unit>",
+      "example": "let speed: Float<m/s> = 20.5",
+      "llvm_lowering": "Zero-overhead abstraction lowered directly to native double"
+    }
+  ]
+}

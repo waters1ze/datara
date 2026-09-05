@@ -1,0 +1,16 @@
+// 11: FVRP (Formal Value Range Propagation) & Units of Measure
+fn process_bounded_port(port: Int<1024..65535>) -> Int {
+    let checked: Int<1024..65535> = port
+    return checked
+}
+
+fn compute_speed(v: Float<m/s>) -> Float {
+    return v * 1.5
+}
+
+fn main() {
+    let p = process_bounded_port(8080)
+    let s: Float<m/s> = 20.0
+    let final_s = compute_speed(s)
+    out fmt"Port: {p}, Final speed: {final_s}"
+}

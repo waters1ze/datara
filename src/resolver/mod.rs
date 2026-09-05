@@ -1,6 +1,6 @@
 use crate::ast::*;
 use crate::diagnostics::{DiagnosticEngine, ErrorCode, SourceSpan};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct Symbol {
@@ -139,6 +139,40 @@ impl Resolver {
             "str_trim",
             "str_to_int",
             "str_to_float",
+            "str_repeat",
+            "repeat",
+            "str_pad_left",
+            "pad_left",
+            "str_pad_right",
+            "pad_right",
+            "str_replace",
+            "replace",
+            "str_to_upper",
+            "to_upper",
+            "str_to_lower",
+            "to_lower",
+            "format_percent",
+            "format_int_with_commas",
+            "js_eval",
+            "js_eval_int",
+            "js_eval_float",
+            "js_require",
+            "js_call",
+            "js_call_0",
+            "js_call_1",
+            "js_call_2",
+            "js_set_global",
+            "js_get_global",
+            "datara_js_eval",
+            "datara_js_eval_int",
+            "datara_js_eval_float",
+            "datara_js_require",
+            "datara_js_call",
+            "datara_js_call_0",
+            "datara_js_call_1",
+            "datara_js_call_2",
+            "datara_js_set_global",
+            "datara_js_get_global",
             "int_to_str",
             "datara_rt_int_to_str",
             "datara_rt_str_len",
@@ -352,7 +386,14 @@ impl Resolver {
                 }
 
                 Decl::Enum(e) => {
-                    self.enums.insert(e.name.clone(), e.clone());
+                    if self.enums.contains_key(&e.name) {
+                        diag.error(
+                            ErrorCode::ResolveDuplicateSymbol,
+                            format!("Duplicate enum '{}'", e.name),
+                            Some(e.span.clone()),
+                        );
+                        continue;
+                    }
                     if self.classes.contains_key(&e.name) {
                         diag.error(
                             ErrorCode::ResolveDuplicateSymbol,
@@ -361,6 +402,7 @@ impl Resolver {
                         );
                         continue;
                     }
+                    self.enums.insert(e.name.clone(), e.clone());
                     let mut sym = Symbol {
                         name: e.name.clone(),
                         kind: SymbolKind::Class,
@@ -535,6 +577,8 @@ impl Resolver {
                             format!("Duplicate function definition '{}'", f.name),
                             Some(f.span.clone()),
                         );
+                        // Keep the first declaration; do not overwrite.
+                        continue;
                     }
                     self.functions.insert(f.name.clone(), sym.clone());
                     self.scopes[0].define(f.name.clone(), sym);
@@ -561,6 +605,8 @@ impl Resolver {
                             format!("Duplicate extern declaration '{}'", ef.name),
                             Some(ef.span.clone()),
                         );
+                        // Keep the first declaration; do not overwrite.
+                        continue;
                     }
                     self.functions.insert(ef.name.clone(), sym.clone());
                     self.extern_functions.insert(ef.name.clone(), ef.clone());
@@ -623,6 +669,8 @@ impl Resolver {
                             format!("Duplicate type alias '{}'", td.name),
                             Some(td.span.clone()),
                         );
+                        // Keep the first declaration; do not overwrite.
+                        continue;
                     }
                     self.type_aliases.insert(td.name.clone(), td.clone());
                     let sym = Symbol {
@@ -690,64 +738,17 @@ impl Resolver {
             }
         }
 
-        // Pass 2a: Merge base class inheritance (from) and component compositions (+) into classes
-        let class_names: Vec<String> = self.classes.keys().cloned().collect();
-        for _ in 0..10 {
-            let mut changed = false;
-            for cls_name in &class_names {
-                let (base_class, compositions) = self
-                    .classes
-                    .get(cls_name)
-                    .map(|c| (c.base_type.clone(), c.compositions.clone()))
-                    .unwrap_or_default();
-
-                // Inherit from base_class
-                if let Some(base_name) = &base_class
-                    && let Some(base_sym) = self.classes.get(base_name).cloned()
-                    && let Some(cls_sym) = self.classes.get_mut(cls_name)
-                {
-                    for (f_name, f_sym) in &base_sym.fields {
-                        if !cls_sym.fields.contains_key(f_name) {
-                            cls_sym.fields.insert(f_name.clone(), f_sym.clone());
-                            changed = true;
-                        }
-                    }
-                    for (m_name, m_sym) in &base_sym.methods {
-                        if !cls_sym.methods.contains_key(m_name) {
-                            cls_sym.methods.insert(m_name.clone(), m_sym.clone());
-                            changed = true;
-                        }
-                    }
-                }
-
-                // Inline components or used classes
-                for comp_name in &compositions {
-                    let comp_sym = self
-                        .components
-                        .get(comp_name)
-                        .cloned()
-                        .or_else(|| self.classes.get(comp_name).cloned());
-                    if let Some(comp_sym) = comp_sym
-                        && let Some(cls_sym) = self.classes.get_mut(cls_name)
-                    {
-                        for (f_name, f_sym) in &comp_sym.fields {
-                            if !cls_sym.fields.contains_key(f_name) {
-                                cls_sym.fields.insert(f_name.clone(), f_sym.clone());
-                                changed = true;
-                            }
-                        }
-                        for (m_name, m_sym) in &comp_sym.methods {
-                            if !cls_sym.methods.contains_key(m_name) {
-                                cls_sym.methods.insert(m_name.clone(), m_sym.clone());
-                                changed = true;
-                            }
-                        }
-                    }
-                }
-            }
-            if !changed {
-                break;
-            }
+        // Pass 2a: Merge base class inheritance (from) and component compositions (+) into classes.
+        // Deterministic: classes are processed in sorted name order and each
+        // class's parent/component chain is merged recursively (parent-first)
+        // with cycle detection, replacing the old 10-iteration fixpoint over
+        // HashMap-ordered names.
+        let mut class_names: Vec<String> = self.classes.keys().cloned().collect();
+        class_names.sort();
+        let mut visiting: HashSet<String> = HashSet::new();
+        let mut resolved: HashSet<String> = HashSet::new();
+        for cls_name in &class_names {
+            self.merge_class_hierarchy(cls_name, &mut visiting, &mut resolved, diag);
         }
 
         // Pass 2b: Merge Split Behavior blocks into target classes and check replaces
@@ -817,6 +818,103 @@ impl Resolver {
         for decl in &program.declarations {
             self.resolve_decl(decl, diag);
         }
+    }
+
+    /// Recursively merge a class's inherited base members and composed
+    /// component members into its field/method sets. Parents are resolved
+    /// before children so deep chains merge completely in one deterministic
+    /// pass. `visiting` detects circular inheritance; `resolved` makes each
+    /// class's merge happen exactly once.
+    fn merge_class_hierarchy(
+        &mut self,
+        cls_name: &str,
+        visiting: &mut HashSet<String>,
+        resolved: &mut HashSet<String>,
+        diag: &mut DiagnosticEngine,
+    ) {
+        if resolved.contains(cls_name) {
+            return;
+        }
+        if !visiting.insert(cls_name.to_string()) {
+            let span = self
+                .classes
+                .get(cls_name)
+                .map(|c| c.span.clone())
+                .unwrap_or_default();
+            diag.error(
+                ErrorCode::ResolveCircularDependency,
+                format!(
+                    "Circular inheritance detected involving class '{}'",
+                    cls_name
+                ),
+                Some(span),
+            );
+            return;
+        }
+
+        let (base_class, compositions) = self
+            .classes
+            .get(cls_name)
+            .map(|c| (c.base_type.clone(), c.compositions.clone()))
+            .unwrap_or_default();
+
+        // Resolve the parent chain (and any composed classes) first so their
+        // inherited members are already in place before merging downward.
+        if let Some(base_name) = &base_class
+            && base_name != cls_name
+            && self.classes.contains_key(base_name)
+        {
+            self.merge_class_hierarchy(base_name, visiting, resolved, diag);
+        }
+        for comp_name in &compositions {
+            if comp_name != cls_name && self.classes.contains_key(comp_name) {
+                self.merge_class_hierarchy(comp_name, visiting, resolved, diag);
+            }
+        }
+
+        // Inherit from base_class
+        if let Some(base_name) = &base_class
+            && let Some(base_sym) = self.classes.get(base_name).cloned()
+            && let Some(cls_sym) = self.classes.get_mut(cls_name)
+        {
+            for (f_name, f_sym) in &base_sym.fields {
+                if !cls_sym.fields.contains_key(f_name) {
+                    cls_sym.fields.insert(f_name.clone(), f_sym.clone());
+                }
+            }
+            for (m_name, m_sym) in &base_sym.methods {
+                if !cls_sym.methods.contains_key(m_name) {
+                    cls_sym.methods.insert(m_name.clone(), m_sym.clone());
+                }
+            }
+        }
+
+        // Inline components or used classes (components merge one level,
+        // matching the previous behavior).
+        for comp_name in &compositions {
+            let comp_sym = self
+                .components
+                .get(comp_name)
+                .cloned()
+                .or_else(|| self.classes.get(comp_name).cloned());
+            if let Some(comp_sym) = comp_sym
+                && let Some(cls_sym) = self.classes.get_mut(cls_name)
+            {
+                for (f_name, f_sym) in &comp_sym.fields {
+                    if !cls_sym.fields.contains_key(f_name) {
+                        cls_sym.fields.insert(f_name.clone(), f_sym.clone());
+                    }
+                }
+                for (m_name, m_sym) in &comp_sym.methods {
+                    if !cls_sym.methods.contains_key(m_name) {
+                        cls_sym.methods.insert(m_name.clone(), m_sym.clone());
+                    }
+                }
+            }
+        }
+
+        visiting.remove(cls_name);
+        resolved.insert(cls_name.to_string());
     }
 
     fn resolve_decl(&mut self, decl: &Decl, diag: &mut DiagnosticEngine) {
@@ -914,6 +1012,7 @@ impl Resolver {
                                 candidates.push(k.as_str());
                             }
                         }
+                        candidates.sort_unstable();
                         let help_msg = if let Some(similar) =
                             crate::diagnostics::suggestions::find_best_match(name, candidates)
                         {
@@ -1055,6 +1154,7 @@ impl Resolver {
                         for c in self.classes.keys() {
                             candidates.push(c.as_str());
                         }
+                        candidates.sort_unstable();
 
                         let help_msg = if let Some(similar) =
                             crate::diagnostics::suggestions::find_best_match(name, candidates)

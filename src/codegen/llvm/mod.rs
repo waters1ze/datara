@@ -11,6 +11,7 @@ use std::process::Command;
 /// Dedicated LLVM IR code emitter for Datara / Forgen.
 pub struct LlvmEmitter<'a> {
     pub target: &'a TargetInfo,
+    pub emit_debug_info: bool,
 }
 
 fn get_range_for_var(
@@ -42,7 +43,15 @@ fn get_range_for_var(
 
 impl<'a> LlvmEmitter<'a> {
     pub fn new(target: &'a TargetInfo) -> Self {
-        Self { target }
+        Self {
+            target,
+            emit_debug_info: false,
+        }
+    }
+
+    pub fn with_debug(mut self, debug_info: bool) -> Self {
+        self.emit_debug_info = debug_info;
+        self
     }
 
     /// Map Datara / DMIR type names to LLVM IR types.
@@ -243,10 +252,42 @@ impl<'a> LlvmEmitter<'a> {
         ir.push_str("declare i64 @datara_rt_list_get(ptr, i64)\n");
         ir.push_str("declare i64 @datara_rt_list_get_unchecked(ptr, i64)\n");
         ir.push_str("declare i64 @datara_rt_list_len(ptr)\n");
+        ir.push_str(
+            "declare ptr @datara_rt_map_create()
+",
+        );
+        ir.push_str(
+            "declare ptr @datara_rt_map_create_1(ptr, i64)
+",
+        );
+        ir.push_str(
+            "declare ptr @datara_rt_map_create_2(ptr, i64, ptr, i64)
+",
+        );
+        ir.push_str(
+            "declare ptr @datara_rt_map_create_3(ptr, i64, ptr, i64, ptr, i64)
+",
+        );
+        ir.push_str(
+            "declare ptr @datara_rt_map_create_4(ptr, i64, ptr, i64, ptr, i64, ptr, i64)
+",
+        );
+        ir.push_str(
+            "declare ptr @datara_rt_map_create_5(ptr, i64, ptr, i64, ptr, i64, ptr, i64, ptr, i64)
+",
+        );
+        ir.push_str(
+            "declare ptr @datara_rt_map_insert(ptr, ptr, i64)
+",
+        );
+        ir.push_str(
+            "declare i64 @datara_rt_map_get(ptr, ptr)
+",
+        );
         ir.push_str("declare i64 @datara_rt_now_ms()\n");
         ir.push_str("declare i64 @datara_rt_now_precise_ms()\n");
         ir.push_str("declare void @datara_rt_sleep(i64)\n");
-        ir.push_str("declare ptr @datara_rt_http_get()\n");
+        ir.push_str("declare ptr @datara_rt_http_get(ptr)\n");
         // Fast Math
         ir.push_str("declare double @datara_rt_math_sqrt(double)\n");
         ir.push_str("declare double @datara_rt_math_pow(double, double)\n");
@@ -410,6 +451,21 @@ impl<'a> LlvmEmitter<'a> {
             value_types.insert(*p_val, self.dmir_type_to_llvm(p_ty));
         }
 
+        // Track which class each struct-typed value belongs to so field
+        // offsets resolve against the right class (exact match) instead of
+        // whichever class happens to declare the field name.
+        let mut value_classes: HashMap<ValueId, String> = HashMap::new();
+        for b in &f.blocks {
+            for inst in &b.instructions {
+                if let Inst::StructInit {
+                    dest, class_name, ..
+                } = inst
+                {
+                    value_classes.insert(*dest, class_name.clone());
+                }
+            }
+        }
+
         // Collect incoming jump edges for basic block PHI nodes
         let mut incoming_edges: HashMap<BasicBlockId, Vec<(BasicBlockId, Vec<ValueId>)>> =
             HashMap::new();
@@ -535,6 +591,7 @@ impl<'a> LlvmEmitter<'a> {
                     strings,
                     &mut value_types,
                     &mut var_types,
+                    &mut value_classes,
                     &mut out,
                     &f.name,
                     types,
@@ -574,7 +631,17 @@ impl<'a> LlvmEmitter<'a> {
                 }
                 Terminator::Return { value } => {
                     if is_main {
-                        out.push_str("  ret i32 0\n");
+                        // Propagate datara_main's Int result as the process
+                        // exit code instead of always returning 0.
+                        if let (Some(v), "Int" | "Bool") = (value, f.return_type.as_str()) {
+                            out.push_str(&format!(
+                                "  %main_ret_{} = trunc i64 %v{} to i32\n",
+                                v.0, v.0
+                            ));
+                            out.push_str(&format!("  ret i32 %main_ret_{}\n", v.0));
+                        } else {
+                            out.push_str("  ret i32 0\n");
+                        }
                     } else if let Some(v) = value {
                         let rty = value_types.get(v).copied().unwrap_or("i64");
                         out.push_str(&format!("  ret {} %v{}\n", rty, v.0));
@@ -600,6 +667,7 @@ impl<'a> LlvmEmitter<'a> {
         strings: &HashMap<String, usize>,
         value_types: &mut HashMap<ValueId, &'static str>,
         var_types: &mut HashMap<String, &'static str>,
+        value_classes: &mut HashMap<ValueId, String>,
         out: &mut String,
         fn_name: &str,
         types: &TypeChecker,
@@ -885,7 +953,15 @@ impl<'a> LlvmEmitter<'a> {
                     out.push_str(&format!("  %v{} = fneg double %v{}\n", dest.0, operand.0));
                 } else if op == "!" {
                     value_types.insert(*dest, "i64");
-                    out.push_str(&format!("  %v{} = xor i64 %v{}, 1\n", dest.0, operand.0));
+                    // Logical NOT: any nonzero value is truthy, so compare
+                    // against zero instead of xor 1 (wrong for non-canonical
+                    // bools, e.g. 2 -> 3, still truthy).
+                    let cmp_temp = format!("%not_c_{}", dest.0);
+                    out.push_str(&format!(
+                        "  {} = icmp eq i64 %v{}, 0\n",
+                        cmp_temp, operand.0
+                    ));
+                    out.push_str(&format!("  %v{} = zext i1 {} to i64\n", dest.0, cmp_temp));
                 } else if op == "copy" {
                     let oty = value_types.get(operand).copied().unwrap_or("i64");
                     value_types.insert(*dest, oty);
@@ -1164,6 +1240,11 @@ impl<'a> LlvmEmitter<'a> {
 
                 let is_str_concat = actual_func.starts_with("datara_rt_str_concat");
                 let mut converted_args = Vec::new();
+                // http_get historically had a zero-arg builtin signature;
+                // keep `http_get()` calls valid by padding a null URL.
+                if actual_func.ends_with("http_get") && args.is_empty() {
+                    converted_args.push("ptr null".to_string());
+                }
                 for (idx, a) in args.iter().enumerate() {
                     let aty = value_types.get(a).copied().unwrap_or("i64");
                     if is_str_concat && aty != "ptr" {
@@ -1213,14 +1294,24 @@ impl<'a> LlvmEmitter<'a> {
 
                 let actual_func = if module.functions.contains_key(method) {
                     method.clone()
-                } else if let Some(k) = module.functions.keys().find(|k| {
-                    k.len() > method.len() + 1
-                        && k.ends_with(method.as_str())
-                        && k.as_bytes()[k.len() - method.len() - 1] == b'_'
-                }) {
-                    k.clone()
                 } else {
-                    method.clone()
+                    // Collect suffix matches and pick the smallest name
+                    // deterministically; HashMap iteration order previously
+                    // made the dispatch target vary run to run.
+                    let mut candidates: Vec<&String> = module
+                        .functions
+                        .keys()
+                        .filter(|k| {
+                            k.len() > method.len() + 1
+                                && k.ends_with(method.as_str())
+                                && k.as_bytes()[k.len() - method.len() - 1] == b'_'
+                        })
+                        .collect();
+                    candidates.sort();
+                    candidates
+                        .first()
+                        .map(|k| (*k).clone())
+                        .unwrap_or_else(|| method.clone())
                 };
 
                 let mut all_args = vec![format!("ptr %v{}", object.0)];
@@ -1241,10 +1332,11 @@ impl<'a> LlvmEmitter<'a> {
             }
             Inst::StructInit {
                 dest,
-                class_name: _,
+                class_name,
                 fields,
             } => {
                 value_types.insert(*dest, "ptr");
+                value_classes.insert(*dest, class_name.clone());
                 for (idx, (_, val_id)) in fields.iter().enumerate() {
                     let f_ty = value_types.get(val_id).copied().unwrap_or("i64");
                     let gep_reg = format!("%gep_{}_{}", dest.0, idx);
@@ -1269,7 +1361,11 @@ impl<'a> LlvmEmitter<'a> {
                 let f_ty = self.dmir_type_to_llvm(ty);
                 value_types.insert(*dest, f_ty);
 
-                let offset = self.find_field_offset(module, field);
+                let offset = self.find_field_offset(
+                    module,
+                    value_classes.get(object).map(|c| c.as_str()),
+                    field,
+                );
                 let gep_reg = format!("%fgep_{}", dest.0);
                 out.push_str(&format!(
                     "  {} = getelementptr inbounds i8, ptr %v{}, i64 {}\n",
@@ -1286,7 +1382,11 @@ impl<'a> LlvmEmitter<'a> {
                 value,
             } => {
                 let f_ty = value_types.get(value).copied().unwrap_or("i64");
-                let offset = self.find_field_offset(module, field);
+                let offset = self.find_field_offset(
+                    module,
+                    value_classes.get(object).map(|c| c.as_str()),
+                    field,
+                );
                 let gep_reg = format!("%fgep_s_{}_{}", object.0, value.0);
                 out.push_str(&format!(
                     "  {} = getelementptr inbounds i8, ptr %v{}, i64 {}\n",
@@ -1441,8 +1541,16 @@ impl<'a> LlvmEmitter<'a> {
                     "i64"
                 };
                 value_types.insert(*dest, vty);
-                let default_val = else_val.unwrap_or(ValueId(0));
-                let mut curr_val_str = format!("%v{}", default_val.0);
+                // No else arm: fall back to a well-defined constant instead
+                // of referencing an undefined %v0.
+                let mut curr_val_str = match else_val {
+                    Some(v) => format!("%v{}", v.0),
+                    None => match vty {
+                        "double" => String::from("0.0"),
+                        "ptr" => String::from("null"),
+                        _ => String::from("0"),
+                    },
+                };
                 for (idx, (cond, val)) in arms.iter().enumerate().rev() {
                     let cmp_temp = format!("%dec_c_{}_{}", dest.0, idx);
                     let sel_temp = if idx == 0 {
@@ -1462,7 +1570,18 @@ impl<'a> LlvmEmitter<'a> {
         }
     }
 
-    fn find_field_offset(&self, module: &Module, field: &str) -> usize {
+    fn find_field_offset(&self, module: &Module, class: Option<&str>, field: &str) -> usize {
+        // Exact class match first: when the object's class is known, only
+        // that class's layout may be consulted — an unrelated class that
+        // happens to declare the same field name must not win.
+        if let Some(cls) = class
+            && let Some(fields) = module.class_fields.get(cls)
+            && let Some(pos) = fields.iter().position(|f| f == field)
+        {
+            return pos * 8;
+        }
+        // Class unknown: keep the historical fallback scan so programs whose
+        // objects come from call results still resolve offsets.
         for fields in module.class_fields.values() {
             if let Some(pos) = fields.iter().position(|f| f == field) {
                 return pos * 8;
@@ -1475,11 +1594,20 @@ impl<'a> LlvmEmitter<'a> {
 /// LLVM Backend implementing `CodegenBackend`.
 pub struct LlvmBackend {
     pub target: TargetInfo,
+    pub debug_info: bool,
 }
 
 impl LlvmBackend {
     pub fn new(target: TargetInfo) -> Self {
-        Self { target }
+        Self {
+            target,
+            debug_info: false,
+        }
+    }
+
+    pub fn with_debug(mut self, debug_info: bool) -> Self {
+        self.debug_info = debug_info;
+        self
     }
 }
 
@@ -1510,7 +1638,7 @@ impl CodegenBackend for LlvmBackend {
             } else {
                 None
             };
-            compile_with_clang(&ll_path, rt_opt, &exe_path, "3")?;
+            compile_with_clang(&ll_path, rt_opt, &exe_path, "3", None, self.debug_info)?;
             Ok(exe_path)
         } else {
             Err(format!(

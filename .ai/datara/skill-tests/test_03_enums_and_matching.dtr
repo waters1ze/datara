@@ -1,0 +1,26 @@
+// Test 03: Enum ADT and Pattern Matching
+enum Event {
+    Start,
+    Progress(Int),
+    Finish
+}
+
+fn eval_event(e: Event) -> Int {
+    match e {
+        Event.Start => 10,
+        Event.Progress(p) => 50,
+        Event.Finish => 100,
+        _ => 0
+    }
+}
+
+fn main() {
+    let e1 = Event.Start
+    let e2 = Event.Progress(75)
+    let e3 = Event.Finish
+    if eval_event(e1) == 10 && eval_event(e2) == 50 && eval_event(e3) == 100 {
+        out "PASS: enums_and_matching"
+    } else {
+        err "FAIL: enums_and_matching"
+    }
+}

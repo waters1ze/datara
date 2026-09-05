@@ -1,0 +1,16 @@
+// Test 07: Proof-Carrying Code Contract Gate
+fn safe_divide(x: Float, y: Float) -> Float
+    require y != 0.0, "Divisor cannot be 0"
+    ensure result >= 0.0
+{
+    return x / y
+}
+
+fn main() {
+    let val = safe_divide(50.0, 2.0)
+    if val == 25.0 {
+        out "PASS: proof_carrying_code"
+    } else {
+        err "FAIL: proof_carrying_code"
+    }
+}

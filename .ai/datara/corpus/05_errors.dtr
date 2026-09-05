@@ -1,0 +1,22 @@
+// 05: Outcome, Maybe, ? and or operators
+use stdlib.result.result.Outcome
+use stdlib.result.option.Maybe
+
+fn parse_code(code: Str) -> Outcome<Int> {
+    if code == "200" {
+        return Outcome<Int> { is_success: true, value: 200, error_msg: "" }
+    }
+    return Outcome<Int> { is_success: false, value: 0, error_msg: "Invalid code" }
+}
+
+fn verify_request(s: Str) -> Outcome<Int> {
+    let status = parse_code(s)?
+    return Outcome<Int> { is_success: true, value: status, error_msg: "" }
+}
+
+fn main() {
+    let ok_res = verify_request("200")
+    let err_res = verify_request("500")
+    let fallback = parse_code("invalid") or 404
+    out fmt"OK: {ok_res.value}, Err: {err_res.error_msg}, Fallback: {fallback}"
+}

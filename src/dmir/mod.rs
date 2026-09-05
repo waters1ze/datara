@@ -432,6 +432,17 @@ pub struct Lowering<'a> {
     pub enum_slots: HashMap<String, Vec<String>>,
 }
 
+/// How a match/decide/select arm's condition is produced during CFG-based
+/// arm lowering. `Pattern` arms reuse the eager lowering's pattern logic.
+enum ArmCond<'a> {
+    Expr(&'a Expr),
+    Pattern {
+        val: ValueId,
+        pattern: &'a Pattern,
+        guard: Option<&'a Expr>,
+    },
+}
+
 impl<'a> Lowering<'a> {
     pub fn new(resolver: &'a Resolver, types: &'a TypeChecker<'a>) -> Self {
         let mut function_return_types = HashMap::new();
@@ -452,6 +463,8 @@ impl<'a> Lowering<'a> {
         function_return_types.insert("input".into(), "String".into());
         function_return_types.insert("read_line".into(), "String".into());
         function_return_types.insert("datara_rt_input".into(), "String".into());
+        function_return_types.insert("http_get".into(), "String".into());
+        function_return_types.insert("datara_rt_http_get".into(), "String".into());
         function_return_types.insert("file_read".into(), "String".into());
         function_return_types.insert("read_file".into(), "String".into());
         function_return_types.insert("datara_rt_file_read".into(), "String".into());
@@ -1555,12 +1568,26 @@ impl<'a> Lowering<'a> {
                                         dest: fetch_idx,
                                         name: idx_name.clone(),
                                     });
+                                // The element representation must match the
+                                // loop variable's checked type: the backend
+                                // keys string/bool/float printing and concat
+                                // off the Call's `ty` field, so a `List<Str>`
+                                // loop must fetch with `ty: "String"`, not the
+                                // integer default.
+                                let elem_repr = match self.lookup_var_type(var_name) {
+                                    Some(DataraType::String) | Some(DataraType::Char) => "String",
+                                    Some(DataraType::Bool) => "Bool",
+                                    Some(DataraType::Float) => "Float",
+                                    Some(DataraType::List(_)) => "List",
+                                    Some(DataraType::Map(..)) => "Map",
+                                    _ => "Int",
+                                };
                                 let item_val = self.next_val();
                                 self.get_block_mut(body_id).instructions.push(Inst::Call {
                                     dest: item_val,
                                     func: "datara_rt_list_get".into(),
                                     args: vec![lv, fetch_idx],
-                                    ty: "Int".into(),
+                                    ty: elem_repr.into(),
                                 });
                                 self.get_block_mut(body_id)
                                     .instructions
@@ -1872,8 +1899,338 @@ impl<'a> Lowering<'a> {
         }
     }
 
+    /// Computes a match arm's condition value (pattern comparison + optional
+    /// guard), shared by the eager Decide path and the CFG arm path.
+    fn lower_match_arm_cond(
+        &mut self,
+        val: ValueId,
+        pattern: &Pattern,
+        guard: Option<&Expr>,
+        cur_block: &mut BasicBlockId,
+    ) -> ValueId {
+        let cond = match pattern {
+            Pattern::Literal(lit, span) => {
+                let lit_expr = Expr::Literal(lit.clone(), span.clone());
+                if let Some(lit_val) = self.lower_expr(&lit_expr, cur_block) {
+                    let eq_dest = self.next_val();
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::BinOp {
+                            dest: eq_dest,
+                            op: "==".into(),
+                            left: val,
+                            right: lit_val,
+                            ty: "Bool".into(),
+                        });
+                    eq_dest
+                } else {
+                    val
+                }
+            }
+            Pattern::Identifier(name, _) if name == "_" => {
+                let true_val = self.next_val();
+                self.get_block_mut(*cur_block)
+                    .instructions
+                    .push(Inst::ConstBool {
+                        dest: true_val,
+                        value: true,
+                    });
+                true_val
+            }
+            Pattern::Identifier(name, _) => {
+                self.symbol_values.insert(name.clone(), val);
+                self.get_block_mut(*cur_block)
+                    .instructions
+                    .push(Inst::AssignVar {
+                        name: name.clone(),
+                        value: val,
+                    });
+                let true_val = self.next_val();
+                self.get_block_mut(*cur_block)
+                    .instructions
+                    .push(Inst::ConstBool {
+                        dest: true_val,
+                        value: true,
+                    });
+                true_val
+            }
+            Pattern::Variant {
+                enum_name,
+                variant_name,
+                bindings,
+                ..
+            } => {
+                let expected_tag = if let Some(en) = enum_name {
+                    self.enum_variant_tags
+                        .get(&format!("{}.{}", en, variant_name))
+                        .copied()
+                } else {
+                    self.enum_variant_tags.get(variant_name).copied()
+                };
+
+                if let Some(tag) = expected_tag {
+                    let tag_dest = self.next_val();
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::GetField {
+                            dest: tag_dest,
+                            object: val,
+                            field: "__tag".to_string(),
+                            ty: "Int".to_string(),
+                        });
+                    let const_tag = self.next_val();
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::ConstInt {
+                            dest: const_tag,
+                            value: tag,
+                        });
+                    let eq_dest = self.next_val();
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::BinOp {
+                            dest: eq_dest,
+                            op: "==".into(),
+                            left: tag_dest,
+                            right: const_tag,
+                            ty: "Bool".into(),
+                        });
+
+                    for (idx, b_name) in bindings.iter().enumerate() {
+                        let field_dest = self.next_val();
+                        let field_name = format!("f{}", idx);
+                        let field_ty = self
+                            .class_field_types
+                            .get(&field_name)
+                            .cloned()
+                            .unwrap_or_else(|| "Int".into());
+                        self.get_block_mut(*cur_block)
+                            .instructions
+                            .push(Inst::GetField {
+                                dest: field_dest,
+                                object: val,
+                                field: field_name,
+                                ty: field_ty,
+                            });
+                        self.symbol_values.insert(b_name.clone(), field_dest);
+                        self.get_block_mut(*cur_block)
+                            .instructions
+                            .push(Inst::AssignVar {
+                                name: b_name.clone(),
+                                value: field_dest,
+                            });
+                    }
+                    eq_dest
+                } else {
+                    let true_val = self.next_val();
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::ConstBool {
+                            dest: true_val,
+                            value: true,
+                        });
+                    true_val
+                }
+            }
+            _ => {
+                let true_val = self.next_val();
+                self.get_block_mut(*cur_block)
+                    .instructions
+                    .push(Inst::ConstBool {
+                        dest: true_val,
+                        value: true,
+                    });
+                true_val
+            }
+        };
+
+        if let Some(g) = guard
+            && let Some(g_val) = self.lower_expr(g, cur_block)
+        {
+            let and_dest = self.next_val();
+            self.get_block_mut(*cur_block)
+                .instructions
+                .push(Inst::BinOp {
+                    dest: and_dest,
+                    op: "&&".into(),
+                    left: cond,
+                    right: g_val,
+                    ty: "Bool".into(),
+                });
+            return and_dest;
+        }
+        cond
+    }
+
+    /// CFG-based lowering for a `match` whose arms have block bodies.
+    fn lower_match_arms_cfg(
+        &mut self,
+        val: ValueId,
+        arms: &[MatchArm],
+        cur_block: &mut BasicBlockId,
+    ) -> Option<ValueId> {
+        let cfg_arms: Vec<(ArmCond<'_>, &Expr)> = arms
+            .iter()
+            .map(|arm| {
+                (
+                    ArmCond::Pattern {
+                        val,
+                        pattern: &arm.pattern,
+                        guard: arm.guard.as_ref(),
+                    },
+                    &arm.body,
+                )
+            })
+            .collect();
+        self.lower_arm_conds_cfg(&cfg_arms, None, cur_block)
+    }
+
+    /// Lowers match/decide/select arms as real control flow: each arm body is
+    /// lowered into its own block and its value stored to a temp, so block
+    /// bodies with side effects only execute when their arm is selected.
+    /// Control falls through the condition chain into the merge block, which
+    /// falls through to whatever the surrounding lowering emits next (the same
+    /// pattern as Stmt::If).
+    fn lower_arm_conds_cfg(
+        &mut self,
+        arms: &[(ArmCond<'_>, &Expr)],
+        else_body: Option<&Expr>,
+        cur_block: &mut BasicBlockId,
+    ) -> Option<ValueId> {
+        let temp = format!("__match_val_{}", self.val_counter);
+        // Zero-init so a fall-through (no arm taken, no else) yields 0.
+        let zero = self.next_val();
+        self.get_block_mut(*cur_block)
+            .instructions
+            .push(Inst::ConstInt {
+                dest: zero,
+                value: 0,
+            });
+        self.symbol_values.insert(temp.clone(), zero);
+        self.get_block_mut(*cur_block)
+            .instructions
+            .push(Inst::AssignVar {
+                name: temp.clone(),
+                value: zero,
+            });
+
+        let mut arm_ends: Vec<BasicBlockId> = Vec::new();
+        for (cond_src, body) in arms {
+            let cond = match cond_src {
+                ArmCond::Expr(cond_expr) => {
+                    self.lower_expr(cond_expr, cur_block).unwrap_or_else(|| {
+                        let t = self.next_val();
+                        self.get_block_mut(*cur_block)
+                            .instructions
+                            .push(Inst::ConstBool {
+                                dest: t,
+                                value: true,
+                            });
+                        t
+                    })
+                }
+                ArmCond::Pattern {
+                    val,
+                    pattern,
+                    guard,
+                } => self.lower_match_arm_cond(*val, pattern, *guard, cur_block),
+            };
+            let arm_id = self.create_block("match_arm");
+            let next_id = self.create_block("match_next");
+            self.get_block_mut(*cur_block).terminator = Terminator::CondBranch {
+                cond,
+                then_block: arm_id,
+                then_args: Vec::new(),
+                else_block: next_id,
+                else_args: Vec::new(),
+            };
+            let mut body_block = arm_id;
+            let body_val = self.lower_expr(body, &mut body_block);
+            if let Some(bv) = body_val {
+                self.symbol_values.insert(temp.clone(), bv);
+                self.get_block_mut(body_block)
+                    .instructions
+                    .push(Inst::AssignVar {
+                        name: temp.clone(),
+                        value: bv,
+                    });
+            }
+            if self.block_falls_through(body_block) {
+                arm_ends.push(body_block);
+            }
+            *cur_block = next_id;
+        }
+        if let Some(eb) = else_body {
+            // The else body lowers into the final "next" block, which only
+            // runs when no arm matched — never into the merge itself, or it
+            // would overwrite the selected arm's value.
+            let else_val = self.lower_expr(eb, cur_block);
+            if let Some(bv) = else_val {
+                self.symbol_values.insert(temp.clone(), bv);
+                self.get_block_mut(*cur_block)
+                    .instructions
+                    .push(Inst::AssignVar {
+                        name: temp.clone(),
+                        value: bv,
+                    });
+            }
+        }
+
+        // With an else body the last "next" block is the else block, so the
+        // merge point is a fresh block; without one the fall-through block is
+        // the merge. Arm blocks branch forward into it (back-fixup now that
+        // its id is known).
+        let merge_id = if else_body.is_some() {
+            let m = self.create_block("match_merge");
+            if self.block_falls_through(*cur_block) {
+                self.get_block_mut(*cur_block).terminator = Terminator::Branch {
+                    target: m,
+                    args: Vec::new(),
+                };
+            }
+            *cur_block = m;
+            m
+        } else {
+            *cur_block
+        };
+        for b in arm_ends {
+            self.get_block_mut(b).terminator = Terminator::Branch {
+                target: merge_id,
+                args: Vec::new(),
+            };
+        }
+        let dest = self.next_val();
+        self.get_block_mut(merge_id)
+            .instructions
+            .push(Inst::LoadVar {
+                dest,
+                name: temp.clone(),
+            });
+        Some(dest)
+    }
+
     pub fn lower_expr(&mut self, expr: &Expr, cur_block: &mut BasicBlockId) -> Option<ValueId> {
         match expr {
+            Expr::Block(stmts, value, _) => {
+                // Arm bodies like `match x { 1 => { let y = 2; y } }`: lower
+                // the statements inline into the current block sequence (same
+                // flow as Stmt::Block in lower_stmt_cfg), then produce the
+                // trailing value (or a Unit-ish const when absent).
+                for s in stmts {
+                    let (next_b, _val) = self.lower_stmt_cfg(s, *cur_block);
+                    *cur_block = next_b;
+                }
+                match value {
+                    Some(v) => self.lower_expr(v, cur_block),
+                    None => {
+                        let dest = self.next_val();
+                        self.get_block_mut(*cur_block)
+                            .instructions
+                            .push(Inst::ConstInt { dest, value: 0 });
+                        Some(dest)
+                    }
+                }
+            }
             Expr::Literal(lit, _) => {
                 let dest = self.next_val();
                 let b = self.get_block_mut(*cur_block);
@@ -2141,7 +2498,10 @@ impl<'a> Lowering<'a> {
                 let r = self.lower_expr(right, cur_block)?;
                 let dest = self.next_val();
                 let is_float = self.is_expr_float(left) || self.is_expr_float(right);
-                let is_str = (op == "+") && (self.is_expr_str(left) || self.is_expr_str(right));
+                let is_str_concat =
+                    (op == "+") && (self.is_expr_str(left) || self.is_expr_str(right));
+                let is_str_cmp = (op == "==" || op == "!=")
+                    && (self.is_expr_str(left) || self.is_expr_str(right));
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::BinOp {
@@ -2149,7 +2509,7 @@ impl<'a> Lowering<'a> {
                         op: op.clone(),
                         left: l,
                         right: r,
-                        ty: if is_str {
+                        ty: if is_str_concat || is_str_cmp {
                             "String".into()
                         } else if is_float {
                             "Float".into()
@@ -2689,66 +3049,7 @@ impl<'a> Lowering<'a> {
                 }
 
                 let dest = self.next_val();
-                let ret_ty = self
-                    .function_return_types
-                    .get(&func_name)
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        if func_name == "str_to_int"
-                            || func_name.ends_with("_to_int")
-                            || func_name.contains("count")
-                            || func_name.contains("index")
-                        {
-                            "Int".into()
-                        } else if func_name == "str_to_float"
-                            || func_name.ends_with("_to_float")
-                            || func_name.contains("float")
-                            || func_name.contains("flt")
-                        {
-                            "Float".into()
-                        } else if func_name.contains("is_")
-                            || func_name.contains("has_")
-                            || func_name.contains("contains")
-                            || func_name.contains("starts_with")
-                            || func_name.ends_with("_with")
-                        {
-                            "Bool".into()
-                        } else if func_name.contains("string")
-                            || func_name.contains("to_str")
-                            || func_name.ends_with("_str")
-                            || func_name.contains("classify")
-                            || func_name.contains("handle")
-                            || func_name.contains("format")
-                            || func_name.contains("render")
-                            || func_name.contains("quote")
-                            || func_name.contains("summary")
-                            || func_name == "read"
-                            || func_name == "file_read"
-                            || func_name == "datara_rt_file_read"
-                            || func_name == "env_get"
-                            || func_name == "datara_rt_env_get"
-                            || func_name == "args_get"
-                            || func_name == "datara_rt_args_get"
-                            || func_name == "str_trim"
-                            || func_name == "datara_rt_str_trim"
-                            || func_name == "socket_recv"
-                            || func_name == "datara_rt_socket_recv"
-                            || func_name == "sha256"
-                            || func_name == "datara_rt_sha256"
-                            || func_name == "base64_encode"
-                            || func_name == "datara_rt_base64_encode"
-                            || func_name == "base64_decode"
-                            || func_name == "datara_rt_base64_decode"
-                            || func_name == "uuid_v4"
-                            || func_name == "datara_rt_uuid_v4"
-                            || func_name == "int_to_str"
-                            || func_name == "datara_rt_int_to_str"
-                        {
-                            "String".into()
-                        } else {
-                            "Int".into()
-                        }
-                    });
+                let ret_ty = self.infer_fn_ret_ty(&func_name);
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::Call {
@@ -3100,6 +3401,17 @@ impl<'a> Lowering<'a> {
                 Some(current)
             }
             Expr::Decide { arms, else_arm, .. } => {
+                let has_block_body = arms.iter().any(|arm| matches!(&arm.body, Expr::Block(..)))
+                    || else_arm
+                        .as_ref()
+                        .is_some_and(|eb| matches!(**eb, Expr::Block(..)));
+                if has_block_body {
+                    let cfg_arms: Vec<(ArmCond<'_>, &Expr)> = arms
+                        .iter()
+                        .map(|arm| (ArmCond::Expr(&arm.condition), &arm.body))
+                        .collect();
+                    return self.lower_arm_conds_cfg(&cfg_arms, else_arm.as_deref(), cur_block);
+                }
                 let is_str = arms.iter().any(|arm| self.is_expr_str(&arm.body))
                     || else_arm
                         .as_ref()
@@ -3132,168 +3444,20 @@ impl<'a> Lowering<'a> {
                 Some(dest)
             }
             Expr::Match { value, arms, .. } => {
-                let is_str = arms.iter().any(|arm| self.is_expr_str(&arm.body));
                 let val = self.lower_expr(value, cur_block)?;
+                // Block arm bodies may carry side effects (out, assignments,
+                // calls); they must only run when their arm is actually
+                // selected, so lower those matches as real control flow.
+                if arms.iter().any(|arm| matches!(&arm.body, Expr::Block(..))) {
+                    return self.lower_match_arms_cfg(val, arms, cur_block);
+                }
+                let is_str = arms.iter().any(|arm| self.is_expr_str(&arm.body));
                 let mut lowered_arms = Vec::new();
                 for arm in arms {
-                    let cond = match &arm.pattern {
-                        Pattern::Literal(lit, span) => {
-                            let lit_expr = Expr::Literal(lit.clone(), span.clone());
-                            if let Some(lit_val) = self.lower_expr(&lit_expr, cur_block) {
-                                let eq_dest = self.next_val();
-                                self.get_block_mut(*cur_block)
-                                    .instructions
-                                    .push(Inst::BinOp {
-                                        dest: eq_dest,
-                                        op: "==".into(),
-                                        left: val,
-                                        right: lit_val,
-                                        ty: "Bool".into(),
-                                    });
-                                eq_dest
-                            } else {
-                                val
-                            }
-                        }
-                        Pattern::Identifier(name, _) if name == "_" => {
-                            let true_val = self.next_val();
-                            self.get_block_mut(*cur_block)
-                                .instructions
-                                .push(Inst::ConstBool {
-                                    dest: true_val,
-                                    value: true,
-                                });
-                            true_val
-                        }
-                        Pattern::Identifier(name, _) => {
-                            self.symbol_values.insert(name.clone(), val);
-                            self.get_block_mut(*cur_block)
-                                .instructions
-                                .push(Inst::AssignVar {
-                                    name: name.clone(),
-                                    value: val,
-                                });
-                            let true_val = self.next_val();
-                            self.get_block_mut(*cur_block)
-                                .instructions
-                                .push(Inst::ConstBool {
-                                    dest: true_val,
-                                    value: true,
-                                });
-                            true_val
-                        }
-                        Pattern::Variant {
-                            enum_name,
-                            variant_name,
-                            bindings,
-                            ..
-                        } => {
-                            let expected_tag = if let Some(en) = enum_name {
-                                self.enum_variant_tags
-                                    .get(&format!("{}.{}", en, variant_name))
-                                    .copied()
-                            } else {
-                                self.enum_variant_tags.get(variant_name).copied()
-                            };
-
-                            if let Some(tag) = expected_tag {
-                                let tag_dest = self.next_val();
-                                self.get_block_mut(*cur_block)
-                                    .instructions
-                                    .push(Inst::GetField {
-                                        dest: tag_dest,
-                                        object: val,
-                                        field: "__tag".to_string(),
-                                        ty: "Int".to_string(),
-                                    });
-                                let const_tag = self.next_val();
-                                self.get_block_mut(*cur_block)
-                                    .instructions
-                                    .push(Inst::ConstInt {
-                                        dest: const_tag,
-                                        value: tag,
-                                    });
-                                let eq_dest = self.next_val();
-                                self.get_block_mut(*cur_block)
-                                    .instructions
-                                    .push(Inst::BinOp {
-                                        dest: eq_dest,
-                                        op: "==".into(),
-                                        left: tag_dest,
-                                        right: const_tag,
-                                        ty: "Bool".into(),
-                                    });
-
-                                for (idx, b_name) in bindings.iter().enumerate() {
-                                    let field_dest = self.next_val();
-                                    let field_name = format!("f{}", idx);
-                                    let field_ty = self
-                                        .class_field_types
-                                        .get(&field_name)
-                                        .cloned()
-                                        .unwrap_or_else(|| "Int".into());
-                                    self.get_block_mut(*cur_block).instructions.push(
-                                        Inst::GetField {
-                                            dest: field_dest,
-                                            object: val,
-                                            field: field_name,
-                                            ty: field_ty,
-                                        },
-                                    );
-                                    self.symbol_values.insert(b_name.clone(), field_dest);
-                                    self.get_block_mut(*cur_block).instructions.push(
-                                        Inst::AssignVar {
-                                            name: b_name.clone(),
-                                            value: field_dest,
-                                        },
-                                    );
-                                }
-                                eq_dest
-                            } else {
-                                let true_val = self.next_val();
-                                self.get_block_mut(*cur_block)
-                                    .instructions
-                                    .push(Inst::ConstBool {
-                                        dest: true_val,
-                                        value: true,
-                                    });
-                                true_val
-                            }
-                        }
-                        _ => {
-                            let true_val = self.next_val();
-                            self.get_block_mut(*cur_block)
-                                .instructions
-                                .push(Inst::ConstBool {
-                                    dest: true_val,
-                                    value: true,
-                                });
-                            true_val
-                        }
-                    };
-
-                    let final_cond = if let Some(guard) = &arm.guard {
-                        if let Some(g_val) = self.lower_expr(guard, cur_block) {
-                            let and_dest = self.next_val();
-                            self.get_block_mut(*cur_block)
-                                .instructions
-                                .push(Inst::BinOp {
-                                    dest: and_dest,
-                                    op: "&&".into(),
-                                    left: cond,
-                                    right: g_val,
-                                    ty: "Bool".into(),
-                                });
-                            and_dest
-                        } else {
-                            cond
-                        }
-                    } else {
-                        cond
-                    };
-
+                    let cond =
+                        self.lower_match_arm_cond(val, &arm.pattern, arm.guard.as_ref(), cur_block);
                     let body_val = self.lower_expr(&arm.body, cur_block)?;
-                    lowered_arms.push((final_cond, body_val));
+                    lowered_arms.push((cond, body_val));
                 }
                 let dest = self.next_val();
                 self.get_block_mut(*cur_block)
@@ -3311,6 +3475,17 @@ impl<'a> Lowering<'a> {
                 Some(dest)
             }
             Expr::Select { arms, else_arm, .. } => {
+                let has_block_body = arms.iter().any(|arm| matches!(&arm.body, Expr::Block(..)))
+                    || else_arm
+                        .as_ref()
+                        .is_some_and(|eb| matches!(**eb, Expr::Block(..)));
+                if has_block_body {
+                    let cfg_arms: Vec<(ArmCond<'_>, &Expr)> = arms
+                        .iter()
+                        .map(|arm| (ArmCond::Expr(&arm.condition), &arm.body))
+                        .collect();
+                    return self.lower_arm_conds_cfg(&cfg_arms, else_arm.as_deref(), cur_block);
+                }
                 let is_str = arms.iter().any(|arm| self.is_expr_str(&arm.body))
                     || else_arm
                         .as_ref()
@@ -3351,15 +3526,68 @@ impl<'a> Lowering<'a> {
                     }
                 }
                 let dest = self.next_val();
-                let func_name = format!("datara_rt_list_create_{}", vals.len());
-                self.get_block_mut(*cur_block)
-                    .instructions
-                    .push(Inst::Call {
-                        dest,
-                        func: func_name,
-                        args: vals,
-                        ty: "List".into(),
-                    });
+                // The runtime exposes fixed-arity constructors for 1..=5
+                // elements; anything else is built with create + append so
+                // literals of arbitrary size lower successfully.
+                if vals.is_empty() {
+                    let cap = self.next_val();
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::ConstInt {
+                            dest: cap,
+                            value: 0,
+                        });
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::Call {
+                            dest,
+                            func: "datara_rt_list_create".into(),
+                            args: vec![cap],
+                            ty: "List".into(),
+                        });
+                } else if vals.len() <= 5 {
+                    let func_name = format!("datara_rt_list_create_{}", vals.len());
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::Call {
+                            dest,
+                            func: func_name,
+                            args: vals,
+                            ty: "List".into(),
+                        });
+                } else {
+                    let cap = self.next_val();
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::ConstInt {
+                            dest: cap,
+                            value: vals.len() as i64,
+                        });
+                    let mut cur_list = dest;
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::Call {
+                            dest,
+                            func: "datara_rt_list_create".into(),
+                            args: vec![cap],
+                            ty: "List".into(),
+                        });
+                    for v in vals {
+                        let next = self.next_val();
+                        self.get_block_mut(*cur_block)
+                            .instructions
+                            .push(Inst::Call {
+                                dest: next,
+                                func: "datara_rt_list_append".into(),
+                                args: vec![cur_list, v],
+                                ty: "List".into(),
+                            });
+                        // append may reallocate; the canonical list pointer
+                        // is the latest append result.
+                        cur_list = next;
+                    }
+                    return Some(cur_list);
+                }
                 Some(dest)
             }
             Expr::MapLiteral(entries, _) => {
@@ -3373,15 +3601,51 @@ impl<'a> Lowering<'a> {
                     }
                 }
                 let dest = self.next_val();
-                let func_name = format!("datara_rt_map_create_{}", entries.len());
-                self.get_block_mut(*cur_block)
-                    .instructions
-                    .push(Inst::Call {
-                        dest,
-                        func: func_name,
-                        args: vals,
-                        ty: "Map".into(),
-                    });
+                let n_entries = vals.len() / 2;
+                // Fixed-arity constructors exist for 1..=5 entries; empty maps
+                // use the 0-arg constructor and larger literals fall back to
+                // create + insert so any size lowers successfully.
+                if n_entries == 0 {
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::Call {
+                            dest,
+                            func: "datara_rt_map_create".into(),
+                            args: vec![],
+                            ty: "Map".into(),
+                        });
+                } else if n_entries <= 5 {
+                    let func_name = format!("datara_rt_map_create_{}", n_entries);
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::Call {
+                            dest,
+                            func: func_name,
+                            args: vals,
+                            ty: "Map".into(),
+                        });
+                } else {
+                    self.get_block_mut(*cur_block)
+                        .instructions
+                        .push(Inst::Call {
+                            dest,
+                            func: "datara_rt_map_create".into(),
+                            args: vec![],
+                            ty: "Map".into(),
+                        });
+                    let mut pairs = vals.into_iter();
+                    while let (Some(k), Some(v)) = (pairs.next(), pairs.next()) {
+                        let next = self.next_val();
+                        self.get_block_mut(*cur_block)
+                            .instructions
+                            .push(Inst::Call {
+                                dest: next,
+                                func: "datara_rt_map_insert".into(),
+                                args: vec![dest, k, v],
+                                ty: "Map".into(),
+                            });
+                    }
+                }
                 Some(dest)
             }
             Expr::IndexAccess { object, index, .. } => {
@@ -3671,6 +3935,81 @@ impl<'a> Lowering<'a> {
         }
     }
 
+    fn infer_fn_ret_ty(&self, func_name: &str) -> String {
+        if let Some(ty) = self.function_return_types.get(func_name) {
+            return ty.clone();
+        }
+        if func_name == "str_to_int"
+            || func_name == "datara_rt_str_to_int"
+            || func_name == "js_eval_int"
+            || func_name == "datara_js_eval_int"
+            || func_name == "str_len"
+            || func_name == "datara_rt_str_len"
+            || func_name.ends_with("_to_int")
+            || func_name.contains("count")
+            || func_name.contains("index")
+        {
+            "Int".into()
+        } else if func_name == "str_to_float"
+            || func_name == "datara_rt_str_to_float"
+            || func_name == "js_eval_float"
+            || func_name == "datara_js_eval_float"
+            || func_name.ends_with("_to_float")
+            || func_name.contains("float")
+            || func_name.contains("flt")
+        {
+            "Float".into()
+        } else if func_name.contains("is_")
+            || func_name.contains("has_")
+            || func_name.contains("contains")
+            || func_name.contains("starts_with")
+            || func_name.ends_with("_with")
+        {
+            "Bool".into()
+        } else if func_name.contains("string")
+            || func_name.contains("to_str")
+            || func_name.ends_with("_str")
+            || func_name.starts_with("js_")
+            || func_name.starts_with("datara_js_")
+            || func_name.contains("classify")
+            || func_name.contains("handle")
+            || func_name.contains("format")
+            || func_name.contains("render")
+            || func_name.contains("quote")
+            || func_name.contains("summary")
+            || func_name.contains("repeat")
+            || func_name.contains("pad")
+            || func_name.contains("replace")
+            || func_name.contains("upper")
+            || func_name.contains("lower")
+            || func_name == "read"
+            || func_name == "file_read"
+            || func_name == "datara_rt_file_read"
+            || func_name == "env_get"
+            || func_name == "datara_rt_env_get"
+            || func_name == "args_get"
+            || func_name == "datara_rt_args_get"
+            || func_name == "str_trim"
+            || func_name == "datara_rt_str_trim"
+            || func_name == "socket_recv"
+            || func_name == "datara_rt_socket_recv"
+            || func_name == "sha256"
+            || func_name == "datara_rt_sha256"
+            || func_name == "base64_encode"
+            || func_name == "datara_rt_base64_encode"
+            || func_name == "base64_decode"
+            || func_name == "datara_rt_base64_decode"
+            || func_name == "uuid_v4"
+            || func_name == "datara_rt_uuid_v4"
+            || func_name == "int_to_str"
+            || func_name == "datara_rt_int_to_str"
+        {
+            "String".into()
+        } else {
+            "Int".into()
+        }
+    }
+
     fn is_expr_str(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Literal(LiteralValue::String(_), _) | Expr::InterpolatedString { .. } => true,
@@ -3702,7 +4041,26 @@ impl<'a> Lowering<'a> {
                     || name.contains("str")
                     || name.contains("msg")
             }
-            Expr::Binary { left, right, .. } => self.is_expr_str(left) || self.is_expr_str(right),
+            Expr::Binary {
+                op, left, right, ..
+            } => {
+                if op == "+" {
+                    self.is_expr_str(left) || self.is_expr_str(right)
+                } else {
+                    false
+                }
+            }
+            Expr::Call { callee, .. } => match &**callee {
+                Expr::Identifier(fn_name, _) => {
+                    let ret = self.infer_fn_ret_ty(fn_name);
+                    ret == "String" || ret == "Str"
+                }
+                Expr::MemberAccess { member, .. } => {
+                    let ret = self.infer_fn_ret_ty(member);
+                    ret == "String" || ret == "Str"
+                }
+                _ => false,
+            },
             _ => false,
         }
     }

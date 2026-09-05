@@ -3,6 +3,25 @@ use crate::diagnostics::{DiagnosticEngine, ErrorCode, SourceSpan};
 use crate::resolver::Resolver;
 use std::collections::{HashMap, HashSet};
 
+/// Message prefix of the diagnostic emitted for a plain *read* of a moved
+/// value (`Expr::Identifier` path below). Only these second-pass reports are
+/// promoted to real diagnostics by `check_loop_body_twice`.
+const LOOP_CARRIED_USE_MARKER: &str = "Use of moved value";
+
+/// Extracts the first single-quoted token from a diagnostic message (the
+/// variable name), used as the variable half of the loop second-pass dedup
+/// key `(variable, error code)`.
+fn first_quoted(message: &str) -> String {
+    let start = match message.find('\'') {
+        Some(i) => i + 1,
+        None => return String::new(),
+    };
+    match message[start..].find('\'') {
+        Some(end) => message[start..start + end].to_string(),
+        None => message[start..].to_string(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValueState {
     Active,
@@ -17,6 +36,7 @@ pub struct BorrowRecord {
     pub scope_depth: usize,
 }
 
+#[derive(Clone)]
 pub struct OwnershipTracker<'a> {
     pub resolver: &'a Resolver,
     pub states: HashMap<String, ValueState>,
@@ -26,6 +46,12 @@ pub struct OwnershipTracker<'a> {
     pub immutable_bindings: HashSet<String>,
     pub current_scope: usize,
     pub bindings_by_scope: HashMap<usize, Vec<String>>,
+    /// Names of classes declared in the program. Values of class type are
+    /// owned heap values: passing them by value into a function moves them.
+    class_names: HashSet<String>,
+    /// User-declared function signatures: name -> parameter list (with
+    /// ownership modes) so call sites can be checked interprocedurally.
+    fn_signatures: HashMap<String, Vec<crate::ast::Param>>,
 }
 
 impl<'a> OwnershipTracker<'a> {
@@ -39,10 +65,26 @@ impl<'a> OwnershipTracker<'a> {
             immutable_bindings: HashSet::new(),
             current_scope: 0,
             bindings_by_scope: HashMap::new(),
+            class_names: HashSet::new(),
+            fn_signatures: HashMap::new(),
         }
     }
 
     pub fn check_program(&mut self, program: &Program, diag: &mut DiagnosticEngine) {
+        // Collect declared class names and function signatures once, so call
+        // sites can be checked interprocedurally (pass-by-value of class-typed
+        // values moves them).
+        for decl in &program.declarations {
+            match decl {
+                Decl::Class(c) => {
+                    self.class_names.insert(c.name.clone());
+                }
+                Decl::Function(f) | Decl::Flow(f) | Decl::Task(f) => {
+                    self.fn_signatures.insert(f.name.clone(), f.params.clone());
+                }
+                _ => {}
+            }
+        }
         for decl in &program.declarations {
             self.check_decl(decl, diag);
         }
@@ -221,6 +263,12 @@ impl<'a> OwnershipTracker<'a> {
                                 )),
                             );
                         }
+
+                        // 4. The assignment re-initializes the variable: reset its
+                        // state so a prior move/borrow violation is reported once
+                        // for the current use only, without cascading duplicates.
+                        self.states.insert(name.to_string(), ValueState::Active);
+                        self.active_borrows.remove(name);
                     }
                 } else {
                     self.check_expr_usage(target, diag);
@@ -233,8 +281,56 @@ impl<'a> OwnershipTracker<'a> {
                 if let Some(e) = opt_e {
                     self.check_expr_usage(e, diag);
 
-                    // Check for escaping view: returning view of a local variable
-                    if let Expr::Identifier(var_name, _) = e {
+                    // Check for escaping views: returning a view of a local
+                    // variable out of function scope. Covers both the borrowed
+                    // variable itself (`return v;`) and a direct view creation
+                    // in the return expression (`return x.view();`, which
+                    // parses as a call whose callee is a member access).
+                    let direct_view_creation = match e {
+                        Expr::MemberAccess { object, member, .. } if member == "view" => {
+                            matches!(&**object, Expr::Identifier(_, _))
+                        }
+                        Expr::Call { callee, .. } => matches!(
+                            &**callee,
+                            Expr::MemberAccess { object, member, .. }
+                                if member == "view"
+                                    && matches!(&**object, Expr::Identifier(_, _))
+                        ),
+                        _ => false,
+                    };
+
+                    let returned_view_of: Option<&String> = match e {
+                        Expr::Identifier(var_name, _) => Some(var_name),
+                        Expr::MemberAccess { object, .. } => {
+                            if let Expr::Identifier(var_name, _) = &**object {
+                                Some(var_name)
+                            } else {
+                                None
+                            }
+                        }
+                        Expr::Call { callee, .. } => {
+                            if let Expr::MemberAccess { object, .. } = &**callee
+                                && let Expr::Identifier(var_name, _) = &**object
+                            {
+                                Some(var_name)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(var_name) = returned_view_of {
+                        // `return x.view();` on a local variable escapes directly.
+                        if direct_view_creation && self.local_bindings.contains(var_name) {
+                            diag.error(
+                                ErrorCode::BorrowEscapingView,
+                                format!("Cannot return view '{}' of local variable out of function scope", var_name),
+                                Some(span.clone()),
+                            );
+                        }
+
+                        // `return v;` where 'v' is a borrower of a local variable.
                         for (source, borrows) in &self.active_borrows {
                             if self.local_bindings.contains(source)
                                 && borrows.iter().any(|b| b.borrower == *var_name)
@@ -256,20 +352,63 @@ impl<'a> OwnershipTracker<'a> {
                 ..
             } => {
                 self.check_expr_usage(condition, diag);
+
+                // Snapshot the state before branching so each branch is checked
+                // against the same starting point: a move in the then-branch must
+                // not poison the else-branch (and vice versa).
+                let snapshot_states = self.states.clone();
+                let snapshot_borrows = self.active_borrows.clone();
+
                 self.check_stmt(then_branch, diag, false);
-                if let Some(eb) = else_branch {
+                let then_states = std::mem::replace(&mut self.states, snapshot_states.clone());
+                let _then_borrows =
+                    std::mem::replace(&mut self.active_borrows, snapshot_borrows.clone());
+
+                let else_states = if let Some(eb) = else_branch {
                     self.check_stmt(eb, diag, false);
+                    Some(std::mem::replace(&mut self.states, snapshot_states.clone()))
+                } else {
+                    None
+                };
+
+                // Conservative join:
+                // - With an else branch, a variable is definitely Moved after the
+                //   `if` only if it was moved in BOTH branches.
+                // - Without an else branch, nothing from the then-branch propagates
+                //   as definitely-moved (the branch may not have executed).
+                // - If either branch ends with the variable Active (e.g. it was
+                //   reassigned there), the joined state is Active. False negatives
+                //   are acceptable; false positives are not.
+                let mut joined = snapshot_states.clone();
+                for (name, snap_state) in snapshot_states.iter() {
+                    let joined_state = match &else_states {
+                        Some(else_map) => {
+                            let t = then_states.get(name).unwrap_or(snap_state);
+                            let e = else_map.get(name).unwrap_or(snap_state);
+                            match (t, e) {
+                                (ValueState::Moved { .. }, ValueState::Moved { .. }) => t.clone(),
+                                _ => ValueState::Active,
+                            }
+                        }
+                        None => snap_state.clone(),
+                    };
+                    joined.insert(name.clone(), joined_state);
                 }
+                self.states = joined;
+
+                // Borrows created inside a branch die with the branch; restore the
+                // pre-branch borrow set so branch-only borrows cannot cause
+                // false-positive conflicts after the `if`.
+                self.active_borrows = snapshot_borrows;
             }
             Stmt::For { iterable, body, .. } => {
                 self.check_expr_usage(iterable, diag);
-                self.check_stmt(body, diag, false);
+                self.check_loop_body_twice(None, body, diag);
             }
             Stmt::While {
                 condition, body, ..
             } => {
-                self.check_expr_usage(condition, diag);
-                self.check_stmt(body, diag, false);
+                self.check_loop_body_twice(Some(condition), body, diag);
             }
             Stmt::Loop { body, .. } => {
                 self.check_stmt(body, diag, false);
@@ -325,6 +464,10 @@ impl<'a> OwnershipTracker<'a> {
                     Some(span.clone()),
                     Some(format!("ensure view '{}' is no longer in scope before modifying '{}'", b.borrower, name)),
                 );
+            // Clear the stale borrow records so the rebinding below leaves no
+            // dangling borrows and later uses do not produce cascading
+            // duplicate errors.
+            self.active_borrows.remove(name);
         }
 
         self.local_bindings.push(name.to_string());
@@ -440,6 +583,64 @@ impl<'a> OwnershipTracker<'a> {
             });
     }
 
+    /// Loop-carried approximation for `while`/`for` bodies: the body is
+    /// checked twice. The first pass runs sequentially (catching
+    /// intra-iteration use-after-move). The second pass re-checks the body
+    /// with the post-first-pass states, so a value moved LATE in the body
+    /// reads as Moved EARLY in the next iteration — a loop-carried violation
+    /// the single sequential pass cannot see.
+    ///
+    /// Only loop-carried *reads* of moved values ("Use of moved value ...")
+    /// are reported from the second pass, deduped against everything the
+    /// first pass already reported by (variable, error code). All other
+    /// second-pass diagnostics (move-after-move cascades, borrow conflicts
+    /// the first pass already caught, ...) are suppressed: conservative here
+    /// means no new false positives on programs the first pass accepted.
+    ///
+    /// The second pass runs on an isolated clone of the tracker with a
+    /// scratch diagnostic engine, so the loop-exit states (and therefore the
+    /// post-loop "used after the loop" behaviour) remain exactly those of the
+    /// first sequential pass.
+    fn check_loop_body_twice(
+        &mut self,
+        condition: Option<&Expr>,
+        body: &Stmt,
+        diag: &mut DiagnosticEngine,
+    ) {
+        let base = diag.diagnostics.len();
+        if let Some(c) = condition {
+            self.check_expr_usage(c, diag);
+        }
+        self.check_stmt(body, diag, false);
+
+        // (variable, error code) keys of everything the first pass reported.
+        let mut reported: HashSet<(String, String)> = HashSet::new();
+        for d in &diag.diagnostics[base..] {
+            reported.insert((first_quoted(&d.message), d.code.clone()));
+        }
+
+        let mut second_pass = self.clone();
+        let mut scratch = DiagnosticEngine::new(&diag.locale);
+        if let Some(c) = condition {
+            second_pass.check_expr_usage(c, &mut scratch);
+        }
+        second_pass.check_stmt(body, &mut scratch, false);
+
+        for d in &scratch.diagnostics {
+            if d.code != ErrorCode::BorrowUseAfterMove.as_str()
+                || !d.message.starts_with(LOOP_CARRIED_USE_MARKER)
+            {
+                continue;
+            }
+            let key = (first_quoted(&d.message), d.code.clone());
+            if !reported.insert(key) {
+                continue;
+            }
+            diag.error_count += 1;
+            diag.diagnostics.push(d.clone());
+        }
+    }
+
     fn check_expr_usage(&mut self, expr: &Expr, diag: &mut DiagnosticEngine) {
         match expr {
             Expr::Identifier(name, span) => {
@@ -457,12 +658,19 @@ impl<'a> OwnershipTracker<'a> {
             Expr::Call { callee, args, span } => {
                 self.check_expr_usage(callee, diag);
 
-                // Check for move-by-value triggers (e.g. `destroy(x)`)
+                // Check for move-by-value triggers (e.g. `destroy(x)`).
+                // When the first argument is a plain identifier it is fully
+                // handled here (move-after-move, borrow conflict, or marking
+                // the value as moved); the generic per-argument recursion below
+                // must skip it, otherwise the argument is reported a second
+                // time as a "use of moved value" cascade.
+                let mut destroy_arg_handled = false;
                 if let Expr::Identifier(fn_name, _) = &**callee
                     && fn_name == "destroy"
                     && !args.is_empty()
                     && let Expr::Identifier(arg_name, arg_span) = &args[0]
                 {
+                    destroy_arg_handled = true;
                     if let Some(ValueState::Moved { at_span, reason }) = self.states.get(arg_name) {
                         diag.error(
                             ErrorCode::BorrowUseAfterMove,
@@ -497,6 +705,75 @@ impl<'a> OwnershipTracker<'a> {
                                 reason: "consumed by 'destroy'".to_string(),
                             },
                         );
+                    }
+                }
+
+                // Interprocedural move semantics: passing a class-typed local
+                // by value into a user-declared function whose parameter is
+                // `owned` consumes it. After the call the argument is Moved,
+                // so later uses/borrows are correctly rejected.
+                let mut moved_by_call: Vec<usize> = Vec::new();
+                if let Expr::Identifier(fn_name, _) = &**callee
+                    && let Some(params) = self.fn_signatures.get(fn_name).cloned()
+                {
+                    for (i, a) in args.iter().enumerate() {
+                        let Some(p) = params.get(i) else {
+                            break;
+                        };
+                        let is_owned = p.ownership_mode == "owned" || p.ownership_mode == "own";
+                        let is_class = p
+                            .type_node
+                            .as_ref()
+                            .is_some_and(|t| self.class_names.contains(&t.name));
+                        if !is_owned || !is_class {
+                            continue;
+                        }
+                        if let Expr::Identifier(arg_name, arg_span) = a {
+                            match self.states.get(arg_name) {
+                                Some(ValueState::Moved { at_span, reason }) => {
+                                    diag.error(
+                                        ErrorCode::BorrowUseAfterMove,
+                                        format!(
+                                            "Cannot move '{}' because it was already moved at {} ({})",
+                                            arg_name, at_span, reason
+                                        ),
+                                        Some(arg_span.clone()),
+                                    );
+                                    moved_by_call.push(i);
+                                }
+                                _ => {
+                                    let is_active_borrower = self
+                                        .active_borrows
+                                        .values()
+                                        .any(|bs| bs.iter().any(|b| b.borrower == *arg_name));
+                                    let is_borrowed = self
+                                        .active_borrows
+                                        .get(arg_name)
+                                        .is_some_and(|bs| !bs.is_empty());
+                                    if is_borrowed {
+                                        let b = &self.active_borrows[arg_name][0];
+                                        diag.error(
+                                            ErrorCode::BorrowConflictActiveView,
+                                            format!("Cannot move '{}' because it is actively borrowed by '{}' at {}", arg_name, b.borrower, b.span),
+                                            Some(arg_span.clone()),
+                                        );
+                                        moved_by_call.push(i);
+                                    } else if !is_active_borrower {
+                                        self.states.insert(
+                                            arg_name.clone(),
+                                            ValueState::Moved {
+                                                at_span: span.clone(),
+                                                reason: format!(
+                                                    "consumed by call to '{}'",
+                                                    fn_name
+                                                ),
+                                            },
+                                        );
+                                        moved_by_call.push(i);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -536,7 +813,13 @@ impl<'a> OwnershipTracker<'a> {
                     }
                 }
 
-                for a in args {
+                for (i, a) in args.iter().enumerate() {
+                    // Arguments fully handled above (destroy trigger or
+                    // by-value class moves) must not be re-reported by the
+                    // generic recursion — that would duplicate the diagnostic.
+                    if (destroy_arg_handled && i == 0) || moved_by_call.contains(&i) {
+                        continue;
+                    }
                     self.check_expr_usage(a, diag);
                 }
             }

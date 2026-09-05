@@ -453,6 +453,10 @@ impl ScalarOptimizer {
                             && let Some(c) = r_c
                             && c > 1
                             && (c & (c - 1)) == 0
+                            // `srem` takes the sign of the dividend, so this
+                            // rewrite is only valid for a provably
+                            // non-negative dividend.
+                            && non_negatives.contains(&left)
                         {
                             let mask = c - 1;
                             max_id += 1;

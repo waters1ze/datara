@@ -118,13 +118,18 @@ impl<'a> ClifEmitter<'a> {
     pub fn emit_module(&self, module: &Module, _program: &Program, _types: &TypeChecker) -> String {
         let mut clif = String::new();
         clif.push_str("; Auto-generated Cranelift IR (CLIF) by Forgen Native Backend\n");
+        clif.push_str("; Debug projection: pseudo-CLIF emitted for inspection only; not compiled by Cranelift\n");
         clif.push_str(&format!("; Target: {}\n\n", self.target.triple_string()));
 
         clif.push_str("test compile\n");
         clif.push_str(&format!("target {}\n\n", self.target.triple_string()));
 
-        for f in module.functions.values() {
-            clif.push_str(&self.emit_function(f, module));
+        // Sorted-name iteration: emitted IR must be reproducible, and a bare
+        // HashMap iteration made function (and slot) order vary run to run.
+        let mut fn_names: Vec<&String> = module.functions.keys().collect();
+        fn_names.sort();
+        for name in fn_names {
+            clif.push_str(&self.emit_function(&module.functions[name], module));
             clif.push('\n');
         }
 
@@ -169,7 +174,11 @@ impl<'a> ClifEmitter<'a> {
             }
         }
 
-        for (idx, var_name) in all_vars.iter().enumerate() {
+        // Sorted so slot numbering is reproducible (HashSet iteration order
+        // varies run to run).
+        let mut sorted_vars: Vec<String> = all_vars.iter().cloned().collect();
+        sorted_vars.sort();
+        for (idx, var_name) in sorted_vars.iter().enumerate() {
             out.push_str(&format!(
                 "    ss{} = explicit_slot 8 ; var '{}'\n",
                 idx, var_name
@@ -330,7 +339,13 @@ impl<'a> ClifEmitter<'a> {
                             "icmp ne"
                         }
                     }
-                    _ => "iadd",
+                    _ => {
+                        // Unknown operator: never emit a real CLIF opcode
+                        // (e.g. iadd) for it. This printer is a debug
+                        // projection, so an unsupported op is rendered as a
+                        // comment naming the op instead of wrong IR.
+                        return format!("    ; unknown-binop-{}\n", op);
+                    }
                 };
                 format!("    v{} = {} v{}, v{}\n", dest.0, clif_op, left.0, right.0)
             }
