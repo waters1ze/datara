@@ -1,0 +1,408 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Arch {
+    X86_64,
+    Aarch64,
+    RiscV64,
+    Wasm32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Os {
+    Windows,
+    Linux,
+    MacOS,
+    Unknown,
+    Wasi,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Abi {
+    Msvc,
+    Gnu,
+    Musl,
+    SysV,
+    Wasm,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CallingConvention {
+    WindowsFastcall,
+    SystemV,
+    Aarch64Standard,
+    WasmStandard,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum VectorExtension {
+    Sse2,
+    Sse4_2,
+    Avx,
+    Avx2,
+    Avx512,
+    Neon,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Endianness {
+    Little,
+    Big,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TargetInfo {
+    pub arch: Arch,
+    pub os: Os,
+    pub abi: Abi,
+    pub pointer_width: usize,
+    pub endianness: Endianness,
+    pub vector_support: Vec<VectorExtension>,
+    pub atomic_support: bool,
+    pub calling_convention: CallingConvention,
+    pub cpu_features: HashSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VersionVariant {
+    Generic,
+    FastAvx2,
+    FastNeon,
+    Fallback,
+}
+
+impl TargetInfo {
+    pub fn x86_64_windows() -> Self {
+        let mut features = HashSet::new();
+        features.insert("sse2".to_string());
+        features.insert("avx2".to_string());
+        features.insert("fma".to_string());
+        Self {
+            arch: Arch::X86_64,
+            os: Os::Windows,
+            abi: Abi::Msvc,
+            pointer_width: 64,
+            endianness: Endianness::Little,
+            vector_support: vec![
+                VectorExtension::Sse2,
+                VectorExtension::Avx,
+                VectorExtension::Avx2,
+            ],
+            atomic_support: true,
+            calling_convention: CallingConvention::WindowsFastcall,
+            cpu_features: features,
+        }
+    }
+
+    pub fn x86_64_linux() -> Self {
+        let mut features = HashSet::new();
+        features.insert("sse2".to_string());
+        features.insert("avx2".to_string());
+        features.insert("fma".to_string());
+        Self {
+            arch: Arch::X86_64,
+            os: Os::Linux,
+            abi: Abi::Gnu,
+            pointer_width: 64,
+            endianness: Endianness::Little,
+            vector_support: vec![
+                VectorExtension::Sse2,
+                VectorExtension::Avx,
+                VectorExtension::Avx2,
+            ],
+            atomic_support: true,
+            calling_convention: CallingConvention::SystemV,
+            cpu_features: features,
+        }
+    }
+
+    pub fn aarch64_windows() -> Self {
+        let mut features = HashSet::new();
+        features.insert("neon".to_string());
+        Self {
+            arch: Arch::Aarch64,
+            os: Os::Windows,
+            abi: Abi::Msvc,
+            pointer_width: 64,
+            endianness: Endianness::Little,
+            vector_support: vec![VectorExtension::Neon],
+            atomic_support: true,
+            calling_convention: CallingConvention::Aarch64Standard,
+            cpu_features: features,
+        }
+    }
+
+    pub fn aarch64_linux() -> Self {
+        let mut features = HashSet::new();
+        features.insert("neon".to_string());
+        Self {
+            arch: Arch::Aarch64,
+            os: Os::Linux,
+            abi: Abi::Gnu,
+            pointer_width: 64,
+            endianness: Endianness::Little,
+            vector_support: vec![VectorExtension::Neon],
+            atomic_support: true,
+            calling_convention: CallingConvention::Aarch64Standard,
+            cpu_features: features,
+        }
+    }
+
+    pub fn aarch64_macos() -> Self {
+        let mut features = HashSet::new();
+        features.insert("neon".to_string());
+        Self {
+            arch: Arch::Aarch64,
+            os: Os::MacOS,
+            abi: Abi::SysV,
+            pointer_width: 64,
+            endianness: Endianness::Little,
+            vector_support: vec![VectorExtension::Neon],
+            atomic_support: true,
+            calling_convention: CallingConvention::Aarch64Standard,
+            cpu_features: features,
+        }
+    }
+
+    pub fn x86_64_macos() -> Self {
+        let mut features = HashSet::new();
+        features.insert("sse2".to_string());
+        features.insert("avx2".to_string());
+        features.insert("fma".to_string());
+        Self {
+            arch: Arch::X86_64,
+            os: Os::MacOS,
+            abi: Abi::SysV,
+            pointer_width: 64,
+            endianness: Endianness::Little,
+            vector_support: vec![
+                VectorExtension::Sse2,
+                VectorExtension::Avx,
+                VectorExtension::Avx2,
+            ],
+            atomic_support: true,
+            calling_convention: CallingConvention::SystemV,
+            cpu_features: features,
+        }
+    }
+
+    pub fn generic_x86_64(os: Os, abi: Abi) -> Self {
+        let mut features = HashSet::new();
+        features.insert("sse2".to_string());
+        let calling_conv = match os {
+            Os::Windows => CallingConvention::WindowsFastcall,
+            _ => CallingConvention::SystemV,
+        };
+        Self {
+            arch: Arch::X86_64,
+            os,
+            abi,
+            pointer_width: 64,
+            endianness: Endianness::Little,
+            vector_support: vec![VectorExtension::Sse2],
+            atomic_support: true,
+            calling_convention: calling_conv,
+            cpu_features: features,
+        }
+    }
+
+    pub fn generic_aarch64(os: Os) -> Self {
+        let mut features = HashSet::new();
+        features.insert("neon".to_string());
+        let abi = match os {
+            Os::Windows => Abi::Msvc,
+            Os::MacOS => Abi::SysV,
+            Os::Linux => Abi::Gnu,
+            Os::Unknown | Os::Wasi => Abi::Wasm,
+        };
+        Self {
+            arch: Arch::Aarch64,
+            os,
+            abi,
+            pointer_width: 64,
+            endianness: Endianness::Little,
+            vector_support: vec![VectorExtension::Neon],
+            atomic_support: true,
+            calling_convention: CallingConvention::Aarch64Standard,
+            cpu_features: features,
+        }
+    }
+
+    pub fn wasm32() -> Self {
+        let mut features = HashSet::new();
+        features.insert("simd128".to_string());
+        Self {
+            arch: Arch::Wasm32,
+            os: Os::Unknown,
+            abi: Abi::Wasm,
+            pointer_width: 32,
+            endianness: Endianness::Little,
+            vector_support: Vec::new(),
+            atomic_support: true,
+            calling_convention: CallingConvention::WasmStandard,
+            cpu_features: features,
+        }
+    }
+
+    pub fn host() -> Self {
+        #[allow(unused_mut)]
+        let mut target = if cfg!(target_os = "windows") {
+            if cfg!(target_arch = "x86_64") {
+                Self::x86_64_windows()
+            } else {
+                Self::aarch64_windows()
+            }
+        } else if cfg!(target_os = "linux") {
+            if cfg!(target_arch = "x86_64") {
+                Self::x86_64_linux()
+            } else {
+                Self::aarch64_linux()
+            }
+        } else if cfg!(target_os = "macos") {
+            if cfg!(target_arch = "aarch64") {
+                Self::aarch64_macos()
+            } else {
+                Self::x86_64_macos()
+            }
+        } else {
+            Self::x86_64_windows()
+        };
+
+        #[cfg(target_arch = "x86_64")]
+        {
+            let mut features = HashSet::new();
+            let mut vectors = vec![VectorExtension::Sse2];
+            features.insert("sse2".to_string());
+
+            if std::is_x86_feature_detected!("sse4.2") {
+                features.insert("sse4_2".to_string());
+                vectors.push(VectorExtension::Sse4_2);
+            }
+            if std::is_x86_feature_detected!("avx") {
+                features.insert("avx".to_string());
+                vectors.push(VectorExtension::Avx);
+            }
+            if std::is_x86_feature_detected!("avx2") {
+                features.insert("avx2".to_string());
+                vectors.push(VectorExtension::Avx2);
+            }
+            if std::is_x86_feature_detected!("fma") {
+                features.insert("fma".to_string());
+            }
+            if std::is_x86_feature_detected!("avx512f") {
+                features.insert("avx512f".to_string());
+                vectors.push(VectorExtension::Avx512);
+            }
+            target.cpu_features = features;
+            target.vector_support = vectors;
+        }
+
+        target
+    }
+
+    pub fn triple_string(&self) -> String {
+        if self.arch == Arch::Wasm32 {
+            return "wasm32-unknown-unknown".to_string();
+        }
+        let arch_str = match self.arch {
+            Arch::X86_64 => "x86_64",
+            Arch::Aarch64 => "aarch64",
+            Arch::RiscV64 => "riscv64",
+            Arch::Wasm32 => "wasm32",
+        };
+        match self.os {
+            Os::Windows => {
+                let abi_str = match self.abi {
+                    Abi::Msvc => "msvc",
+                    _ => "gnu",
+                };
+                format!("{}-pc-windows-{}", arch_str, abi_str)
+            }
+            Os::Linux => {
+                let abi_str = match self.abi {
+                    Abi::Musl => "musl",
+                    _ => "gnu",
+                };
+                format!("{}-unknown-linux-{}", arch_str, abi_str)
+            }
+            Os::MacOS => format!("{}-apple-darwin", arch_str),
+            Os::Unknown | Os::Wasi => format!("{}-unknown-unknown", arch_str),
+        }
+    }
+
+    /// Parse a target triple string (e.g. `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-musl`, `aarch64-apple-darwin`, `wasm32-unknown-unknown`).
+    pub fn from_triple(triple: &str) -> Result<Self, String> {
+        let t = triple.to_lowercase();
+        if t.contains("wasm32") || t == "wasm" {
+            return Ok(Self::wasm32());
+        }
+        if t.contains("aarch64") || t.contains("arm64") {
+            if t.contains("darwin") || t.contains("macos") || t.contains("apple") {
+                return Ok(Self::aarch64_macos());
+            }
+            if t.contains("windows") {
+                return Ok(Self::aarch64_windows());
+            }
+            if t.contains("linux") {
+                if t.contains("musl") {
+                    let mut info = Self::generic_aarch64(Os::Linux);
+                    info.abi = Abi::Musl;
+                    return Ok(info);
+                }
+                return Ok(Self::aarch64_linux());
+            }
+            return Ok(Self::generic_aarch64(Os::Linux));
+        }
+        if t.contains("x86_64") || t.contains("amd64") {
+            if t.contains("darwin") || t.contains("macos") || t.contains("apple") {
+                return Ok(Self::x86_64_macos());
+            }
+            if t.contains("windows") {
+                if t.contains("gnu") {
+                    return Ok(Self::generic_x86_64(Os::Windows, Abi::Gnu));
+                }
+                return Ok(Self::x86_64_windows());
+            }
+            if t.contains("linux") {
+                if t.contains("musl") {
+                    let mut info = Self::generic_x86_64(Os::Linux, Abi::Musl);
+                    info.abi = Abi::Musl;
+                    return Ok(info);
+                }
+                return Ok(Self::x86_64_linux());
+            }
+            return Ok(Self::generic_x86_64(Os::Linux, Abi::Gnu));
+        }
+
+        // Shorthand names: "windows", "linux", "macos"
+        match t.as_str() {
+            "windows" | "win64" => Ok(Self::x86_64_windows()),
+            "linux" => Ok(Self::x86_64_linux()),
+            "macos" | "darwin" => Ok(Self::aarch64_macos()),
+            _ => Err(format!(
+                "Unsupported target triple '{}'. Supported targets include:\n\
+                 - x86_64-pc-windows-msvc\n\
+                 - x86_64-pc-windows-gnu\n\
+                 - x86_64-unknown-linux-gnu\n\
+                 - x86_64-unknown-linux-musl\n\
+                 - aarch64-unknown-linux-gnu\n\
+                 - aarch64-unknown-linux-musl\n\
+                 - aarch64-apple-darwin\n\
+                 - x86_64-apple-darwin\n\
+                 - wasm32-unknown-unknown",
+                triple
+            )),
+        }
+    }
+
+    pub fn select_version_variant(&self) -> VersionVariant {
+        if self.vector_support.contains(&VectorExtension::Avx2) {
+            VersionVariant::FastAvx2
+        } else if self.vector_support.contains(&VectorExtension::Neon) {
+            VersionVariant::FastNeon
+        } else {
+            VersionVariant::Generic
+        }
+    }
+}

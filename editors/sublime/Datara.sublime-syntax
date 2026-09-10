@@ -1,0 +1,80 @@
+%YAML 1.2
+---
+name: Datara
+file_extensions: [dtr, datara]
+scope: source.datara
+
+contexts:
+  main:
+    - include: comments
+    - include: strings
+    - include: numbers
+    - include: keywords
+    - include: types
+    - include: operators
+
+  comments:
+    - match: ///.*$
+      scope: comment.line.double-slash.doc.datara
+    - match: //.*$
+      scope: comment.line.double-slash.datara
+    - match: /\*
+      scope: comment.block.datara
+      push:
+        - match: \*/
+          scope: comment.block.datara
+          pop: true
+        - match: .
+          scope: comment.block.datara
+
+  strings:
+    - match: '"'
+      scope: punctuation.definition.string.begin.datara
+      push:
+        - match: '"'
+          scope: punctuation.definition.string.end.datara
+          pop: true
+        - match: \\([nrt\\"0]|x[0-9a-fA-F]{2}|u\{[0-9a-fA-F]+\})
+          scope: constant.character.escape.datara
+        - match: '\{([a-zA-Z_][a-zA-Z0-9_.]*)\}'
+          scope: variable.other.interpolated.datara
+        - match: .
+          scope: string.quoted.double.datara
+
+  numbers:
+    - match: '\b0x[0-9a-fA-F_]+\b'
+      scope: constant.numeric.hex.datara
+    - match: '\b0b[01_]+\b'
+      scope: constant.numeric.binary.datara
+    - match: '\b[0-9][0-9_]*\.[0-9][0-9_]*([eE][+-]?[0-9_]+)?\b'
+      scope: constant.numeric.float.datara
+    - match: '\b[0-9][0-9_]*\b'
+      scope: constant.numeric.integer.datara
+
+  keywords:
+    - match: '\b(let|mut|val)\b'
+      scope: storage.type.variable.datara
+    - match: '\b(fn|function|class|entity|behavior|component|role|packet|using|flow|process|task|actor|enum)\b'
+      scope: keyword.declaration.datara
+    - match: '\b(if|else|while|for|in|return|match|break|continue|decide|when|or|with|assert|panic)\b'
+      scope: keyword.control.datara
+    - match: '\b(out|err|print|println|eprintln|input)\b'
+      scope: keyword.operator.io.datara
+    - match: '\b(pub|extern|async|await|const|view|mutView|mut_view)\b'
+      scope: storage.modifier.datara
+    - match: '\b(use|import|export|as)\b'
+      scope: keyword.control.import.datara
+    - match: '\b(true|false|nil|null|None|Some|Ok|Err)\b'
+      scope: constant.language.datara
+    - match: '\b(self|this)\b'
+      scope: variable.language.this.datara
+
+  types:
+    - match: '\b(Int|Int64|Int32|Int16|Int8|UInt|UInt64|UInt32|UInt16|UInt8|USize|ISize|Float|Float64|Float32|Bool|String|Str|Byte|Char|Option|Result|List|Map|Set|Array|Packet|View|MutView)\b'
+      scope: support.type.primitive.datara
+    - match: '\b[A-Z][a-zA-Z0-9_]*\b'
+      scope: entity.name.type.datara
+
+  operators:
+    - match: '(\|>|\?|\!|==|!=|<=|>=|<|>|\+|\-|\*|/|%|&&|\|\||&|\||\^|~|<<|>>|=)'
+      scope: keyword.operator.datara

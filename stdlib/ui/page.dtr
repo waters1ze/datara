@@ -1,0 +1,23 @@
+class Page {
+    title: Str
+    head_extra: Str
+    body_html: Str
+}
+
+behavior Page {
+    render() -> Str {
+        let doctype = "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><meta name='viewport' content='width=device-width,initial-scale=1.0'><title>" + this.title + "</title>"
+        mut head = ""
+        if this.head_extra != "" {
+            head = this.head_extra
+        }
+        let body = "</head><body>" + this.body_html + "</body></html>"
+        return doctype + head + body
+    }
+
+    save(path: Str) -> Bool {
+        let content = this.render()
+        let res = file_write(path, content)
+        return res == 1
+    }
+}

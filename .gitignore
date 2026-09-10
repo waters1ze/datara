@@ -1,0 +1,97 @@
+target/
+**/target/
+*.exe
+*.obj
+*.tmp.cs
+*.pdb
+*.ilk
+*.lib
+*.a
+*.so
+*.dylib
+*.dll
+*.node
+*.wasm
+*.wat
+/*.js
+examples/*.js
+examples/*.wasm
+examples/*.wat
+/runtime/
+.forgen_profile/
+.forgen_cache/
+**/.forgen_cache/
+tmp_verify/
+
+# Scratch sources kept at the repo root by ad-hoc debug runs.
+/for_test.dtr
+/loop_test.dtr
+/unroll_correctness.dtr
+/while_ret.dtr
+
+# Compiler scratch backups produced by refactor scripts.
+*.bak
+
+# Ad-hoc LLVM IR / bitcode build artifacts from debug runs.
+*.ll
+*.bc
+
+
+# Per-run scratch sources in tests/
+tests/dbg_*.dtr
+tests/debug_*.dtr
+
+# Benchmark scratch workspace (kept locally, never committed)
+/bench_honest/
+/outputs/
+
+# Ad-hoc debug/run leftovers
+/tmp_diag/
+/tmp_recover/
+/tmp_verify/
+/tmp_*.dtr
+/tmp_*.txt
+/tmp_*.json
+/tmp_*.out
+/tests_tmp_*.dtr
+/test_baseline.txt
+/test_run_out.txt
+
+# Tool internal metadata & AI scaffolding (kept locally, excluded from public repo)
+/.workbuddy-ai/
+/.verdent/
+/.ai/
+/assets/manifest.json
+*PROMPT*.md
+/ПРОМПТ.md
+/ПРОМПТ*.md
+*ПРОМПТ*.md
+docs/*PROMPT*.md
+/scripts/generate_dumps.py
+
+# Release dist & scratch directories
+/dist/
+/scratch/
+
+# Internal design roadmaps & future concepts
+/ROADMAP.md
+/ИДЕИ_НА_БУДУЩЕЕ_ROADMAP.md
+
+# Code dumps for analysis
+/dump*.txt
+
+# Python packaging build artifacts
+*.egg-info/
+__pycache__/
+.pytest_cache/
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+

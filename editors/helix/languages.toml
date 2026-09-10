@@ -1,0 +1,16 @@
+# Helix editor configuration snippet for Datara
+# Append this to ~/.config/helix/languages.toml
+
+[[language]]
+name = "datara"
+scope = "source.datara"
+injection-regex = "datara|dtr"
+file-types = ["dtr", "datara"]
+comment-token = "//"
+block-comment-tokens = { start = "/*", end = "*/" }
+indent = { tab-width = 4, unit = "    " }
+language-servers = ["datara-lsp"]
+
+[language-server.datara-lsp]
+command = "forgen"
+args = ["lsp"]

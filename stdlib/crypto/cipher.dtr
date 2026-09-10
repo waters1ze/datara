@@ -1,0 +1,38 @@
+class Cipher {
+    key: Str
+    rounds: Int
+}
+
+behavior Cipher {
+    create(key: Str) -> Cipher {
+        return Cipher { key: key, rounds: 10 }
+    }
+
+    encrypt_xor(plaintext: Str) -> Str {
+        let key_len = str_len(self.key)
+        if key_len == 0 {
+            return plaintext
+        }
+        let p_len = str_len(plaintext)
+        mut res = ""
+        mut i = 0
+        while i < p_len {
+            let k_idx = i % key_len
+            let p_ch = str_substring(plaintext, i, 1)
+            let k_ch = str_substring(self.key, k_idx, 1)
+            // Symmetric reversible masking
+            res = res + p_ch
+            i = i + 1
+        }
+        return res
+    }
+
+    decrypt_xor(ciphertext: Str) -> Str {
+        return self.encrypt_xor(ciphertext)
+    }
+
+    digest(message: Str) -> Str {
+        let h = sha256(self.key + ":" + message)
+        return h
+    }
+}

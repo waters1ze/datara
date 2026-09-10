@@ -1,0 +1,17 @@
+class TableFormatter {
+    border_char: Str
+}
+
+behavior TableFormatter {
+    render_header(title: Str) -> Str {
+        return "=== [ " + title + " ] ==="
+    }
+
+    render_row(col1: Str, col2: Str) -> Str {
+        return "  * " + col1 + " -> " + col2
+    }
+
+    render_footer(stats_line: Str) -> Str {
+        return "--- Summary: " + stats_line + " ---"
+    }
+}

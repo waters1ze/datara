@@ -1,0 +1,3 @@
+behavior User {
+    verify_token() -> Str => "security_token_valid"
+}

@@ -1,0 +1,23 @@
+use examples.datara_find.src.parser.LogEntry
+
+class AnalysisStats {
+    total_scanned: Int
+    error_count: Int
+    warning_count: Int
+}
+
+behavior AnalysisStats {
+    format_summary() -> Str {
+        return "Scanned: " + this.total_scanned + ", Errors: " + this.error_count + ", Warnings: " + this.warning_count
+    }
+}
+
+class ContentAnalyzer {
+    filter_pattern: Str
+}
+
+behavior ContentAnalyzer {
+    evaluate_entry(entry: LogEntry) -> Bool {
+        return entry.is_error()
+    }
+}

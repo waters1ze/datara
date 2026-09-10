@@ -1,0 +1,50 @@
+use stdlib.net.socket
+use stdlib.http.types
+
+class HttpClient {
+    timeout_ms: Int
+}
+
+behavior HttpClient {
+    new() -> HttpClient {
+        return HttpClient {
+            timeout_ms: 5000
+        }
+    }
+
+    get(host: Str, port: Int, path: Str) -> Str {
+        let stream = TcpStream.connect(host, port)
+        if stream.is_closed {
+            return "ERROR: Connection failed"
+        }
+
+        let req = "GET " + path + " HTTP/1.1\r\nHost: " + host + "\r\nConnection: close\r\n\r\n"
+        let sent = stream.send(req)
+        if sent <= 0 {
+            stream.close()
+            return "ERROR: Send failed"
+        }
+
+        let resp = stream.recv(8192)
+        stream.close()
+        return resp
+    }
+
+    post(host: Str, port: Int, path: Str, body: Str, content_type: Str) -> Str {
+        let stream = TcpStream.connect(host, port)
+        if stream.is_closed {
+            return "ERROR: Connection failed"
+        }
+
+        let req = "POST " + path + " HTTP/1.1\r\nHost: " + host + "\r\nContent-Type: " + content_type + "\r\nConnection: close\r\n\r\n" + body
+        let sent = stream.send(req)
+        if sent <= 0 {
+            stream.close()
+            return "ERROR: Send failed"
+        }
+
+        let resp = stream.recv(8192)
+        stream.close()
+        return resp
+    }
+}

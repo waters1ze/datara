@@ -1,0 +1,86 @@
+use stdlib.result.result.Outcome
+
+class Py {
+    version: Str
+}
+
+behavior Py {
+    eval(code: Str) -> Outcome<Str> {
+        let res = py_eval_safe(code)
+        let err = py_last_error()
+        if err != "" {
+            return Outcome<Str> { is_success: false, value: "", error_msg: err }
+        }
+        return Outcome<Str> { is_success: true, value: res, error_msg: "" }
+    }
+
+    eval_int(code: Str) -> Outcome<Int> {
+        let res = py_eval_int(code)
+        let err = py_last_error()
+        if err != "" {
+            return Outcome<Int> { is_success: false, value: 0, error_msg: err }
+        }
+        return Outcome<Int> { is_success: true, value: res, error_msg: "" }
+    }
+
+    eval_float(code: Str) -> Outcome<Float> {
+        let res = py_eval_float(code)
+        let err = py_last_error()
+        if err != "" {
+            return Outcome<Float> { is_success: false, value: 0.0, error_msg: err }
+        }
+        return Outcome<Float> { is_success: true, value: res, error_msg: "" }
+    }
+
+    call(fn_name: Str, args_json: Str) -> Outcome<Str> {
+        let res = py_call(fn_name, args_json)
+        let err = py_last_error()
+        if err != "" {
+            return Outcome<Str> { is_success: false, value: "", error_msg: err }
+        }
+        return Outcome<Str> { is_success: true, value: res, error_msg: "" }
+    }
+
+    import(module_name: Str) -> Outcome<Int> {
+        let handle = py_import(module_name)
+        let err = py_last_error()
+        if handle == 0 || err != "" {
+            return Outcome<Int> { is_success: false, value: 0, error_msg: err }
+        }
+        return Outcome<Int> { is_success: true, value: handle, error_msg: "" }
+    }
+
+    import_module(module_name: Str) -> Outcome<Int> {
+        return this.import(module_name)
+    }
+
+    exec(code: Str) -> Outcome<Int> {
+        let status = py_exec(code)
+        let err = py_last_error()
+        if status != 0 || err != "" {
+            return Outcome<Int> { is_success: false, value: status, error_msg: err }
+        }
+        return Outcome<Int> { is_success: true, value: 0, error_msg: "" }
+    }
+
+    bind_buffer(var_name: Str, list: List<Float>) -> Outcome<Int> {
+        let res = datara_py_export_list_f64(var_name, list)
+        let err = py_last_error()
+        if res != 0 || err != "" {
+            return Outcome<Int> { is_success: false, value: res, error_msg: err }
+        }
+        return Outcome<Int> { is_success: true, value: 0, error_msg: "" }
+    }
+}
+
+class PythonBridge {
+    runtime_name: Str
+}
+
+behavior PythonBridge {
+    create_wrapper_spec(module_name: Str, functions_csv: Str) -> Str {
+        let header = "# Auto-generated Datara Python FFI Bridge for " + module_name + "\nimport ctypes\nimport os\n\n"
+        let dll_load = "_dll_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '" + module_name + ".dll'))\n_lib = ctypes.CDLL(_dll_path)\n\n"
+        return header + dll_load + "# Exported functions: " + functions_csv + "\n"
+    }
+}

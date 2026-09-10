@@ -1,0 +1,22 @@
+class Crypto {
+    algorithm: Str
+}
+
+behavior Crypto {
+    sha256_hash(data: Str) -> Str {
+        return sha256(data)
+    }
+
+    b64_encode(data: Str) -> Str {
+        return base64_encode(data)
+    }
+
+    b64_decode(data: Str) -> Str {
+        return base64_decode(data)
+    }
+
+    hmac_sha256(key: Str, message: Str) -> Str {
+        let combined = key + ":" + message
+        return sha256(combined)
+    }
+}

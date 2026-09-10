@@ -1,0 +1,220 @@
+{
+  "metadata": {
+    "os": "Windows 11 (10.0.26200)",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "arch": "AMD64",
+    "cpu": "AMD Ryzen 5 7600 6-Core Processor",
+    "logical_cores": 12,
+    "ram_gb": 31.1,
+    "rustc_version": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "cargo_version": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+    "msvc_version": "\u040b\u0407\u0432\u0401\u00ac\u0401\u00a7\u0401\u0430\u0433\u043e\u0439\u0401\u00a9 \u0404\u00ae\u00ac\u0407\u0401\u00ab\u043f\u0432\u00ae\u0430 Microsoft (R) C/C++ \u045e\u0490\u0430\u0431\u0401\u0401 19.50.35727 \u00a4\u00ab\u043f x64",
+    "python_version": "Python 3.14.3",
+    "node_version": "v24.14.0",
+    "git_commit": "5cf84639816f3770c27fcc8c0aeb6b21a01d25dc",
+    "timestamp_utc": "2026-09-08T16:04:48.294397+00:00",
+    "methodology": "1 warmup run + 7 timed runs, median-of-7, algorithmically equivalent implementations"
+  },
+  "benchmark": "AOT Compilation Time (End-to-End Link)",
+  "unit": "milliseconds",
+  "results": {
+    "hello": {
+      "datara_cranelift": {
+        "median_ms": 119.24,
+        "min_ms": 116.649,
+        "max_ms": 121.644,
+        "mean_ms": 119.389,
+        "stddev_ms": 1.602,
+        "runs_ms": [
+          116.649,
+          118.884,
+          118.995,
+          119.24,
+          119.381,
+          120.932,
+          121.644
+        ]
+      },
+      "datara_llvm": {
+        "median_ms": 887.351,
+        "min_ms": 881.276,
+        "max_ms": 899.467,
+        "mean_ms": 888.15,
+        "stddev_ms": 5.966,
+        "runs_ms": [
+          881.276,
+          882.724,
+          886.979,
+          887.351,
+          888.532,
+          890.721,
+          899.467
+        ]
+      },
+      "rustc_release": {
+        "median_ms": 169.065,
+        "min_ms": 165.31,
+        "max_ms": 175.572,
+        "mean_ms": 169.114,
+        "stddev_ms": 3.851,
+        "runs_ms": [
+          165.31,
+          165.775,
+          165.954,
+          169.065,
+          169.631,
+          172.495,
+          175.572
+        ]
+      },
+      "msvc_cl_o2": {
+        "median_ms": 88.059,
+        "min_ms": 87.108,
+        "max_ms": 91.727,
+        "mean_ms": 88.468,
+        "stddev_ms": 1.505,
+        "runs_ms": [
+          87.108,
+          87.745,
+          87.817,
+          88.059,
+          88.39,
+          88.429,
+          91.727
+        ]
+      }
+    },
+    "fib": {
+      "datara_cranelift": {
+        "median_ms": 122.645,
+        "min_ms": 118.274,
+        "max_ms": 124.201,
+        "mean_ms": 121.471,
+        "stddev_ms": 2.51,
+        "runs_ms": [
+          118.274,
+          118.583,
+          119.777,
+          122.645,
+          123.316,
+          123.504,
+          124.201
+        ]
+      },
+      "datara_llvm": {
+        "median_ms": 878.735,
+        "min_ms": 874.753,
+        "max_ms": 907.992,
+        "mean_ms": 882.333,
+        "stddev_ms": 11.737,
+        "runs_ms": [
+          874.753,
+          875.681,
+          875.851,
+          878.735,
+          879.355,
+          883.963,
+          907.992
+        ]
+      },
+      "rustc_release": {
+        "median_ms": 165.76,
+        "min_ms": 164.723,
+        "max_ms": 174.095,
+        "mean_ms": 168.166,
+        "stddev_ms": 3.964,
+        "runs_ms": [
+          164.723,
+          165.288,
+          165.713,
+          165.76,
+          168.204,
+          173.381,
+          174.095
+        ]
+      },
+      "msvc_cl_o2": {
+        "median_ms": 86.949,
+        "min_ms": 85.771,
+        "max_ms": 87.923,
+        "mean_ms": 86.885,
+        "stddev_ms": 0.656,
+        "runs_ms": [
+          85.771,
+          86.486,
+          86.854,
+          86.949,
+          87.06,
+          87.15,
+          87.923
+        ]
+      }
+    },
+    "matrix": {
+      "datara_cranelift": {
+        "median_ms": 116.967,
+        "min_ms": 116.257,
+        "max_ms": 119.657,
+        "mean_ms": 117.467,
+        "stddev_ms": 1.235,
+        "runs_ms": [
+          116.257,
+          116.403,
+          116.704,
+          116.967,
+          118.042,
+          118.239,
+          119.657
+        ]
+      },
+      "datara_llvm": {
+        "median_ms": 870.18,
+        "min_ms": 867.033,
+        "max_ms": 884.427,
+        "mean_ms": 873.659,
+        "stddev_ms": 6.789,
+        "runs_ms": [
+          867.033,
+          867.95,
+          869.17,
+          870.18,
+          876.641,
+          880.212,
+          884.427
+        ]
+      },
+      "rustc_release": {
+        "median_ms": 166.261,
+        "min_ms": 162.723,
+        "max_ms": 174.219,
+        "mean_ms": 167.6,
+        "stddev_ms": 3.659,
+        "runs_ms": [
+          162.723,
+          165.778,
+          165.925,
+          166.261,
+          168.986,
+          169.307,
+          174.219
+        ]
+      },
+      "msvc_cl_o2": {
+        "median_ms": 87.963,
+        "min_ms": 87.144,
+        "max_ms": 91.801,
+        "mean_ms": 88.567,
+        "stddev_ms": 1.529,
+        "runs_ms": [
+          87.144,
+          87.742,
+          87.929,
+          87.963,
+          88.518,
+          88.873,
+          91.801
+        ]
+      }
+    }
+  }
+}

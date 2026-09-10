@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+chmod +x /usr/bin/forgen /usr/bin/datara /usr/bin/dpm || true
+echo "Datara language toolchain installed successfully."
+echo "Run 'forgen --help' or 'datara repl' to get started."
+exit 0

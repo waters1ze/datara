@@ -1,0 +1,11 @@
+class KeyValueStore<K, V> {
+    entry_count: Int
+    sample_key: K
+    sample_val: V
+}
+
+behavior KeyValueStore {
+    get_sample() -> V {
+        return this.sample_val
+    }
+}

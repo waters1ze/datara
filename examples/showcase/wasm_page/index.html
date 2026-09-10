@@ -1,0 +1,84 @@
+﻿<!DOCTYPE html>
+<html lang=" en\>
+<head>
+ <meta charset=\UTF-8\>
+ <meta name=\viewport\ content=\width=device-width initial-scale=1.0\>
+ <title>Datara WebAssembly Pure-Compute Showcase</title>
+ <style>
+ body {
+ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+ background: #0f172a;
+ color: #f8fafc;
+ max-width: 800px;
+ margin: 40px auto;
+ padding: 20px;
+ }
+ h1 { color: #38bdf8; }
+ .badge {
+ background: #1e293b;
+ border: 1px solid #334155;
+ padding: 4px 10px;
+ border-radius: 6px;
+ font-size: 0.85rem;
+ color: #94a3b8;
+ display: inline-block;
+ margin-bottom: 20px;
+ }
+ button {
+ background: #0284c7;
+ color: white;
+ border: none;
+ padding: 10px 20px;
+ font-size: 1rem;
+ border-radius: 8px;
+ cursor: pointer;
+ transition: background 0.2s;
+ }
+ button:hover { background: #0369a1; }
+ pre {
+ background: #1e293b;
+ border: 1px solid #334155;
+ padding: 16px;
+ border-radius: 8px;
+ overflow-x: auto;
+ color: #4ade80;
+ font-family: Consolas, Monaco, monospace;
+ font-size: 0.95rem;
+ }
+ </style>
+</head>
+<body>
+ <h1>Datara WASM Pure-Compute Core</h1>
+ <div class=\badge\>Capabilities: Verified Sandboxed (zero_trust_pure_compute)</div>
+ <p>This showcase demonstrates high-performance Datara code compiled directly to WebAssembly with static memory bounds and ownership verification.</p>
+ <button id=\runBtn\>Run Datara WASM</button>
+ <h3>Execution Output:</h3>
+ <pre id=\output\>Click 'Run Datara WASM' to execute compiled bytecodes...</pre>
+
+ <script type=\module\>
+ import { DataraWasmRuntime } from './shim.js';
+
+ const btn = document.getElementById('runBtn');
+ const out = document.getElementById('output');
+
+ btn.addEventListener('click', async () => {
+ try {
+ out.textContent = \Loading capabilities and WASM module...\n\;
+ const capResp = await fetch('./capabilities.json');
+ const capabilities = await capResp.json();
+ 
+ const runtime = new DataraWasmRuntime(capabilities);
+ await runtime.load('./main.wasm');
+ 
+ const t0 = performance.now();
+ runtime.runMain();
+ const elapsed = (performance.now() - t0).toFixed(2);
+
+ out.textContent = runtime.outputLines.join(\\n\) + \n\n[Benchmark]: Executed in ms;
+ } catch (err) {
+ out.textContent = \Error executing Datara WASM: \ + err.message;
+ }
+ });
+ </script>
+</body>
+</html>

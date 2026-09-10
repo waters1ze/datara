@@ -1,0 +1,8 @@
+target/
+dist/
+.git/
+.github/
+*.exe
+*.obj
+*.pdb
+*.ll

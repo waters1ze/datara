@@ -1,0 +1,14 @@
+﻿{
+  " module\: \numpy\,
+ \version\: \2.0.0\,
+ \functions\: [
+ { \name\: \array\, \params\: [\data\], \return_type\: \Val\ },
+ { \name\: \zeros\, \params\: [\shape\], \return_type\: \Val\ },
+ { \name\: \ones\, \params\: [\shape\], \return_type\: \Val\ },
+ { \name\: \dot\, \params\: [\a\, \b\], \return_type\: \Val\ },
+ { \name\: \matmul\, \params\: [\a\, \b\], \return_type\: \Val\ },
+ { \name\: \sum\, \params\: [\a\], \return_type\: \Float\ },
+ { \name\: \mean\, \params\: [\a\], \return_type\: \Float\ },
+ { \name\: \sqrt\, \params\: [\a\], \return_type\: \Val\ }
+ ]
+}

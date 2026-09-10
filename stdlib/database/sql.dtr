@@ -1,0 +1,28 @@
+class Row {
+    columns: Str
+    values: Str
+}
+
+behavior Row {
+    get(col: Str) -> Str {
+        return this.values
+    }
+}
+
+class ResultSet {
+    row_count: Int
+    raw_data: Str
+}
+
+behavior ResultSet {
+    empty() -> ResultSet {
+        return ResultSet {
+            row_count: 0,
+            raw_data: ""
+        }
+    }
+
+    count() -> Int {
+        return this.row_count
+    }
+}

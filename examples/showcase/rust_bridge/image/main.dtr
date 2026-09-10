@@ -1,0 +1,12 @@
+// Datara Rust Bridge Showcase: Zero-Copy Buffer View & PNG Encoding
+
+extern fn encode_rgb_png(buf_ptr: Pointer, buf_len: Int, width: Int, height: Int) -> String
+
+fn main() {
+    // Allocate 2x2 RGB image buffer in linear frame arena (12 bytes)
+    let buffer = datara_rt_arena_alloc(12)
+    // Zero-copy buffer pointer passed directly to Rust bridge without copying
+    let res = encode_rgb_png(buffer, 12, 2, 2)
+    out "IMAGE_RESULT: " + res
+    out "IMAGE_SHOWCASE_OK"
+}

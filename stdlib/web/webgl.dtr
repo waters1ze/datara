@@ -1,0 +1,18 @@
+module web.webgl
+
+class WebGLContext {
+    canvas_id: Str
+    version: Int
+}
+
+behavior WebGLContext {
+    fn get_context(canvas_id: Str) -> WebGLContext {
+        return WebGLContext {
+            canvas_id: canvas_id,
+            version: 2
+        }
+    }
+
+    fn clear_color(r: Float, g: Float, b: Float, a: Float) -> Void {
+    }
+}

@@ -1,0 +1,9 @@
+[package]
+name = "json_parser"
+version = "1.0.0"
+description = "High-throughput deterministic JSON recursive descent parser in pure Datara"
+authors = ["Datara Core Team <core@datara.dev>"]
+entry = "main.dtr"
+
+[target]
+opt_level = "release"

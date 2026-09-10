@@ -1,0 +1,71 @@
+// Lockstep Deterministic Physics Simulation Showcase
+// Demonstrates multi-core parallel simulation with hardware SIMD float4 + dot
+
+fn simulate_entity(id: Int, frames: Int) -> Int {
+    let id_flt = str_to_float(int_to_str(id))
+    let base_x = id_flt * 0.25
+    let base_y = id_flt * -0.15
+    let base_z = id_flt * 0.05
+    mut pos = float4(base_x, base_y, base_z, 1.0)
+    mut vel = float4(0.01, -0.005, 0.002, 0.0)
+    mut step = 0
+    while step < frames {
+        let d = dot(pos, vel)
+        let bound_min = float4(-100.0, -100.0, -100.0, 0.0)
+        let bound_max = float4(100.0, 100.0, 100.0, 10.0)
+        let clamped = min4(max4(pos, bound_min), bound_max)
+        let energy = dot(clamped, clamped)
+        let f_x = d * 0.0001
+        let f_y = energy * 0.00001
+        let f_z = str_to_float(int_to_str(step)) * 0.00002
+        let force = float4(f_x, f_y, f_z, 0.0)
+        vel = min4(max4(force, bound_min), bound_max)
+        pos = min4(max4(pos, bound_min), bound_max)
+        step = step + 1
+    }
+    let final_metric = dot(pos, vel)
+    let metric_int = str_to_int(float_to_str(math_floor(final_metric * 100000.0)))
+    let hash = math_xor(metric_int, id * 1000003)
+    return math_and(hash, 9223372036854775807)
+}
+
+fn run_worker(worker_id: Int) {
+    let entities_per_worker = 16
+    let start_id = worker_id * entities_per_worker
+    let end_id = start_id + entities_per_worker
+    mut i = start_id
+    while i < end_id {
+        let _ = simulate_entity(i, 50)
+        i = i + 1
+    }
+}
+
+fn compute_total_checksum(num_entities: Int, frames: Int) -> Int {
+    mut total: Int = 0
+    mut i = 0
+    while i < num_entities {
+        let h = simulate_entity(i, frames)
+        let t_part = (total % 100000000) * 31
+        let h_part = h % 100000000
+        total = (t_part + h_part) % 1000000007
+        i = i + 1
+    }
+    return total
+}
+
+fn main() {
+    let num_workers = 4
+    let frames = 50
+    let num_entities = 64
+
+    // Parallel multi-core physics execution across workers
+    parallel for w in 0..num_workers {
+        run_worker(w)
+    }
+
+    // Deterministic aggregate lockstep checksum
+    let checksum = compute_total_checksum(num_entities, frames)
+
+    out "LOCKSTEP_SIM_OK: frames=" + frames + " entities=" + num_entities
+    out "CHECKSUM:" + checksum
+}

@@ -1,0 +1,30 @@
+class CliConfig {
+    target_path: Str
+    query: Str
+    max_count: Int
+    is_verbose: Bool
+    output_format: Str
+}
+
+behavior CliConfig {
+    summary() -> Str {
+        return "Query: '" + this.query + "' in '" + this.target_path + "' (limit: " + this.max_count + ")"
+    }
+}
+
+class ArgParser {
+    program_name: Str
+}
+
+behavior ArgParser {
+    parse_defaults() -> CliConfig {
+        let cfg = CliConfig {
+            target_path: "./logs",
+            query: "ERROR",
+            max_count: 50,
+            is_verbose: true,
+            output_format: "table"
+        }
+        return cfg
+    }
+}

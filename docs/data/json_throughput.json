@@ -1,0 +1,99 @@
+{
+  "metadata": {
+    "os": "Windows 11 (10.0.26200)",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "arch": "AMD64",
+    "cpu": "AMD Ryzen 5 7600 6-Core Processor",
+    "logical_cores": 12,
+    "ram_gb": 31.1,
+    "rustc_version": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "cargo_version": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+    "msvc_version": "\u040b\u0407\u0432\u0401\u00ac\u0401\u00a7\u0401\u0430\u0433\u043e\u0439\u0401\u00a9 \u0404\u00ae\u00ac\u0407\u0401\u00ab\u043f\u0432\u00ae\u0430 Microsoft (R) C/C++ \u045e\u0490\u0430\u0431\u0401\u0401 19.50.35727 \u00a4\u00ab\u043f x64",
+    "python_version": "Python 3.14.3",
+    "node_version": "v24.14.0",
+    "git_commit": "5cf84639816f3770c27fcc8c0aeb6b21a01d25dc",
+    "timestamp_utc": "2026-09-08T16:04:48.294397+00:00",
+    "methodology": "1 warmup run + 7 timed runs, median-of-7, algorithmically equivalent implementations"
+  },
+  "benchmark": "JSON Parsing Throughput",
+  "payload_size_bytes": 5299699,
+  "payload_size_mb": 5.05,
+  "results": {
+    "Rust (serde_json)": {
+      "throughput_mb_s": 110.38,
+      "stats": {
+        "median_ms": 45.79,
+        "min_ms": 44.387,
+        "max_ms": 47.332,
+        "mean_ms": 46.007,
+        "stddev_ms": 1.034,
+        "runs_ms": [
+          44.387,
+          45.294,
+          45.611,
+          45.79,
+          46.761,
+          46.873,
+          47.332
+        ]
+      }
+    },
+    "Node.js (v8 JSON.parse)": {
+      "throughput_mb_s": 386.17,
+      "stats": {
+        "median_ms": 13.088,
+        "min_ms": 12.369,
+        "max_ms": 14.893,
+        "mean_ms": 13.25,
+        "stddev_ms": 0.912,
+        "runs_ms": [
+          12.369,
+          12.384,
+          12.841,
+          13.088,
+          13.173,
+          14.004,
+          14.893
+        ]
+      }
+    },
+    "Datara (stdlib.json)": {
+      "throughput_mb_s": 59.66,
+      "stats": {
+        "median_ms": 84.712,
+        "min_ms": 84.712,
+        "max_ms": 84.712,
+        "mean_ms": 84.712,
+        "stddev_ms": 0.0,
+        "runs_ms": [
+          84.712,
+          84.712,
+          84.712,
+          84.712,
+          84.712,
+          84.712,
+          84.712
+        ]
+      }
+    },
+    "Python 3.14 (json.loads)": {
+      "throughput_mb_s": 160.82,
+      "stats": {
+        "median_ms": 31.427,
+        "min_ms": 29.357,
+        "max_ms": 33.451,
+        "mean_ms": 31.102,
+        "stddev_ms": 1.693,
+        "runs_ms": [
+          29.357,
+          29.423,
+          29.435,
+          31.427,
+          32.265,
+          32.357,
+          33.451
+        ]
+      }
+    }
+  }
+}

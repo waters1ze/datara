@@ -1,0 +1,38 @@
+@kernel_mode
+module kernel.arch.x86_64.mmu
+
+class PageTableEntry {
+    present: Bool in bit 0
+    writable: Bool in bit 1
+    user_accessible: Bool in bit 2
+    write_through: Bool in bit 3
+    cache_disabled: Bool in bit 4
+    accessed: Bool in bit 5
+    dirty: Bool in bit 6
+    huge_page: Bool in bit 7
+    global: Bool in bit 8
+    physical_frame: UInt64 in bits 12..=51
+    no_execute: Bool in bit 63
+}
+
+behavior PageTableEntry {
+    fn new(frame: UInt64, writable: Bool, user: Bool) -> PageTableEntry {
+        return PageTableEntry {
+            present: true,
+            writable: writable,
+            user_accessible: user,
+            write_through: false,
+            cache_disabled: false,
+            accessed: false,
+            dirty: false,
+            huge_page: false,
+            global: false,
+            physical_frame: frame,
+            no_execute: false
+        }
+    }
+
+    fn raw_value(self: PageTableEntry) -> UInt64 {
+        return self.physical_frame
+    }
+}

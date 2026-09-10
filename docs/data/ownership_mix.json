@@ -1,0 +1,71 @@
+{
+  "metadata": {
+    "os": "Windows 11 (10.0.26200)",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "arch": "AMD64",
+    "cpu": "AMD Ryzen 5 7600 6-Core Processor",
+    "logical_cores": 12,
+    "ram_gb": 31.1,
+    "rustc_version": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "cargo_version": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+    "msvc_version": "\u040b\u0407\u0432\u0401\u00ac\u0401\u00a7\u0401\u0430\u0433\u043e\u0439\u0401\u00a9 \u0404\u00ae\u00ac\u0407\u0401\u00ab\u043f\u0432\u00ae\u0430 Microsoft (R) C/C++ \u045e\u0490\u0430\u0431\u0401\u0401 19.50.35727 \u00a4\u00ab\u043f x64",
+    "python_version": "Python 3.14.3",
+    "node_version": "v24.14.0",
+    "git_commit": "5cf84639816f3770c27fcc8c0aeb6b21a01d25dc",
+    "timestamp_utc": "2026-09-08T16:04:48.294397+00:00",
+    "methodology": "1 warmup run + 7 timed runs, median-of-7, algorithmically equivalent implementations"
+  },
+  "benchmark": "Datara Static Ownership Proof vs Guarded Fallback Lattice",
+  "programs": {
+    "p1_scalar": {
+      "proven_pct": 100.0,
+      "guarded_pct": 0.0,
+      "rejected_pct": 0.0,
+      "allocations_eliminated": 0,
+      "inlined_calls": 0,
+      "effects": "Pure",
+      "is_deterministic": true,
+      "summary": ""
+    },
+    "p2_guarded": {
+      "proven_pct": 100.0,
+      "guarded_pct": 0.0,
+      "rejected_pct": 0.0,
+      "allocations_eliminated": 0,
+      "inlined_calls": 0,
+      "effects": "Pure",
+      "is_deterministic": true,
+      "summary": ""
+    },
+    "p3_loop": {
+      "proven_pct": 100.0,
+      "guarded_pct": 0.0,
+      "rejected_pct": 0.0,
+      "allocations_eliminated": 0,
+      "inlined_calls": 0,
+      "effects": "Pure",
+      "is_deterministic": true,
+      "summary": ""
+    },
+    "p4_branch": {
+      "proven_pct": 100.0,
+      "guarded_pct": 0.0,
+      "rejected_pct": 0.0,
+      "allocations_eliminated": 0,
+      "inlined_calls": 0,
+      "effects": "Pure",
+      "is_deterministic": true,
+      "summary": ""
+    },
+    "p5_view": {
+      "proven_pct": 100.0,
+      "guarded_pct": 0.0,
+      "rejected_pct": 0.0,
+      "allocations_eliminated": 0,
+      "inlined_calls": 0,
+      "effects": "Pure",
+      "is_deterministic": true,
+      "summary": ""
+    }
+  }
+}

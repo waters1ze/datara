@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * 0'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quality:
+    name: Format and lint
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.0"
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy correctness check
+        run: cargo clippy --all-targets -- -D clippy::correctness
+
+      - name: Benchmark smoke test
+        run: cargo bench --no-run
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --verbose
+
+      - name: Test
+        # -j 2 reduces concurrent linking, which is unreliable on Windows.
+        # Skip heavy comparative benchmarks in standard PR/push matrix to avoid timeouts.
+        run: cargo test --release -j 2 --no-fail-fast -- --skip bench
+
+  clippy-count:
+    name: Clippy warning count gate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Verify warnings do not exceed baseline
+        shell: pwsh
+        run: |
+          $baseline = [int](Get-Content .clippy_baseline -Raw).Trim()
+          $output = cargo clippy --all-targets --message-format short 2>&1
+          $warns = ($output | Select-String -Pattern "warning:").Count
+          if (-not $warns) { $warns = 0 }
+          Write-Host "Current Clippy Warnings: $warns (Baseline: $baseline)"
+          if ($warns -gt $baseline) {
+            Write-Error "Clippy warnings regression detected: $warns > $baseline"
+            exit 1
+          }
+          exit 0
+
+  asan:
+    name: AddressSanitizer (Ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run tests with ASan
+        env:
+          RUSTFLAGS: "-Zsanitizer=address"
+          RUSTDOCFLAGS: "-Zsanitizer=address"
+          ASAN_OPTIONS: "detect_leaks=0:abort_on_error=1"
+        run: cargo +nightly test --target x86_64-unknown-linux-gnu --release -j 2 --no-fail-fast -- --skip bench
+
+  msrv:
+    name: Minimum Supported Rust Version (1.94.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MSRV Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.0"
+      - uses: Swatinem/rust-cache@v2
+      - name: Check MSRV
+        run: cargo check --all-targets
+
+  wasm-runtime:
+    name: WebAssembly Runtime Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: Swatinem/rust-cache@v2
+      - name: Run WASM validation and differential tests
+        run: |
+          cargo test --test test_wasm_validation
+          cargo test --test test_backend_differential
+      - name: Run WASM smoke suite with Node.js runtime loader
+        run: |
+          cargo run --bin datara -- build examples/01_vertical_slice.dtr --target=wasm32
+          node --input-type=module -e "import { loadDataraModule } from './examples/01_vertical_slice.js'; loadDataraModule('./examples/01_vertical_slice.wasm').then(m => m.main && m.main());"
+
+  slow-tests:
+    name: Slow Tests (Scheduled / Manual)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run Slow Tests
+        run: cargo test --release -j 2 -- --ignored slow_
+
+
+

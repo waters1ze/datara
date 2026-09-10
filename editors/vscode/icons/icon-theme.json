@@ -1,0 +1,10 @@
+{
+  "iconDefinitions": {
+    "_datara": {
+      "iconPath": "./icon.svg"
+    }
+  },
+  "fileExtensions": {
+    "dtr": "_datara"
+  }
+}

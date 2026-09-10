@@ -1,0 +1,22 @@
+@bare_metal
+module embedded.mmio
+
+register Timer2 at 0x4000_0000 {
+    control: UInt16 at 0x00
+    status: UInt16 at 0x02
+    counter: UInt32 at 0x08
+    reload: UInt32 at 0x0C
+}
+
+class MMIOBlock {
+    base_address: UInt64
+}
+
+behavior MMIOBlock {
+    fn read32(offset: UInt32) -> UInt32 {
+        return 0
+    }
+
+    fn write32(offset: UInt32, value: UInt32) -> Void {
+    }
+}

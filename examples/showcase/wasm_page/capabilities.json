@@ -1,0 +1,14 @@
+﻿{
+  " version\: 1,
+ \name\: \datara-wasm-showcase\,
+ \memory\: {
+ \initial_pages\: 16,
+ \maximum_pages\: 256
+ },
+ \permissions\: [
+ \console.log\,
+ \datara:rt/own_acquire\,
+ \datara:rt/own_release\
+ ],
+ \security_profile\: \zero_trust_pure_compute\
+}

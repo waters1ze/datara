@@ -1,0 +1,53 @@
+use stdlib.io.fs
+
+class KeyValueStore {
+    wal_path: Str
+    is_open: Bool
+}
+
+behavior KeyValueStore {
+    open(path: Str) -> KeyValueStore {
+        if !file_exists(path) {
+            let _ = file_write(path, "# DATARA KV STORE WAL v1\n")
+        }
+        return KeyValueStore {
+            wal_path: path,
+            is_open: true
+        }
+    }
+
+    set(key: Str, val: Str) -> Bool {
+        if !this.is_open {
+            return false
+        }
+        let line = "SET " + key + "=" + val + "\n"
+        let res = file_append(this.wal_path, line)
+        return res == 1
+    }
+
+    get(key: Str) -> Str {
+        if !this.is_open {
+            return ""
+        }
+        let content = file_read(this.wal_path)
+        let pattern = "SET " + key + "="
+        let idx = str_index_of(content, pattern)
+        if idx < 0 {
+            return ""
+        }
+        return content
+    }
+
+    delete(key: Str) -> Bool {
+        if !this.is_open {
+            return false
+        }
+        let line = "DEL " + key + "\n"
+        let res = file_append(this.wal_path, line)
+        return res == 1
+    }
+
+    close() {
+        // flush and close
+    }
+}

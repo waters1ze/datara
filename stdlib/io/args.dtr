@@ -1,0 +1,10 @@
+class CommandLineArgs {
+    command: Str
+    flags: Str
+}
+
+behavior CommandLineArgs {
+    has_flag(flag_name: Str) -> Bool {
+        return this.flags == flag_name
+    }
+}

@@ -1,0 +1,116 @@
+// ============================================================================
+// Proof-Carrying Scheduler (PCS) Task Model
+//
+// In Datara, asynchronous execution is built on the Proof-Carrying Scheduler:
+// the compiler precomputes the execution schedule as a Directed Acyclic Graph (DAG)
+// of TaskNodes with topological wavefront levels (Kahn waves).
+//
+// ARCHITECTURAL GUARANTEE:
+// PCS is stackful-wavefront, not stackless-poll. There are no polling loops,
+// no state machine transformations, and no work-stealing overhead on the critical path.
+// ============================================================================
+
+use stdlib.async.future
+
+class Task {
+    id: Int
+    name: Str
+    status: Int
+    result: Str
+    task_node_id: Int
+    effect_class: Int
+    is_deterministic: Bool
+    pool_kind: Int
+}
+
+behavior Task {
+    spawn(id: Int, name: Str) -> Task {
+        return Task {
+            id: id,
+            name: name,
+            status: 0,
+            result: "",
+            task_node_id: id,
+            effect_class: 0,
+            is_deterministic: true,
+            pool_kind: 0
+        }
+    }
+
+    spawn_task(id: Int, name: Str, effect_class: Int, is_det: Bool, pool: Int) -> Task {
+        return Task {
+            id: id,
+            name: name,
+            status: 0,
+            result: "",
+            task_node_id: id,
+            effect_class: effect_class,
+            is_deterministic: is_det,
+            pool_kind: pool
+        }
+    }
+
+    complete(result: Str) -> Task {
+        return Task {
+            id: this.id,
+            name: this.name,
+            status: 1,
+            result: result,
+            task_node_id: this.task_node_id,
+            effect_class: this.effect_class,
+            is_deterministic: this.is_deterministic,
+            pool_kind: this.pool_kind
+        }
+    }
+
+    is_done() -> Bool {
+        return this.status == 1
+    }
+
+    get_result() -> Str {
+        return this.result
+    }
+
+    to_future() -> Future {
+        if this.status == 1 {
+            return Future.ready(this.result)
+        }
+        return Future.from_task(this.id, this.result)
+    }
+}
+
+class TaskGroup {
+    group_id: Int
+    total_count: Int
+    completed_count: Int
+}
+
+behavior TaskGroup {
+    new(id: Int) -> TaskGroup {
+        return TaskGroup {
+            group_id: id,
+            total_count: 0,
+            completed_count: 0
+        }
+    }
+
+    add_task() -> TaskGroup {
+        return TaskGroup {
+            group_id: this.group_id,
+            total_count: this.total_count + 1,
+            completed_count: this.completed_count
+        }
+    }
+
+    task_finished() -> TaskGroup {
+        return TaskGroup {
+            group_id: this.group_id,
+            total_count: this.total_count,
+            completed_count: this.completed_count + 1
+        }
+    }
+
+    all_finished() -> Bool {
+        return this.completed_count >= this.total_count
+    }
+}

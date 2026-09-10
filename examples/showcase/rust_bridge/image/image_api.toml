@@ -1,0 +1,24 @@
+[crate]
+name = "image"
+version = "0.24"
+
+[[functions]]
+name = "encode_rgb_png"
+params = [
+    { name = "buf_ptr", type = "Pointer" },
+    { name = "buf_len", type = "Int" },
+    { name = "width", type = "Int" },
+    { name = "height", type = "Int" }
+]
+return_type = "String"
+code = """
+// Zero-copy access into Datara buffer without heap clone
+let raw_bytes = unsafe { std::slice::from_raw_parts(buf_ptr, buf_len as usize) };
+let Some(img) = image::RgbImage::from_raw(width as u32, height as u32, raw_bytes.to_vec()) else {
+    return String::new();
+};
+let mut out_png = std::io::Cursor::new(Vec::new());
+let _ = img.write_to(&mut out_png, image::ImageFormat::Png);
+let bytes = out_png.into_inner();
+format!("PNG_BYTES:{}:HEADER:{}", bytes.len(), bytes.get(1).copied().unwrap_or(0))
+"""

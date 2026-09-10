@@ -1,0 +1,17 @@
+﻿class Node {
+    runtime_name: Str
+}
+
+behavior Node {
+    require(module_name: Str) -> Int {
+        return js_require(module_name)
+    }
+
+    eval(code: Str) -> Str {
+        return js_eval(code)
+    }
+
+    call(fn_name: Str, args_json: Str) -> Str {
+        return js_call(fn_name, args_json)
+    }
+}

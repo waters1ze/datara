@@ -1,0 +1,122 @@
+class TcpStream {
+    fd: Int
+    is_closed: Bool
+}
+
+behavior TcpStream {
+    connect(host: Str, port: Int) -> TcpStream {
+        let fd = socket_create(1)
+        if fd < 0 {
+            return TcpStream { fd: -1, is_closed: true }
+        }
+        let res = socket_connect(fd, host, port)
+        if res < 0 {
+            socket_close(fd)
+            return TcpStream { fd: -1, is_closed: true }
+        }
+        return TcpStream { fd: fd, is_closed: false }
+    }
+
+    send(data: Str) -> Int {
+        if this.is_closed || this.fd < 0 {
+            return -1
+        }
+        return socket_send(this.fd, data)
+    }
+
+    recv(max_bytes: Int) -> Str {
+        if this.is_closed || this.fd < 0 {
+            return ""
+        }
+        return socket_recv(this.fd, max_bytes)
+    }
+
+    close() {
+        if !this.is_closed && this.fd >= 0 {
+            socket_close(this.fd)
+        }
+    }
+}
+
+class TcpListener {
+    fd: Int
+    port: Int
+    is_closed: Bool
+}
+
+behavior TcpListener {
+    bind(host: Str, port: Int) -> TcpListener {
+        let fd = socket_create(1)
+        if fd < 0 {
+            return TcpListener { fd: -1, port: port, is_closed: true }
+        }
+        let b = socket_bind(fd, host, port)
+        if b < 0 {
+            socket_close(fd)
+            return TcpListener { fd: -1, port: port, is_closed: true }
+        }
+        let l = socket_listen(fd, 128)
+        if l < 0 {
+            socket_close(fd)
+            return TcpListener { fd: -1, port: port, is_closed: true }
+        }
+        return TcpListener { fd: fd, port: port, is_closed: false }
+    }
+
+    accept() -> TcpStream {
+        if this.is_closed || this.fd < 0 {
+            return TcpStream { fd: -1, is_closed: true }
+        }
+        let client_fd = socket_accept(this.fd)
+        if client_fd < 0 {
+            return TcpStream { fd: -1, is_closed: true }
+        }
+        return TcpStream { fd: client_fd, is_closed: false }
+    }
+
+    close() {
+        if !this.is_closed && this.fd >= 0 {
+            socket_close(this.fd)
+        }
+    }
+}
+
+class UdpSocket {
+    fd: Int
+    is_closed: Bool
+}
+
+behavior UdpSocket {
+    bind(host: Str, port: Int) -> UdpSocket {
+        let fd = socket_create(0)
+        if fd < 0 {
+            return UdpSocket { fd: -1, is_closed: true }
+        }
+        let b = socket_bind(fd, host, port)
+        if b < 0 {
+            socket_close(fd)
+            return UdpSocket { fd: -1, is_closed: true }
+        }
+        return UdpSocket { fd: fd, is_closed: false }
+    }
+
+    send_to(data: Str) -> Int {
+        if this.is_closed || this.fd < 0 {
+            return -1
+        }
+        return socket_send(this.fd, data)
+    }
+
+    recv(max_bytes: Int) -> Str {
+        if this.is_closed || this.fd < 0 {
+            return ""
+        }
+        return socket_recv(this.fd, max_bytes)
+    }
+
+    close() {
+        if !this.is_closed && this.fd >= 0 {
+            socket_close(this.fd)
+        }
+    }
+}

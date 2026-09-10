@@ -1,0 +1,14 @@
+use examples.real_cli.config.Config
+
+class CliParser {
+    appName: Str
+}
+
+behavior CliParser {
+    parse_default() -> Config => Config {
+        path: "./src",
+        query: "*.dtr",
+        max_results: 50,
+        verbose: true
+    }
+}

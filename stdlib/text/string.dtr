@@ -1,0 +1,72 @@
+class StringUtils {
+    prefix: Str
+}
+
+behavior StringUtils {
+    wrap_brackets(content: Str) -> Str {
+        return "[" + content + "]"
+    }
+
+    quote(content: Str) -> Str {
+        return "'" + content + "'"
+    }
+
+    contains(s: Str, sub: Str) -> Bool {
+        let res = str_contains(s, sub)
+        return res == 1
+    }
+
+    starts_with(s: Str, prefix: Str) -> Bool {
+        let res = str_starts_with(s, prefix)
+        return res == 1
+    }
+
+    ends_with(s: Str, suffix: Str) -> Bool {
+        let res = str_ends_with(s, suffix)
+        return res == 1
+    }
+
+    index_of(s: Str, sub: Str) -> Int {
+        return str_index_of(s, sub)
+    }
+
+    trim(s: Str) -> Str {
+        return str_trim(s)
+    }
+
+    to_int(s: Str) -> Int {
+        return str_to_int(s)
+    }
+
+    repeat(s: Str, count: Int) -> Str {
+        return str_repeat(s, count)
+    }
+
+    pad_left(s: Str, total_len: Int, pad: Str) -> Str {
+        return str_pad_left(s, total_len, pad)
+    }
+
+    pad_right(s: Str, total_len: Int, pad: Str) -> Str {
+        return str_pad_right(s, total_len, pad)
+    }
+
+    replace(s: Str, target: Str, replacement: Str) -> Str {
+        return str_replace(s, target, replacement)
+    }
+
+    to_upper(s: Str) -> Str {
+        return str_to_upper(s)
+    }
+
+    to_lower(s: Str) -> Str {
+        return str_to_lower(s)
+    }
+
+    split(s: Str, delim: Str) -> List<Str> {
+        return str_split(s, delim)
+    }
+
+    join(items: List<Str>, delim: Str) -> Str {
+        return str_join(items, delim)
+    }
+}

@@ -1,0 +1,61 @@
+use examples.datara_find.src.args.CliConfig
+use examples.datara_find.src.args.ArgParser
+use examples.datara_find.src.files.FileRecord
+use examples.datara_find.src.files.DirectoryScanner
+use examples.datara_find.src.parser.LogEntry
+use examples.datara_find.src.parser.LogParser
+use examples.datara_find.src.analyzer.AnalysisStats
+use examples.datara_find.src.analyzer.ContentAnalyzer
+use examples.datara_find.src.output.TableFormatter
+
+class AppSession {
+    app_version: Str
+}
+
+behavior AppSession {
+    run_cli_search() {
+        let parser = ArgParser { program_name: "datara_find" }
+        let cfg = parser.parse_defaults()
+
+        let formatter = TableFormatter { border_char: "=" }
+        let header = formatter.render_header("Datara Find Utility v" + this.app_version)
+        out header
+
+        let cfg_summary = cfg.summary()
+        out cfg_summary
+
+        let scanner = DirectoryScanner { root_dir: cfg.target_path }
+        let f1 = scanner.scan_log_file("auth.log", 1250, 48200)
+        let f2 = scanner.scan_log_file("gateway.log", 3400, 95400)
+
+        let log_p = LogParser { strict_mode: true }
+        let entry1 = log_p.parse_simulated("ERROR", 500, "Database connection timeout")
+        let entry2 = log_p.parse_simulated("WARN", 404, "Route not found: /api/v1/legacy")
+
+        let analyzer = ContentAnalyzer { filter_pattern: cfg.query }
+        let is_err1 = analyzer.evaluate_entry(entry1)
+
+        let r1 = formatter.render_row(f1.path, entry1.format_line())
+        let r2 = formatter.render_row(f2.path, entry2.format_line())
+        out r1
+        out r2
+
+        let stats = AnalysisStats {
+            total_scanned: 2,
+            error_count: 1,
+            warning_count: 1
+        }
+        let footer = formatter.render_footer(stats.format_summary())
+        out footer
+    }
+}
+
+fn main() {
+    let session = AppSession {
+        app_version: "2.0.0"
+    }
+
+    with active_session = session {
+        active_session.run_cli_search()
+    }
+}

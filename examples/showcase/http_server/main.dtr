@@ -1,0 +1,40 @@
+// Pure Datara HTTP/1.1 Request Router and Protocol Showcase
+
+fn handle_http_request(raw_request: String) -> String {
+    if str_starts_with(raw_request, "GET /health") {
+        let body = "{\"status\":\"healthy\",\"uptime\":3600,\"version\":\"1.0.0\"}"
+        let body_len = str_len(body)
+        return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + int_to_str(body_len) + "\r\n\r\n" + body
+    } else if str_starts_with(raw_request, "GET /api/status") {
+        let body = "{\"code\":200,\"engine\":\"forgen-native\",\"deterministic\":true}"
+        let body_len = str_len(body)
+        return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + int_to_str(body_len) + "\r\n\r\n" + body
+    } else {
+        let body = "{\"error\":\"not_found\",\"code\":404}"
+        let body_len = str_len(body)
+        return "HTTP/1.1 404 Not Found\r\nContent-Type: application/json\r\nContent-Length: " + int_to_str(body_len) + "\r\n\r\n" + body
+    }
+}
+
+fn main() {
+    let req1 = "GET /health HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
+    let req2 = "GET /api/status HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
+    let req3 = "POST /submit HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
+
+    let res1 = handle_http_request(req1)
+    let res2 = handle_http_request(req2)
+    let res3 = handle_http_request(req3)
+
+    out("[HTTP Server Showcase] Route 1 Response:")
+    out(res1)
+    out("[HTTP Server Showcase] Route 2 Response:")
+    out(res2)
+    out("[HTTP Server Showcase] Route 3 Response:")
+    out(res3)
+
+    if str_contains(res1, "200 OK") && str_contains(res2, "200 OK") && str_contains(res3, "404 Not Found") {
+        out("[HTTP Server Showcase] Verification: 100% OK")
+    } else {
+        out("[HTTP Server Showcase] Verification: FAILED")
+    }
+}

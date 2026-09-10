@@ -1,0 +1,39 @@
+use stdlib.net.socket
+use stdlib.http.types
+
+class HttpServer {
+    host: Str
+    port: Int
+    is_running: Bool
+}
+
+behavior HttpServer {
+    new(port: Int) -> HttpServer {
+        return HttpServer {
+            host: "0.0.0.0",
+            port: port,
+            is_running: false
+        }
+    }
+
+    listen_once(default_response: Str) -> Str {
+        let listener = TcpListener.bind(this.host, this.port)
+        if listener.is_closed {
+            return "ERROR: Failed to bind port"
+        }
+
+        let client = listener.accept()
+        if client.is_closed {
+            listener.close()
+            return "ERROR: Accept failed"
+        }
+
+        let raw_req = client.recv(4096)
+        let resp = HttpResponse.ok(default_response)
+        let raw_resp = resp.to_raw()
+        let _ = client.send(raw_resp)
+        client.close()
+        listener.close()
+        return raw_req
+    }
+}

@@ -1,0 +1,3 @@
+behavior User {
+    charge_card() -> Str => "card_charged_successfully"
+}

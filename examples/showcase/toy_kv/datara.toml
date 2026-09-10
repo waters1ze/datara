@@ -1,0 +1,9 @@
+[package]
+name = "toy_kv"
+version = "1.0.0"
+description = "Deterministic append-only key-value storage engine in pure Datara"
+authors = ["Datara Core Team <core@datara.dev>"]
+entry = "main.dtr"
+
+[target]
+opt_level = "release"

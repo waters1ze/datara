@@ -1,0 +1,316 @@
+{
+  "metadata": {
+    "os": "Windows 11 (10.0.26200)",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "arch": "AMD64",
+    "cpu": "AMD Ryzen 5 7600 6-Core Processor",
+    "logical_cores": 12,
+    "ram_gb": 31.1,
+    "rustc_version": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "cargo_version": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+    "msvc_version": "\u040b\u0407\u0432\u0401\u00ac\u0401\u00a7\u0401\u0430\u0433\u043e\u0439\u0401\u00a9 \u0404\u00ae\u00ac\u0407\u0401\u00ab\u043f\u0432\u00ae\u0430 Microsoft (R) C/C++ \u045e\u0490\u0430\u0431\u0401\u0401 19.50.35727 \u00a4\u00ab\u043f x64",
+    "python_version": "Python 3.14.3",
+    "node_version": "v24.14.0",
+    "git_commit": "5cf84639816f3770c27fcc8c0aeb6b21a01d25dc",
+    "timestamp_utc": "2026-09-08T16:04:48.294397+00:00",
+    "methodology": "1 warmup run + 7 timed runs, median-of-7, algorithmically equivalent implementations"
+  },
+  "benchmark": "Runtime Execution Benchmarks",
+  "unit": "milliseconds",
+  "results": {
+    "fib_35": {
+      "datara_cranelift_same_algo": {
+        "median_ms": 6.426,
+        "min_ms": 6.177,
+        "max_ms": 7.043,
+        "mean_ms": 6.564,
+        "stddev_ms": 0.372,
+        "runs_ms": [
+          6.177,
+          6.219,
+          6.281,
+          6.426,
+          6.833,
+          6.966,
+          7.043
+        ]
+      },
+      "datara_llvm_same_algo": {
+        "median_ms": 6.342,
+        "min_ms": 6.116,
+        "max_ms": 6.77,
+        "mean_ms": 6.387,
+        "stddev_ms": 0.267,
+        "runs_ms": [
+          6.116,
+          6.117,
+          6.279,
+          6.342,
+          6.353,
+          6.731,
+          6.77
+        ]
+      },
+      "c_msvc_o2": {
+        "median_ms": 30.24,
+        "min_ms": 29.92,
+        "max_ms": 31.116,
+        "mean_ms": 30.353,
+        "stddev_ms": 0.41,
+        "runs_ms": [
+          29.92,
+          29.967,
+          30.225,
+          30.24,
+          30.408,
+          30.593,
+          31.116
+        ]
+      },
+      "rust_release": {
+        "median_ms": 15.678,
+        "min_ms": 15.587,
+        "max_ms": 16.038,
+        "mean_ms": 15.756,
+        "stddev_ms": 0.17,
+        "runs_ms": [
+          15.587,
+          15.626,
+          15.665,
+          15.678,
+          15.759,
+          15.939,
+          16.038
+        ]
+      },
+      "pure_python_314": {
+        "median_ms": 899.269,
+        "min_ms": 896.451,
+        "max_ms": 1102.639,
+        "mean_ms": 931.401,
+        "stddev_ms": 75.856,
+        "runs_ms": [
+          896.451,
+          898.005,
+          898.217,
+          899.269,
+          908.988,
+          916.237,
+          1102.639
+        ]
+      },
+      "datara_sibling_elimination_showcase": {
+        "median_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0,
+        "mean_ms": 0.0,
+        "stddev_ms": 0.0,
+        "runs_ms": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "sum_1e8": {
+      "datara_cranelift_raw": {
+        "median_ms": 5.997,
+        "min_ms": 5.768,
+        "max_ms": 6.327,
+        "mean_ms": 6.052,
+        "stddev_ms": 0.216,
+        "runs_ms": [
+          5.768,
+          5.875,
+          5.92,
+          5.997,
+          6.208,
+          6.268,
+          6.327
+        ]
+      },
+      "datara_llvm_raw": {
+        "median_ms": 6.378,
+        "min_ms": 5.711,
+        "max_ms": 6.608,
+        "mean_ms": 6.32,
+        "stddev_ms": 0.32,
+        "runs_ms": [
+          5.711,
+          6.153,
+          6.25,
+          6.378,
+          6.541,
+          6.599,
+          6.608
+        ]
+      },
+      "c_msvc_o2": {
+        "median_ms": 32.541,
+        "min_ms": 29.836,
+        "max_ms": 33.498,
+        "mean_ms": 32.291,
+        "stddev_ms": 1.149,
+        "runs_ms": [
+          29.836,
+          32.308,
+          32.507,
+          32.541,
+          32.541,
+          32.803,
+          33.498
+        ]
+      },
+      "rust_release": {
+        "median_ms": 19.496,
+        "min_ms": 19.494,
+        "max_ms": 19.819,
+        "mean_ms": 19.544,
+        "stddev_ms": 0.121,
+        "runs_ms": [
+          19.494,
+          19.494,
+          19.494,
+          19.496,
+          19.497,
+          19.514,
+          19.819
+        ]
+      },
+      "pure_python_314": {
+        "median_ms": 4046.616,
+        "min_ms": 3998.694,
+        "max_ms": 4245.961,
+        "mean_ms": 4077.602,
+        "stddev_ms": 94.867,
+        "runs_ms": [
+          3998.694,
+          4002.455,
+          4027.327,
+          4046.616,
+          4047.635,
+          4174.529,
+          4245.961
+        ]
+      },
+      "datara_loopfold_o1_showcase": {
+        "median_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0,
+        "mean_ms": 0.0,
+        "stddev_ms": 0.0,
+        "runs_ms": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ]
+      }
+    },
+    "dot_4m_float4": {
+      "datara_llvm_simd": {
+        "median_ms": 1.0,
+        "min_ms": 1.0,
+        "max_ms": 7.373,
+        "mean_ms": 1.91,
+        "stddev_ms": 2.409,
+        "runs_ms": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          7.373
+        ]
+      },
+      "datara_cranelift": {
+        "median_ms": 1.0,
+        "min_ms": 1.0,
+        "max_ms": 8.215,
+        "mean_ms": 2.946,
+        "stddev_ms": 3.332,
+        "runs_ms": [
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          1.0,
+          7.407,
+          8.215
+        ]
+      },
+      "c_msvc_o2": {
+        "median_ms": 0.674,
+        "min_ms": 0.593,
+        "max_ms": 0.719,
+        "mean_ms": 0.665,
+        "stddev_ms": 0.041,
+        "runs_ms": [
+          0.593,
+          0.635,
+          0.659,
+          0.674,
+          0.683,
+          0.692,
+          0.719
+        ]
+      },
+      "rust_release": {
+        "median_ms": 0.616,
+        "min_ms": 0.584,
+        "max_ms": 0.733,
+        "mean_ms": 0.637,
+        "stddev_ms": 0.054,
+        "runs_ms": [
+          0.584,
+          0.584,
+          0.609,
+          0.616,
+          0.659,
+          0.672,
+          0.733
+        ]
+      },
+      "numpy_dot": {
+        "median_ms": 1.489,
+        "min_ms": 1.457,
+        "max_ms": 1.532,
+        "mean_ms": 1.487,
+        "stddev_ms": 0.024,
+        "runs_ms": [
+          1.457,
+          1.467,
+          1.475,
+          1.489,
+          1.492,
+          1.494,
+          1.532
+        ]
+      },
+      "pure_python_314": {
+        "median_ms": 99.505,
+        "min_ms": 97.87,
+        "max_ms": 101.017,
+        "mean_ms": 99.257,
+        "stddev_ms": 1.285,
+        "runs_ms": [
+          97.87,
+          97.986,
+          98.044,
+          99.505,
+          100.13,
+          100.244,
+          101.017
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+class Formatter {
+    indent_size: Int
+}
+
+behavior Formatter {
+    indent_line(line: Str) -> Str {
+        return "  " + line
+    }
+
+    percent(val: Float, decimals: Int) -> Str {
+        return format_percent(val, decimals)
+    }
+
+    int_with_commas(n: Int) -> Str {
+        return format_int_with_commas(n)
+    }
+}

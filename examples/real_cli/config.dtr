@@ -1,0 +1,10 @@
+class Config {
+    path: Str
+    query: Str
+    max_results: Int
+    verbose: Bool
+}
+
+behavior Config {
+    summary() -> Str => "Config(path=" + this.path + ", query=" + this.query + ", max=" + this.max_results + ")"
+}

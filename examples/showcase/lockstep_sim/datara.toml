@@ -1,0 +1,10 @@
+[package]
+name = "lockstep_sim"
+version = "1.0.0"
+description = "Deterministic multi-core lockstep physics simulation with SIMD vector operations"
+authors = ["Datara Core Team <core@datara.org>"]
+entry = "lockstep.dtr"
+
+[target]
+opt_level = "release"
+vector = true

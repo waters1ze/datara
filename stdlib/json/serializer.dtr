@@ -1,0 +1,26 @@
+use stdlib.json.types
+
+class JsonSerializer {
+    indent: Int
+}
+
+behavior JsonSerializer {
+    stringify_str(val: Str) -> Str {
+        return "\"" + val + "\""
+    }
+
+    stringify_int(val: Int) -> Str {
+        return "" + val
+    }
+
+    stringify_bool(val: Bool) -> Str {
+        if val {
+            return "true"
+        }
+        return "false"
+    }
+
+    stringify_null() -> Str {
+        return "null"
+    }
+}

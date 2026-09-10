@@ -1,0 +1,17 @@
+@bare_metal
+module embedded.interrupt
+
+class InterruptVector {
+    vector: UInt16
+}
+
+behavior InterruptVector {
+    @interrupt_handler(vector: 0x001C)
+    fn timer_tick() -> Void {
+        asm! {
+            "cli",
+            "nop",
+            options: [nostack]
+        }
+    }
+}

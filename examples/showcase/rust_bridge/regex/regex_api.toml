@@ -1,0 +1,40 @@
+[crate]
+name = "regex"
+version = "1.13"
+
+[[functions]]
+name = "regex_is_match"
+params = [
+    { name = "pattern", type = "String" },
+    { name = "text", type = "String" }
+]
+return_type = "Bool"
+code = """
+let Ok(re) = regex::Regex::new(pattern) else { return false; };
+re.is_match(text)
+"""
+
+[[functions]]
+name = "regex_find"
+params = [
+    { name = "pattern", type = "String" },
+    { name = "text", type = "String" }
+]
+return_type = "String"
+code = """
+let Ok(re) = regex::Regex::new(pattern) else { return String::new(); };
+re.find(text).map(|m| m.as_str().to_string()).unwrap_or_default()
+"""
+
+[[functions]]
+name = "regex_replace_all"
+params = [
+    { name = "pattern", type = "String" },
+    { name = "text", type = "String" },
+    { name = "rep", type = "String" }
+]
+return_type = "String"
+code = """
+let Ok(re) = regex::Regex::new(pattern) else { return text.to_string(); };
+re.replace_all(text, rep).into_owned()
+"""

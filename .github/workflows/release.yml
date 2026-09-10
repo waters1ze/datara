@@ -1,0 +1,308 @@
+name: Release & Packages
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  build-binaries:
+    name: Build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_name: forgen-windows-x64.zip
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive_name: forgen-linux-x64.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive_name: forgen-darwin-arm64.tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive_name: forgen-darwin-x64.tar.gz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build Release Binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package Release Artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}"
+          if (-not $ver) {
+              $cargoToml = Get-Content "Cargo.toml" -Raw
+              if ($cargoToml -match '(?m)^version\s*=\s*"([^"]+)"') { $ver = "v" + $matches[1] }
+              else { $ver = "v0.1.0" }
+          }
+          $cleanVer = $ver.TrimStart('v')
+
+          New-Item -ItemType Directory -Force -Path "dist/staging/bin" | Out-Null
+          New-Item -ItemType Directory -Force -Path "dist/staging/assets" | Out-Null
+          Copy-Item -Force "target/${{ matrix.target }}/release/forgen.exe" "dist/staging/bin/forgen.exe"
+          if (Test-Path "target/${{ matrix.target }}/release/datara.exe") {
+              Copy-Item -Force "target/${{ matrix.target }}/release/datara.exe" "dist/staging/bin/datara.exe"
+          } else {
+              Copy-Item -Force "target/${{ matrix.target }}/release/forgen.exe" "dist/staging/bin/datara.exe"
+          }
+          if (Test-Path "target/${{ matrix.target }}/release/dpm.exe") {
+              Copy-Item -Force "target/${{ matrix.target }}/release/dpm.exe" "dist/staging/bin/dpm.exe"
+          }
+          Copy-Item -Force "assets/datara.ico" "dist/staging/assets/datara.ico"
+          Copy-Item -Force "assets/datara-logo.png" "dist/staging/assets/datara-logo.png"
+          Copy-Item -Force -Recurse "stdlib" "dist/staging/stdlib"
+          Copy-Item -Force -Recurse "editors" "dist/staging/editors"
+          New-Item -ItemType Directory -Force -Path "dist/staging/runtime" | Out-Null
+          if (Test-Path "src/runtime/datara_runtime.h") { Copy-Item -Force "src/runtime/datara_runtime.h" "dist/staging/runtime/datara_runtime.h" }
+          if (Test-Path "src/runtime/datara_runtime.c") { Copy-Item -Force "src/runtime/datara_runtime.c" "dist/staging/runtime/datara_runtime.c" }
+          $rtLib = (Get-ChildItem -Path "target/${{ matrix.target }}/release/build" -Recurse -Filter "datara_runtime.lib" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+          if ($rtLib -and (Test-Path $rtLib)) { Copy-Item -Force $rtLib "dist/staging/runtime/datara_runtime.lib" }
+          New-Item -ItemType Directory -Force -Path "dist/staging/scripts" | Out-Null
+          if (Test-Path "scripts/install_build_tools.ps1") { Copy-Item -Force "scripts/install_build_tools.ps1" "dist/staging/scripts/install_build_tools.ps1" }
+          if (Test-Path "scripts/install_build_tools.bat") { Copy-Item -Force "scripts/install_build_tools.bat" "dist/staging/scripts/install_build_tools.bat" }
+          if (Test-Path "installer/install_build_tools.bat") { Copy-Item -Force "installer/install_build_tools.bat" "dist/staging/install_build_tools.bat" }
+          Copy-Item -Force "install.ps1" "dist/staging/install.ps1"
+          Copy-Item -Force "setup_windows.bat" "dist/staging/setup_windows.bat"
+          Copy-Item -Force "README.md", "LICENSE-APACHE", "LICENSE-MIT" "dist/staging/"
+          Compress-Archive -Path "dist/staging/*" -DestinationPath "dist/${{ matrix.archive_name }}" -Force
+          Get-FileHash -Algorithm SHA256 "dist/${{ matrix.archive_name }}" | Out-File "dist/${{ matrix.archive_name }}.sha256"
+          Copy-Item -Force "dist/${{ matrix.archive_name }}" "dist/forgen-$ver-windows-x64.zip"
+          Get-FileHash -Algorithm SHA256 "dist/forgen-$ver-windows-x64.zip" | Out-File "dist/forgen-$ver-windows-x64.zip.sha256"
+
+          # Build Standalone Windows GUI Setup.exe
+          $csc = "C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (-not (Test-Path $csc)) {
+              $csc = "C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe"
+          }
+          if (Test-Path $csc) {
+              $setupCsPath = (Resolve-Path "installer\SetupWizard.cs").Path
+              $setupCsContent = Get-Content $setupCsPath -Raw
+              $setupCsContent = [regex]::Replace($setupCsContent, 'public const string AppVersion = "[^"]*";', "public const string AppVersion = `"$cleanVer`";")
+              Set-Content -Path $setupCsPath -Value $setupCsContent -NoNewline
+
+              $icoPath = (Resolve-Path "assets\datara.ico").Path
+              $archivePath = (Resolve-Path "dist\${{ matrix.archive_name }}").Path
+              $outExe = Join-Path (Resolve-Path "dist").Path "Datara-Setup.exe"
+
+              & $csc /nologo /target:winexe "/win32icon:$icoPath" "/resource:$archivePath,payload.zip" /reference:System.dll,System.Windows.Forms.dll,System.Drawing.dll,System.IO.Compression.dll,System.IO.Compression.FileSystem.dll "/out:$outExe" "$setupCsPath"
+              if (Test-Path "dist/Datara-Setup.exe") {
+                  Copy-Item -Force "dist/Datara-Setup.exe" "dist/Datara-$ver-Setup.exe"
+                  Get-FileHash -Algorithm SHA256 "dist/Datara-Setup.exe" | Out-File "dist/Datara-Setup.exe.sha256"
+                  Get-FileHash -Algorithm SHA256 "dist/Datara-$ver-Setup.exe" | Out-File "dist/Datara-$ver-Setup.exe.sha256"
+              }
+          }
+
+      - name: Package Release Artifact (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist/staging/bin
+          cp "target/${{ matrix.target }}/release/forgen" "dist/staging/bin/forgen"
+          cp "target/${{ matrix.target }}/release/forgen" "dist/staging/forgen"
+          [ -f "target/${{ matrix.target }}/release/datara" ] && cp "target/${{ matrix.target }}/release/datara" "dist/staging/bin/datara" || cp "target/${{ matrix.target }}/release/forgen" "dist/staging/bin/datara"
+          [ -f "target/${{ matrix.target }}/release/dpm" ] && cp "target/${{ matrix.target }}/release/dpm" "dist/staging/bin/dpm" || true
+          cp -r stdlib dist/staging/stdlib
+          mkdir -p dist/staging/runtime
+          [ -f "src/runtime/datara_runtime.h" ] && cp src/runtime/datara_runtime.h dist/staging/runtime/ || true
+          [ -f "src/runtime/datara_runtime.c" ] && cp src/runtime/datara_runtime.c dist/staging/runtime/ || true
+          cp scripts/install.sh dist/staging/install.sh
+          cp README.md LICENSE dist/staging/ || true
+          cd dist/staging
+          tar -czf "../${{ matrix.archive_name }}" *
+          cd ../..
+          sha256sum "dist/${{ matrix.archive_name }}" > "dist/${{ matrix.archive_name }}.sha256"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive_name }}
+          path: |
+            dist/${{ matrix.archive_name }}
+            dist/${{ matrix.archive_name }}.sha256
+            dist/forgen*windows*.zip*
+            dist/Datara*.exe*
+
+  build-packages:
+    name: Build Ecosystem Packages (VSIX, NPM, Crates, PyPI, Linux DEB/RPM)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Synchronize Package Versions
+        run: |
+          python scripts/sync_version.py
+          VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d '"' -f2)
+          echo "PACKAGE_VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Install Linux Packaging Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm dpkg-dev
+
+      - name: Build Release Binaries for Packaging
+        run: |
+          mkdir -p dist
+          cargo build --release --bins
+
+      - name: Package VS Code Extension (.vsix)
+        run: |
+          mkdir -p dist
+          [ -f LICENSE ] && cp LICENSE editors/vscode/LICENSE || true
+          cd editors/vscode
+          npx @vscode/vsce package --no-dependencies -o "../../dist/datara-language-${{ env.PACKAGE_VERSION }}.vsix"
+          cp "../../dist/datara-language-${{ env.PACKAGE_VERSION }}.vsix" "../../dist/datara-language.vsix"
+
+      - name: Package NPM Registry Tarball
+        run: |
+          npm pack ./packages/npm --pack-destination ./dist
+
+      - name: Publish NPM to GitHub Packages
+        run: |
+          npm publish ./packages/npm || true
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Package Crates.io Crate
+        run: |
+          cargo package --allow-dirty --no-verify
+          cp target/package/*.crate dist/
+
+      - name: Package PyPI Distribution (.whl and .tar.gz)
+        run: |
+          pip install build
+          python -m build packages/pypi -o dist
+
+      - name: Package Linux .deb and .rpm
+        run: |
+          chmod +x packages/linux/build_packages.sh
+          VERSION=${{ env.PACKAGE_VERSION }} ./packages/linux/build_packages.sh
+
+      - name: Upload Ecosystem Packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: ecosystem-packages
+          path: |
+            dist/*.vsix
+            dist/*.tgz
+            dist/*.crate
+            dist/*.whl
+            dist/*.tar.gz
+            dist/*.deb
+            dist/*.rpm
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs: [build-binaries, build-packages]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist-all
+          merge-multiple: true
+
+      - name: Generate Consolidated SHA256SUMS.txt
+        run: |
+          cd dist-all
+          > SHA256SUMS.txt
+          for f in *; do
+            if [ -f "$f" ] && [[ "$f" != *.sha256 ]] && [[ "$f" != "SHA256SUMS.txt" ]]; then
+              sha256sum "$f" >> SHA256SUMS.txt
+            fi
+          done
+          rm -f *.sha256
+          cat SHA256SUMS.txt
+          ls -la
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-all/Datara*.exe
+            dist-all/forgen-*.zip
+            dist-all/forgen-*.tar.gz
+            dist-all/*.vsix
+            dist-all/*.deb
+            dist-all/*.rpm
+            dist-all/*.whl
+            dist-all/*.crate
+            dist-all/*.tgz
+            dist-all/SHA256SUMS.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-github-package-docker:
+    name: Publish to GitHub Packages (GHCR)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

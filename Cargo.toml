@@ -1,0 +1,62 @@
+[package]
+name = "forgen"
+version = "1.0.0"
+edition = "2024"
+rust-version = "1.94.0"
+license = "MIT OR Apache-2.0"
+description = "High-performance compiler toolchain for the Datara programming language"
+repository = "https://github.com/waters1ze/datara"
+homepage = "https://github.com/waters1ze/datara"
+readme = "README.md"
+keywords = ["compiler", "datara", "language", "jit", "aot"]
+categories = ["compilers", "development-tools", "command-line-utilities"]
+exclude = ["dist/*", "installer/*", "bench_honest/*", "target/*", ".github/*"]
+autobins = false
+
+[[bin]]
+name = "forgen"
+path = "src/main.rs"
+
+[[bin]]
+name = "datara"
+path = "src/bin/datara.rs"
+
+[[bin]]
+name = "dpm"
+path = "src/bin/dpm.rs"
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+cranelift-codegen = { version = "0.134.4", features = ["x86", "arm64"] }
+cranelift-frontend = "0.134.4"
+cranelift-module = "0.134.4"
+cranelift-object = "0.134.4"
+cranelift-jit = "0.134.4"
+target-lexicon = "0.13.5"
+toml = "0.8"
+gimli = { version = "0.33", default-features = false, features = ["write", "std"] }
+object = { version = "0.39", default-features = false, features = ["write", "std"] }
+ed25519-compact = "2.4.2"
+
+[build-dependencies]
+cc = "1.0"
+
+[dev-dependencies]
+# Bytecode Alliance WASM validator (the same parser/validator used inside
+# wasmtime) — used by the wasm target tests to validate emitted modules with
+# a real spec-compliant validator instead of the shallow in-crate structural
+# check only.
+wasmparser = "0.221"
+proptest = "1.6"
+criterion = "0.5"
+
+[[bench]]
+name = "compiler_phases"
+harness = false
+
+[profile.dev]
+# Incremental compilation repeatedly corrupted its cache on this machine
+# (access-denied during artifact copy, then rustc ICEs in rmeta encoding).
+# Rebuilds are slightly slower but deterministic.
+incremental = false

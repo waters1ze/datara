@@ -1,0 +1,10 @@
+[package]
+name = "regex_bridge"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+regex = "1.13"

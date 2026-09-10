@@ -1,0 +1,28 @@
+﻿name: Feature Request
+description: Propose an idea or feature for the Datara language or compiler
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Suggest an enhancement or new feature for Datara & Forgen.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Is your feature request related to a problem?
+      description: A clear and concise description of the motivation for this feature.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution & Datara Syntax
+      description: Describe how the feature should look and behave in code.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Any alternative solutions or workarounds you have considered.

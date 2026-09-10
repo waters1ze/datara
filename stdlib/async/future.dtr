@@ -1,0 +1,104 @@
+// ============================================================================
+// Proof-Carrying Scheduler (PCS) Future Model
+//
+// DESIGN CONTRACT:
+// PCS is stackful-wavefront, not stackless-poll.
+//
+// Await is NOT a polling loop or a state machine coroutine.
+// In the Proof-Carrying Scheduler, `await()` and `join()` represent explicit
+// join points in the precomputed DAG wavefront. The runtime guarantees that
+// when a wave barrier completes, all prerequisite tasks have finished executing
+// with byte-level deterministic results.
+// ============================================================================
+
+class Future {
+    state: Int
+    value: Str
+    error_code: Int
+    task_id: Int
+}
+
+behavior Future {
+    ready(val: Str) -> Future {
+        return Future {
+            state: 1,
+            value: val,
+            error_code: 0,
+            task_id: 0
+        }
+    }
+
+    pending() -> Future {
+        return Future {
+            state: 0,
+            value: "",
+            error_code: 0,
+            task_id: 0
+        }
+    }
+
+    failed(code: Int) -> Future {
+        return Future {
+            state: 2,
+            value: "",
+            error_code: code,
+            task_id: 0
+        }
+    }
+
+    from_task(task_id: Int, val: Str) -> Future {
+        return Future {
+            state: 0,
+            value: val,
+            error_code: 0,
+            task_id: task_id
+        }
+    }
+
+    is_ready() -> Bool {
+        return this.state == 1
+    }
+
+    is_failed() -> Bool {
+        return this.state == 2
+    }
+
+    unwrap() -> Str {
+        return this.value
+    }
+
+    /// Explicit DAG wavefront join point.
+    /// In PCS, await does not transform the caller into a state machine generator;
+    /// it joins the caller at the precomputed DAG wave dependency boundary.
+    await() -> Str {
+        return this.value
+    }
+
+    map(suffix: Str) -> Future {
+        if this.state == 1 {
+            return Future {
+                state: 1,
+                value: this.value + suffix,
+                error_code: 0,
+                task_id: this.task_id
+            }
+        }
+        return this
+    }
+
+    /// DAG Wavefront Join Point: joins two asynchronous branches
+    join(other: Future) -> Future {
+        if this.state == 1 && other.state == 1 {
+            return Future {
+                state: 1,
+                value: this.value + "," + other.value,
+                error_code: 0,
+                task_id: this.task_id
+            }
+        }
+        if this.state == 2 {
+            return this
+        }
+        return other
+    }
+}

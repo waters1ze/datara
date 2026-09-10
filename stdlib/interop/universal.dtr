@@ -1,0 +1,11 @@
+module interop.universal
+
+class HyperGridRegistryBridge {
+    registry_url: Str
+}
+
+behavior HyperGridRegistryBridge {
+    fn resolve_universal_binding(package_namespace: Str, symbol: Str) -> Str {
+        return "hypergrid://" + package_namespace + "/" + symbol
+    }
+}

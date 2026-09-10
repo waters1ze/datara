@@ -1,0 +1,18 @@
+module web.webgpu
+
+class WebGPUContext {
+    device_name: Str
+    is_ready: Bool
+}
+
+behavior WebGPUContext {
+    fn request_adapter() -> WebGPUContext {
+        return WebGPUContext {
+            device_name: "WebGPU Hardware Accelerated Adapter",
+            is_ready: true
+        }
+    }
+
+    fn dispatch_compute(workgroup_x: Int, workgroup_y: Int) -> Void {
+    }
+}

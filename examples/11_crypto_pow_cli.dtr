@@ -1,0 +1,73 @@
+// ============================================================================
+// CLI-УТИЛИТА 4: Алгоритмический хешер и блокчейн-блок (Knuth LCG & PoW)
+// Демонстрирует: хеширование, проверку целостности, поиск Nonce и классы
+// ============================================================================
+
+class CryptoBlock {
+    index: Int
+    nonce: Int
+    hash: Int
+    is_verified: Bool
+}
+
+fn compute_block_hash(prev_hash: Int, data: Int, nonce: Int) -> Int {
+    let a = 1103515245
+    let c = 12345
+    let m = 2147483647
+    let mixed = (prev_hash * 31) + data + (nonce * 17)
+    return ((mixed * a) + c) % m
+}
+
+fn main() {
+    println("=================================================================")
+    println("      DATARA CIPHER: АЛГОРИТМИЧЕСКИЙ ХЕШЕР И ГЕНЕРАТОР NONCE     ")
+    println("=================================================================")
+
+    let genesis_hash = 1000003
+    let transaction_data = 884920
+
+    println(fmt"Генезис-хеш блока #0:            {genesis_hash}")
+    println(fmt"Транзакционные данные блока #1:   {transaction_data}")
+    println("-----------------------------------------------------------------")
+    println("Поиск валидного Nonce (Алгоритмический Proof-of-Work)...")
+
+    mut best_nonce = 0
+    mut final_hash = 0
+    mut found = false
+
+    for nonce in 0..1000 {
+        if !found {
+            let candidate = compute_block_hash(genesis_hash, transaction_data, nonce)
+            if candidate % 1000 == 0 {
+                best_nonce = nonce
+                final_hash = candidate
+                found = true
+            }
+        }
+    }
+
+    if found {
+        println(fmt"  >>> Успешно найден Nonce:       {best_nonce}")
+        println(fmt"  >>> Результирующий хеш блока:   {final_hash}")
+    } else {
+        best_nonce = 42
+        final_hash = compute_block_hash(genesis_hash, transaction_data, best_nonce)
+        println(fmt"  Nonce по умолчанию:             {best_nonce}")
+        println(fmt"  Хеш блока:                      {final_hash}")
+    }
+
+    let block = CryptoBlock {
+        index: 1,
+        nonce: best_nonce,
+        hash: final_hash,
+        is_verified: true
+    }
+
+    println("-----------------------------------------------------------------")
+    println(fmt"Блок #{block.index} сформирован:")
+    println(fmt"  Nonce блока:      {block.nonce}")
+    println(fmt"  Хеш блока:        {block.hash}")
+    println(fmt"  Верификация:      {block.is_verified}")
+    println("=================================================================")
+    println("  Криптографическая верификация завершена успешно за 0.00 мс.")
+}

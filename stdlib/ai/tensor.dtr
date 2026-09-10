@@ -1,0 +1,29 @@
+module ai.tensor
+
+class Tensor {
+    shape: [Int]
+    size: Int
+}
+
+behavior Tensor {
+    @fused_kernel
+    fn conv2d_bias_relu(input_channels: Int, output_channels: Int, kernel_size: Int) -> Tensor {
+        return Tensor {
+            shape: [1, output_channels, 112, 112],
+            size: output_channels * 112 * 112
+        }
+    }
+
+    @fused_kernel
+    fn matmul_relu(batch: Int, in_features: Int, out_features: Int) -> Tensor {
+        return Tensor {
+            shape: [batch, out_features],
+            size: batch * out_features
+        }
+    }
+
+    fn forward_pass(batch_size: Int) -> Int {
+        let t = Tensor.conv2d_bias_relu(64, 128, 3)
+        return t.size
+    }
+}

@@ -1,0 +1,26 @@
+class FileRecord {
+    path: Str
+    line_count: Int
+    byte_size: Int
+}
+
+behavior FileRecord {
+    display_info() -> Str {
+        return this.path + " [" + this.line_count + " lines, " + this.byte_size + " bytes]"
+    }
+}
+
+class DirectoryScanner {
+    root_dir: Str
+}
+
+behavior DirectoryScanner {
+    scan_log_file(filename: Str, lines: Int, size: Int) -> FileRecord {
+        let rec = FileRecord {
+            path: this.root_dir + "/" + filename,
+            line_count: lines,
+            byte_size: size
+        }
+        return rec
+    }
+}

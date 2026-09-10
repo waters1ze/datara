@@ -1,0 +1,17 @@
+class Maybe<T> {
+    is_some: Bool
+    value: T
+}
+
+behavior Maybe {
+    has_value() -> Bool {
+        return this.is_some
+    }
+
+    unwrap_or(default_val: T) -> T {
+        if this.is_some {
+            return this.value
+        }
+        return default_val
+    }
+}

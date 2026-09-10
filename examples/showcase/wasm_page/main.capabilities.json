@@ -1,0 +1,12 @@
+{
+  "module_name": "main",
+  "zero_trust_enforcement": "compositional_wasm_import_sandbox",
+  "audit_guarantee": "Provably absent capabilities are physically excluded from WebAssembly import section by construction",
+  "granted_capabilities": [],
+  "absent_capabilities": [
+    "datara:fs@1.0",
+    "datara:net@1.0",
+    "datara:sys@1.0",
+    "datara:rt/own"
+  ]
+}

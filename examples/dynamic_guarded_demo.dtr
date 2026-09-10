@@ -1,0 +1,12 @@
+fn dynamic_move(flag: Int, v: Int) -> Int {
+    if flag > 0 {
+        destroy(v)
+    }
+    out v
+    return v
+}
+
+fn main() {
+    let r = dynamic_move(0, 42)
+    out fmt"Result: {r}"
+}

@@ -1,0 +1,40 @@
+use stdlib.io.fs.FileSystem
+use stdlib.io.args.CommandLineArgs
+use stdlib.text.string.StringUtils
+use stdlib.text.format.Formatter
+use stdlib.collections.list.ListWrapper
+use stdlib.collections.map.KeyValueStore
+use stdlib.result.result.Outcome
+use stdlib.result.option.Maybe
+use stdlib.time.clock.Clock
+
+use stdlib.json.types.JsonValue
+use stdlib.json.parser.JsonParser
+
+fn main() {
+    let s_util = StringUtils { prefix: "DATARA" }
+    let quoted = s_util.quote("file.txt")
+    out "Quoted: " + quoted
+
+    let fmt = Formatter { indent_size: 4 }
+    let line = fmt.indent_line("item")
+    out line
+
+    let opt = Maybe<Int> { is_some: true, value: 42 }
+    let val = opt.unwrap_or(0)
+    out "Option: " + val
+
+    let res = Outcome<String> { is_success: true, value: "OK", error_msg: "" }
+    let msg = res.unwrap()
+    out "Result: " + msg
+
+    let clk = Clock { zone: "UTC" }
+    let t = clk.current_time_ms()
+    out "Clock valid: true"
+
+    let jp = JsonParser { source: "" }
+    let parsed_str = jp.get_string("\\{\"service\":\"datara\",\"port\":8080,\"active\":true}", "service")
+    let parsed_port = jp.get_int("\\{\"service\":\"datara\",\"port\":8080,\"active\":true}", "port")
+    out "JSON Service: " + parsed_str
+    out "JSON Port: " + parsed_port
+}

@@ -1,0 +1,19 @@
+import python
+
+fn main() {
+    out "============================================================"
+    out "  Datara Dogfooding: In-Process Polyglot Chart Generator   "
+    out "============================================================"
+    
+    let py = Py { version: "3" }
+    
+    // Polyglot Datara -> Python bridge execution to generate proof chart
+    let py_script = "import json, matplotlib\nmatplotlib.use('Agg')\nimport matplotlib.pyplot as plt\n\nwith open('docs/data/ownership_mix.json', 'r', encoding='utf-8') as f:\n    data = json.load(f)\n\nprogs = list(data['programs'].keys())\nproven = [data['programs'][p]['proven_pct'] for p in progs]\nguarded = [data['programs'][p]['guarded_pct'] for p in progs]\n\nfig, ax = plt.subplots(figsize=(8, 4.5), facecolor='#0f172a')\nax.set_facecolor('#1e293b')\nax.bar(progs, proven, color='#10b981', label='100% Proven (Zero-Cost)')\nax.bar(progs, guarded, bottom=proven, color='#f59e0b', label='Guarded (Fallback)')\nax.set_title('Datara Dogfooding: Real Ownership Proof Distribution', color='#f8fafc', fontsize=12, fontweight='bold')\nax.set_ylabel('State Percentage (%)', color='#94a3b8')\nax.tick_params(colors='#94a3b8')\nfor spine in ax.spines.values():\n    spine.set_color('#475569')\nax.legend(facecolor='#1e293b', edgecolor='#475569', labelcolor='#f8fafc')\nfig.text(0.5, 0.02, 'Generated directly by Datara (examples/showcase/charts/generate_chart.dtr)', ha='center', color='#94a3b8', fontsize=8)\nplt.subplots_adjust(bottom=0.15)\nplt.savefig('docs/img/dogfood_datara_chart.svg', format='svg', bbox_inches='tight')\nplt.close()\nprint('[DOGFOOD OK] Saved docs/img/dogfood_datara_chart.svg')\n"
+
+    let res = py.exec(py_script)
+    if res.is_ok() {
+        out "[Datara Dogfooding] Successfully generated docs/img/dogfood_datara_chart.svg via Python CPython bridge."
+    } else {
+        out "[Datara Dogfooding] Bridge execution error: " + res.error_msg
+    }
+}
