@@ -1,4 +1,6 @@
 pub mod r#abstract;
+pub mod domain;
+pub(crate) mod transfer;
 
 pub use r#abstract::{
     AbstractVarState, DmirOwnershipAnalyzer, FunctionDataflowState, OwnershipFunctionReport,
@@ -663,13 +665,17 @@ impl<'a> OwnershipTracker<'a> {
         match expr {
             Expr::Identifier(name, span) => {
                 if let Some(ValueState::Moved { at_span, reason }) = self.states.get(name) {
-                    diag.error(
+                    diag.error_with_help(
                         ErrorCode::BorrowUseAfterMove,
                         format!(
                             "Use of moved value '{}'. Value was moved at {} ({})",
                             name, at_span, reason
                         ),
                         Some(span.clone()),
+                        Some(format!(
+                            "value '{}' was moved; consider cloning it before move or avoid using it after transfer",
+                            name
+                        )),
                     );
                 } else if let Some(borrows) = self.active_borrows.get(name) {
                     if let Some(m_borrow) = borrows.iter().find(|b| b.is_mut) {
@@ -705,22 +711,33 @@ impl<'a> OwnershipTracker<'a> {
                 {
                     destroy_arg_handled = true;
                     if let Some(ValueState::Moved { at_span, reason }) = self.states.get(arg_name) {
-                        diag.error(
+                        diag.error_with_help(
                             ErrorCode::BorrowUseAfterMove,
                             format!(
                                 "Cannot move '{}' because it was already moved at {} ({})",
                                 arg_name, at_span, reason
                             ),
                             Some(arg_span.clone()),
+                            Some(format!(
+                                "value '{}' was already moved; avoid moving it more than once",
+                                arg_name
+                            )),
                         );
                     } else if let Some(borrows) = self.active_borrows.get(arg_name) {
                         if !borrows.is_empty() {
                             let b = &borrows[0];
-                            diag.error(
-                                        ErrorCode::BorrowConflictActiveView,
-                                        format!("Cannot move '{}' because it is actively borrowed by '{}' at {}", arg_name, b.borrower, b.span),
-                                        Some(arg_span.clone()),
-                                    );
+                            diag.error_with_help(
+                                ErrorCode::BorrowConflictActiveView,
+                                format!(
+                                    "Cannot move '{}' because it is actively borrowed by '{}' at {}",
+                                    arg_name, b.borrower, b.span
+                                ),
+                                Some(arg_span.clone()),
+                                Some(format!(
+                                    "ensure the view '{}' has finished before moving '{}'",
+                                    b.borrower, arg_name
+                                )),
+                            );
                         } else {
                             self.states.insert(
                                 arg_name.clone(),

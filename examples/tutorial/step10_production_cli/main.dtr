@@ -1,0 +1,14 @@
+// Step 10: Production CLI Application
+// Demonstrates argument parsing, string analysis, and exit status.
+
+fn main() {
+    let argc = args_count()
+    out "Total CLI arguments: " + int_to_str(argc)
+    mut i = 0
+    while i < argc {
+        let arg = args_get(i)
+        out "  arg[" + int_to_str(i) + "] = " + arg
+        i = i + 1
+    }
+    out "Step 10 Production CLI finished successfully."
+}

@@ -94,7 +94,10 @@ impl ReplSession {
             return None;
         }
 
-        if trimmed.is_empty() {
+        if trimmed.is_empty()
+            || trimmed.starts_with("//")
+            || (trimmed.starts_with("/*") && trimmed.ends_with("*/"))
+        {
             return None;
         }
 
@@ -251,6 +254,7 @@ impl ReplSession {
             top_kind,
             crate::lexer::TopLevelKind::Fn
                 | crate::lexer::TopLevelKind::Class
+                | crate::lexer::TopLevelKind::Record
                 | crate::lexer::TopLevelKind::Entity
                 | crate::lexer::TopLevelKind::Behavior
                 | crate::lexer::TopLevelKind::Role
@@ -411,32 +415,37 @@ impl ReplSession {
 
     /// Starts interactive terminal REPL loop
     pub fn run_interactive() {
-        println!(
-            "================================================================================"
-        );
-        println!(
-            " Datara Interactive REPL (Zero-Latency In-Memory JIT Console v{})",
-            env!("CARGO_PKG_VERSION")
-        );
-        println!(
-            " In-memory JIT execution active: zero disk artifacts, sub-millisecond evaluation."
-        );
-        println!(" Type ':help' for commands, ':exit' or Ctrl+C to quit.");
-        println!(
-            "================================================================================"
-        );
+        let is_tty = std::io::IsTerminal::is_terminal(&io::stdin());
+        if is_tty {
+            println!(
+                "================================================================================"
+            );
+            println!(
+                " Datara Interactive REPL (Zero-Latency In-Memory JIT Console v{})",
+                env!("CARGO_PKG_VERSION")
+            );
+            println!(
+                " In-memory JIT execution active: zero disk artifacts, sub-millisecond evaluation."
+            );
+            println!(" Type ':help' for commands, ':exit' or Ctrl+C to quit.");
+            println!(
+                "================================================================================"
+            );
+        }
 
         let mut session = ReplSession::new();
         let stdin = io::stdin();
         let mut stdout = io::stdout();
 
         loop {
-            if session.brace_depth > 0 {
-                print!(".. ");
-            } else {
-                print!(">> ");
+            if is_tty {
+                if session.brace_depth > 0 {
+                    print!(".. ");
+                } else {
+                    print!(">> ");
+                }
+                let _ = stdout.flush();
             }
-            let _ = stdout.flush();
 
             let mut input = String::new();
             if stdin.lock().read_line(&mut input).is_err() || input.is_empty() {

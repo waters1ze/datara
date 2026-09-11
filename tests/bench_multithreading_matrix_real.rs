@@ -31,6 +31,31 @@ fn run_datara(code: &str, file_name: &str) -> (String, i64) {
     )
 }
 
+fn run_datara_llvm(code: &str, file_name: &str) -> (String, i64) {
+    let compiler = ForgenCompiler::new("release").with_llvm(true);
+    let res = compiler.compile_source(code, file_name, None);
+    assert!(
+        res.success,
+        "LLVM compilation failed for {}: {:?}",
+        file_name, res.error
+    );
+
+    let exe_path = res.exe_path.expect("exe_path missing");
+    let t0 = Instant::now();
+    let output = Command::new(&exe_path)
+        .output()
+        .unwrap_or_else(|e| panic!("Failed to run {}: {}", exe_path.display(), e));
+    let elapsed_ms = t0.elapsed().as_millis() as i64;
+
+    let _ = fs::remove_file(&exe_path);
+    let _ = fs::remove_file(exe_path.with_extension("obj"));
+
+    (
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        elapsed_ms,
+    )
+}
+
 #[inline(never)]
 fn rust_heavy_compute(id: i64, iters: i64) -> i64 {
     let mut acc = id;
@@ -142,7 +167,7 @@ if (isMainThread) {{
 
 #[test]
 #[ignore = "intensive multithreading benchmark"]
-fn test_multithreading_performance_matrix_cross_language() {
+fn slow_test_multithreading_performance_matrix_cross_language() {
     let num_chunks = 16i64;
     let iters_per_chunk = 10_000_000i64;
 
@@ -185,6 +210,19 @@ fn main() {{
         }
     }
 
+    let (datara_llvm_out, _) = run_datara_llvm(&datara_code, "bench_datara_par_llvm.dtr");
+    let mut datara_llvm_ms: i64 = -1;
+    for line in datara_llvm_out.lines() {
+        if line.starts_with("DATARA_PAR_MS:") {
+            datara_llvm_ms = line
+                .strip_prefix("DATARA_PAR_MS:")
+                .unwrap()
+                .trim()
+                .parse()
+                .unwrap_or(-1);
+        }
+    }
+
     let rust_ms = benchmark_rust_multithreaded(num_chunks, iters_per_chunk);
     let python_ms = benchmark_python_multithreaded(num_chunks, iters_per_chunk);
     let node_ms = benchmark_node_multithreaded(num_chunks, iters_per_chunk);
@@ -204,20 +242,25 @@ fn main() {{
         "=========================================================================================="
     );
     println!(
-        "Language/Runtime                | Multi-Core Execution Time | vs Datara Performance       "
+        "Language/Runtime                | Multi-Core Execution Time | vs Datara (LLVM) Performance"
     );
     println!(
         "------------------------------------------------------------------------------------------"
     );
     println!(
-        "Datara (Native Cranelift Pool)  | {:>10} ms            | 1.00x (Baseline Native)     ",
-        datara_ms
+        "Datara (Native LLVM Pool)       | {:>10} ms            | 1.00x (Baseline LLVM)       ",
+        datara_llvm_ms
+    );
+    println!(
+        "Datara (Native Cranelift Pool)  | {:>10} ms            | {:.2}x                      ",
+        datara_ms,
+        (datara_ms as f64) / (datara_llvm_ms as f64).max(1.0)
     );
     println!(
         "Rust (std::thread pool / LLVM)  | {:>10} ms            | {:.2}x ({})                 ",
         rust_ms,
-        (rust_ms as f64) / (datara_ms as f64).max(1.0),
-        if rust_ms <= datara_ms {
+        (rust_ms as f64) / (datara_llvm_ms as f64).max(1.0),
+        if rust_ms <= datara_llvm_ms {
             "faster"
         } else {
             "slower"

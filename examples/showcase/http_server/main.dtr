@@ -9,6 +9,10 @@ fn handle_http_request(raw_request: String) -> String {
         let body = "{\"code\":200,\"engine\":\"forgen-native\",\"deterministic\":true}"
         let body_len = str_len(body)
         return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + int_to_str(body_len) + "\r\n\r\n" + body
+    } else if str_starts_with(raw_request, "POST /echo") {
+        let body = "{\"echo\":true,\"endpoint\":\"/echo\",\"protocol\":\"HTTP/1.1\"}"
+        let body_len = str_len(body)
+        return "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + int_to_str(body_len) + "\r\n\r\n" + body
     } else {
         let body = "{\"error\":\"not_found\",\"code\":404}"
         let body_len = str_len(body)
@@ -19,20 +23,25 @@ fn handle_http_request(raw_request: String) -> String {
 fn main() {
     let req1 = "GET /health HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
     let req2 = "GET /api/status HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
-    let req3 = "POST /submit HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
+    let req3 = "POST /echo HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
+    let req4 = "GET /unknown HTTP/1.1\r\nHost: localhost:8080\r\n\r\n"
 
     let res1 = handle_http_request(req1)
     let res2 = handle_http_request(req2)
     let res3 = handle_http_request(req3)
+    let res4 = handle_http_request(req4)
 
-    out("[HTTP Server Showcase] Route 1 Response:")
+    out("[HTTP LOG 001] Server initialized on 127.0.0.1:8080")
+    out("[HTTP LOG 002] Dispatched route /health")
     out(res1)
-    out("[HTTP Server Showcase] Route 2 Response:")
+    out("[HTTP LOG 003] Dispatched route /api/status")
     out(res2)
-    out("[HTTP Server Showcase] Route 3 Response:")
+    out("[HTTP LOG 004] Dispatched route /echo")
     out(res3)
+    out("[HTTP LOG 005] Dispatched route /unknown")
+    out(res4)
 
-    if str_contains(res1, "200 OK") && str_contains(res2, "200 OK") && str_contains(res3, "404 Not Found") {
+    if str_contains(res1, "200 OK") && str_contains(res2, "200 OK") && str_contains(res3, "200 OK") && str_contains(res4, "404 Not Found") {
         out("[HTTP Server Showcase] Verification: 100% OK")
     } else {
         out("[HTTP Server Showcase] Verification: FAILED")

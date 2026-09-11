@@ -1,6 +1,6 @@
 [package]
 name = "forgen"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 rust-version = "1.94.0"
 license = "MIT OR Apache-2.0"
@@ -10,7 +10,7 @@ homepage = "https://github.com/waters1ze/datara"
 readme = "README.md"
 keywords = ["compiler", "datara", "language", "jit", "aot"]
 categories = ["compilers", "development-tools", "command-line-utilities"]
-exclude = ["dist/*", "installer/*", "bench_honest/*", "target/*", ".github/*"]
+exclude = ["dist/*", "installer/*", "target/*", ".github/*"]
 autobins = false
 
 [[bin]]
@@ -24,6 +24,10 @@ path = "src/bin/datara.rs"
 [[bin]]
 name = "dpm"
 path = "src/bin/dpm.rs"
+
+[[bin]]
+name = "sparks"
+path = "src/bin/sparks.rs"
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }

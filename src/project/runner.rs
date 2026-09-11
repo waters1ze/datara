@@ -29,6 +29,79 @@ pub struct TestReport {
 pub struct ProjectRunner;
 
 impl ProjectRunner {
+    /// Discovers and returns names of all tests without executing them
+    pub fn list_tests(layout: &ProjectLayout, filter: Option<&str>) -> Vec<String> {
+        let mut test_names = Vec::new();
+        let mut candidate_files = layout.test_files.clone();
+        if candidate_files.is_empty() {
+            if layout
+                .entry_point
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.starts_with("test_"))
+                .unwrap_or(false)
+            {
+                candidate_files.push(layout.entry_point.clone());
+            } else {
+                for src in &layout.source_files {
+                    candidate_files.push(src.clone());
+                }
+            }
+        }
+
+        for test_file in candidate_files {
+            let file_content = match std::fs::read_to_string(&test_file) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            let file_str = test_file.to_str().unwrap_or("test.dtr");
+            let mut diag = DiagnosticEngine::new("en");
+            let mut lexer = Lexer::new(&file_content, file_str);
+            let tokens = lexer.tokenize(&mut diag);
+            let mut parser = Parser::new(tokens, &mut diag, file_str);
+            let program = parser.parse_program();
+
+            let test_functions: Vec<String> = program
+                .declarations
+                .iter()
+                .filter_map(|d| match d {
+                    Decl::Function(f) if f.attributes.iter().any(|a| a.name == "test") => {
+                        Some(f.name.clone())
+                    }
+                    _ => None,
+                })
+                .collect();
+
+            if !test_functions.is_empty() {
+                for name in test_functions {
+                    if let Some(flt) = filter {
+                        if !name.contains(flt) {
+                            continue;
+                        }
+                    }
+                    test_names.push(name);
+                }
+            } else {
+                let name = test_file
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("test")
+                    .to_string();
+                if let Some(flt) = filter {
+                    if !name.contains(flt) {
+                        continue;
+                    }
+                }
+                test_names.push(name);
+            }
+        }
+
+        test_names.sort();
+        test_names.dedup();
+        test_names
+    }
+
     /// Executes all tests discovered in the project layout
     pub fn run_tests(layout: &ProjectLayout, compiler: &ForgenCompiler) -> TestReport {
         Self::run_tests_filtered(layout, compiler, None)

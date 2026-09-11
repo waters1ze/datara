@@ -167,6 +167,14 @@ impl<'a> TypeChecker<'a> {
             "now_precise_ms".to_string(),
             (vec![], DataraType::Int, Vec::new()),
         );
+        for name in &[
+            "time_precise_ms",
+            "datara_rt_time_precise_ms",
+            "time_delta_ms",
+            "datara_rt_time_delta_ms",
+        ] {
+            function_signatures.insert(name.to_string(), (vec![], DataraType::Float, Vec::new()));
+        }
         for name in &["path_join", "datara_rt_path_join"] {
             function_signatures.insert(
                 name.to_string(),

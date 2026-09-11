@@ -654,7 +654,7 @@ Project Commands:
   lsp                     Start official Datara Language Server Protocol (LSP v3.17 stdio)
   ui [target]             Build and launch pure Datara Frontend (Zero-JS Web UI or Native Window)
   run [target] [--llvm]   Auto-discover and run project (Level 1 Single, Level 2 Folder, Level 3 Manifest)
-  build [target] [--llvm] Build standalone native executable (--llvm enables ultra-optimized AOT LLVM pipeline)
+  build [target] [--llvm] [--tiny] [--embed] Build native binary (--tiny for minimal size, --embed for C-ABI shared lib)
   test [target]           Auto-discover and run project integration tests in tests/
   bench [target]          Auto-discover and run benchmarks in benches/
   check [target]          Fast static verification (types, ownership, effects), 0 binaries

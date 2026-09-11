@@ -82,7 +82,7 @@ fn test_pgo_full_cycle_inlining_and_branch_prediction() {
     // 2. Baseline without PGO profile: optimize with low threshold
     let mut baseline_opt = Optimizer::new("release");
     let mut baseline_module = module.clone();
-    baseline_opt.optimize_module(&mut baseline_module);
+    let _ = baseline_opt.optimize_module(&mut baseline_module);
 
     // 3. Create execution profile recording 500 hot invocations & 99% branch taken
     let mut profile = ProfileData::new("pgo_test_module");

@@ -1,0 +1,10 @@
+// Step 8: Security Capability Lattice
+// Demonstrates capability-guarded system interactions.
+
+fn guarded_echo(text: String, caps: SystemCapabilities) {
+    out "[Capability Guarded] " + text
+}
+
+fn main(caps: SystemCapabilities) {
+    guarded_echo("Secure operation permitted under SystemCapabilities", caps)
+}

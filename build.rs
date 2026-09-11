@@ -88,7 +88,11 @@ fn main() {
     }
 
     if cfg!(target_env = "msvc") {
-        build.flag_if_supported("/O2").flag_if_supported("/W3");
+        build
+            .flag_if_supported("/O2")
+            .flag_if_supported("/Gy")
+            .flag_if_supported("/Gw")
+            .flag_if_supported("/W3");
     } else {
         if cfg!(target_os = "macos") {
             build.define("_DARWIN_C_SOURCE", None);
@@ -100,16 +104,19 @@ fn main() {
         }
         build
             .flag_if_supported("-O2")
+            .flag_if_supported("-ffunction-sections")
+            .flag_if_supported("-fdata-sections")
             .flag_if_supported("-w")
             .flag_if_supported("-pthread");
     }
 
     if let Err(e) = build.try_compile("datara_runtime") {
         eprintln!("cargo:warning=DATARA RUNTIME COMPILATION ERROR: {}", e);
-        panic!(
-            "failed to compile the Datara runtime (src/runtime/datara_runtime.c): {}",
+        eprintln!(
+            "[E0905] failed to compile the Datara runtime (src/runtime/datara_runtime.c): {}",
             e
         );
+        std::process::exit(1);
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR was not set by cargo"));
@@ -129,10 +136,11 @@ fn main() {
     };
 
     if !archive.exists() {
-        panic!(
-            "Datara runtime archive missing at {}; the cc crate did not produce it",
+        eprintln!(
+            "[E0905] Datara runtime archive missing at {}; the cc crate did not produce it",
             archive.display()
         );
+        std::process::exit(1);
     }
 
     // Mirror the latest archive to runtime/ directory for installer and release

@@ -1,0 +1,81 @@
+// Sparks Seed Package: mathx
+// Extended math and numeric algorithms for Datara.
+
+fn clamp(val: Int, min_val: Int, max_val: Int) -> Int {
+    if val < min_val {
+        return min_val
+    }
+    if val > max_val {
+        return max_val
+    }
+    return val
+}
+
+fn min(a: Int, b: Int) -> Int {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+fn max(a: Int, b: Int) -> Int {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fn abs(val: Int) -> Int {
+    if val < 0 {
+        return 0 - val
+    }
+    return val
+}
+
+fn pow(base: Int, exp: Int) -> Int {
+    if exp <= 0 {
+        return 1
+    }
+    mut res = 1
+    mut i = 0
+    while i < exp {
+        res = res * base
+        i = i + 1
+    }
+    return res
+}
+
+fn gcd(a: Int, b: Int) -> Int {
+    mut x = abs(a)
+    mut y = abs(b)
+    while y != 0 {
+        let t = y
+        y = x % y
+        x = t
+    }
+    return x
+}
+
+fn lcm(a: Int, b: Int) -> Int {
+    if a == 0 || b == 0 {
+        return 0
+    }
+    let g = gcd(a, b)
+    if g == 0 {
+        return 0
+    }
+    return abs(a * b) / g
+}
+
+fn factorial(n: Int) -> Int {
+    if n <= 1 {
+        return 1
+    }
+    mut res = 1
+    mut i = 2
+    while i <= n {
+        res = res * i
+        i = i + 1
+    }
+    return res
+}

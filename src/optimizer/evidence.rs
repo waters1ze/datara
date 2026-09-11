@@ -88,6 +88,7 @@ pub struct CountersSnapshot {
     pub dead_instructions_removed: usize,
     pub functions_inlined: usize,
     pub allocations_eliminated: usize,
+    pub bce_proven: usize,
 }
 
 impl CountersSnapshot {
@@ -98,6 +99,7 @@ impl CountersSnapshot {
             dead_instructions_removed: report.dead_instructions_removed,
             functions_inlined: report.functions_inlined,
             allocations_eliminated: report.allocations_eliminated,
+            bce_proven: report.bce_proven,
         }
     }
 
@@ -107,6 +109,7 @@ impl CountersSnapshot {
         report.dead_instructions_removed = self.dead_instructions_removed;
         report.functions_inlined = self.functions_inlined;
         report.allocations_eliminated = self.allocations_eliminated;
+        report.bce_proven = self.bce_proven;
     }
 }
 
@@ -125,7 +128,7 @@ pub fn gate_pass<F: FnOnce(&mut Module)>(
     report: &mut crate::optimizer::OptimizationReport,
     trace: &mut crate::optimizer::cost_model::OptimizationDecisionTrace,
     pass: F,
-) -> PassEvidence {
+) -> Result<PassEvidence, crate::diagnostics::Diagnostic> {
     let before = ir_fingerprint(module);
     let records_start = trace.records.len();
     let counters = CountersSnapshot::capture(report);
@@ -133,11 +136,14 @@ pub fn gate_pass<F: FnOnce(&mut Module)>(
     pass(module);
 
     if let Err(error) = crate::dmir::verify_module(module) {
-        // INVARIANT: Optimizer pass must never produce invalid DMIR
-        panic!(
-            "[E0901] DMIR verification failed after optimizer pass '{}': {}",
-            label, error
-        );
+        return Err(crate::diagnostics::Diagnostic::error(
+            crate::diagnostics::ErrorCode::InternalVerification,
+            format!(
+                "[E0901] DMIR verification failed after optimizer pass '{}': {}",
+                label, error
+            ),
+            None,
+        ));
     }
 
     let after = ir_fingerprint(module);
@@ -147,10 +153,10 @@ pub fn gate_pass<F: FnOnce(&mut Module)>(
         downgraded_records = downgrade_applied_without_delta(&mut trace.records, records_start);
         counters.restore(report);
     }
-    PassEvidence {
+    Ok(PassEvidence {
         changed,
         downgraded_records,
-    }
+    })
 }
 
 /// Convenience for tests and tooling: rebuild the function map sorted by name.
@@ -268,8 +274,10 @@ mod tests {
         let snapshot = CountersSnapshot::capture(&report);
         report.constants_folded = 9;
         report.allocations_eliminated = 3;
+        report.bce_proven = 4;
         snapshot.restore(&mut report);
         assert_eq!(report.constants_folded, 5);
         assert_eq!(report.allocations_eliminated, 0);
+        assert_eq!(report.bce_proven, 0);
     }
 }

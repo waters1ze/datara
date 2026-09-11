@@ -274,6 +274,7 @@ impl TargetInfo {
             let mut features = HashSet::new();
             let mut vectors = vec![VectorExtension::Sse2];
             features.insert("sse2".to_string());
+            features.insert("native".to_string());
 
             if std::is_x86_feature_detected!("sse4.2") {
                 features.insert("sse4_2".to_string());
@@ -298,7 +299,36 @@ impl TargetInfo {
             target.vector_support = vectors;
         }
 
+        #[cfg(target_arch = "aarch64")]
+        {
+            let mut features = HashSet::new();
+            features.insert("neon".to_string());
+            features.insert("native".to_string());
+            target.cpu_features = features;
+            target.vector_support = vec![VectorExtension::Neon];
+        }
+
         target
+    }
+
+    pub fn native() -> Self {
+        Self::host()
+    }
+
+    pub fn has_avx2(&self) -> bool {
+        self.vector_support.contains(&VectorExtension::Avx2)
+    }
+
+    pub fn has_avx512(&self) -> bool {
+        self.vector_support.contains(&VectorExtension::Avx512)
+    }
+
+    pub fn has_neon(&self) -> bool {
+        self.vector_support.contains(&VectorExtension::Neon)
+    }
+
+    pub fn is_native(&self) -> bool {
+        self.cpu_features.contains("native")
     }
 
     pub fn triple_string(&self) -> String {
@@ -334,6 +364,9 @@ impl TargetInfo {
     /// Parse a target triple string (e.g. `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-musl`, `aarch64-apple-darwin`, `wasm32-unknown-unknown`).
     pub fn from_triple(triple: &str) -> Result<Self, String> {
         let t = triple.to_lowercase();
+        if t == "native" || t == "host" {
+            return Ok(Self::native());
+        }
         if t.contains("wasm32") || t == "wasm" {
             return Ok(Self::wasm32());
         }

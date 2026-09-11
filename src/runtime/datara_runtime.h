@@ -345,6 +345,28 @@ void        datara_rt_free(void* ptr);
 void        datara_rt_str_free(const char* s);
 void        datara_rt_list_free(void* list);
 
+// ============================================================================
+// Size-Class Pool Allocator & Value Representation (Phase 13)
+// ============================================================================
+#define DATARA_POOL_NUM_CLASSES 10
+#define DATARA_SSO_MAX_LEN 22
+
+void*       datara_rt_pool_alloc(size_t sz);
+void        datara_rt_pool_free(void* ptr, size_t sz);
+int64_t*    datara_rt_box_alloc(int64_t val);
+int64_t     datara_rt_box_get(int64_t* b);
+void        datara_rt_box_free(int64_t* b);
+
+// Small String Optimization (SSO <= 22 bytes)
+const char* datara_rt_str_sso(const char* s);
+int64_t     datara_rt_str_is_sso(const char* s);
+int64_t     datara_rt_heap_alloc_count(void);
+void        datara_rt_reset_heap_alloc_count(void);
+
+// Stack Collection Promotion & Small-Vector
+int64_t*    datara_rt_list_init_stack(void* stack_buf, int64_t cap);
+int64_t     datara_rt_list_is_small_vec(int64_t* list);
+
 // Graduated Ownership Runtime Guards (Per-thread 32-bit refcount slots)
 int64_t     datara_rt_own_acquire(int64_t val);
 void        datara_rt_own_release(int64_t val);
@@ -363,6 +385,39 @@ int64_t     datara_rt_saturating_mul(int64_t a, int64_t b);
 int64_t     datara_rt_wrapping_add(int64_t a, int64_t b);
 int64_t     datara_rt_wrapping_sub(int64_t a, int64_t b);
 int64_t     datara_rt_wrapping_mul(int64_t a, int64_t b);
+
+// ============================================================================
+// Phase 16: Profile-Guided Optimization (PGO) Runtime Instrumentation
+// ============================================================================
+void        datara_rt_pgo_hit_func(const char* name);
+void        datara_rt_pgo_hit_branch(const char* branch_id, int64_t taken);
+void        datara_rt_pgo_hit_loop(const char* loop_id, int64_t trip_count);
+void        datara_rt_pgo_set_output_file(const char* path);
+void        datara_rt_pgo_flush(const char* path);
+void        datara_rt_pgo_reset(void);
+
+// ============================================================================
+// Phase 17: Runtime Systems Layer
+// ============================================================================
+// 1. Chase-Lev Work-Stealing Deque
+typedef struct DataraChaseLevDeque DataraChaseLevDeque;
+DataraChaseLevDeque* datara_rt_chase_lev_create(int64_t capacity);
+void                 datara_rt_chase_lev_destroy(DataraChaseLevDeque* q);
+void                 datara_rt_chase_lev_push(DataraChaseLevDeque* q, int64_t task_id);
+int64_t              datara_rt_chase_lev_pop(DataraChaseLevDeque* q);
+int64_t              datara_rt_chase_lev_steal(DataraChaseLevDeque* q);
+int64_t              datara_rt_chase_lev_size(DataraChaseLevDeque* q);
+
+// 2. SIMD-Accelerated Fast Memory Operations
+void*                datara_rt_fast_memcpy(void* dest, const void* src, size_t n);
+void*                datara_rt_fast_memset(void* dest, int c, size_t n);
+int                  datara_rt_fast_strncmp(const char* s1, const char* s2, size_t n);
+int                  datara_rt_fast_memcmp(const void* s1, const void* s2, size_t n);
+
+// 3. Thread Pinning / Core Affinity
+int                  datara_rt_pin_thread(int64_t core_id);
+int64_t              datara_rt_get_current_core(void);
+void                 datara_rt_pin_worker_threads(void);
 
 #ifdef __cplusplus
 }

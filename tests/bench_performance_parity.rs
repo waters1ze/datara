@@ -105,7 +105,7 @@ fn rust_pipeline(n: i64) -> i64 {
 
 #[test]
 #[ignore = "intensive comparative benchmark"]
-fn test_official_performance_parity_matrix() {
+fn slow_test_official_performance_parity_matrix() {
     let compiler = ForgenCompiler::new("domain");
     let runs = 5;
 

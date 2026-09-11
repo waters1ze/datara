@@ -1,0 +1,36 @@
+// Datara Showcase: The Variable Triad and Gradual Dynamic Typing
+// Demonstrates 'let' (immutable), 'mut' (type-locked mutable),
+// and 'val' / 'mut val' (gradual dynamic containers).
+
+fn main() {
+    out "=== Datara Variable Triad Demo ==="
+
+    // 1. 'let': Immutable static binding (promoted directly to CPU registers)
+    let max_connections: Int = 5000
+    let app_name = "HyperEngine"
+    out fmt"let: {app_name} with max_connections = {max_connections}"
+
+    // 2. 'mut': Mutable, strictly type-locked variable (no type mutation allowed)
+    mut counter: Int = 0
+    counter = counter + 1
+    counter = counter + 41
+    out fmt"mut counter: {counter}"
+
+    // 3. 'val': Constant dynamic container
+    val api_version = 2
+    out fmt"val constant: {api_version}"
+
+    // 4. 'mut val': Gradual dynamic variable that can evolve across arbitrary types at runtime!
+    mut val dynamic_box = 100
+    out fmt"mut val (as Int): {dynamic_box}"
+
+    // Dynamic transition to String
+    dynamic_box = "now a dynamic string payload"
+    out fmt"mut val (as String): {dynamic_box}"
+
+    // Dynamic transition to List
+    dynamic_box = [1, 2, 3, 4]
+    out fmt"mut val (as List): {dynamic_box}"
+
+    out "=== Demo completed successfully ==="
+}

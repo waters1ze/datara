@@ -60,6 +60,17 @@ uint64_t datara_rt_scheduler_mutex_queue_pushes(void);
 uint64_t datara_rt_scheduler_wave_executions(void);
 void     datara_rt_scheduler_reset_stats(void);
 
+// High-resolution monotonic timers & IO multiplexer API
+int64_t  datara_rt_time_now_ms(void);
+int64_t  datara_rt_time_now_ns(void);
+double   datara_rt_time_precise_ms(void);
+double   datara_rt_time_delta_ms(void);
+void     datara_rt_time_reset_delta(void);
+int64_t  datara_rt_timer_create(int64_t delay_ms, DataraSchedTaskFn callback, void* ctx, int64_t region_id);
+int64_t  datara_rt_timer_wait(int64_t timer_id);
+int32_t  datara_rt_timer_cancel(int64_t timer_id);
+int64_t  datara_rt_run_concurrent_timers(int64_t count, int64_t delay_ms);
+
 #ifdef __cplusplus
 }
 #endif

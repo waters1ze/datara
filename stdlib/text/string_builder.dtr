@@ -1,0 +1,48 @@
+//! StringBuilder — Standard Library Dynamic String Construction
+//! Preallocated buffer expansion for high-throughput string assembly.
+
+class StringBuilder {
+    buffer: Str
+    count: Int
+}
+
+behavior StringBuilder {
+    append(s: Str) -> StringBuilder {
+        this.buffer = this.buffer + s
+        this.count = this.count + 1
+        return this
+    }
+
+    append_line(s: Str) -> StringBuilder {
+        this.buffer = this.buffer + s + "\n"
+        this.count = this.count + 1
+        return this
+    }
+
+    append_int(n: Int) -> StringBuilder {
+        let s = fmt"{n}"
+        this.buffer = this.buffer + s
+        this.count = this.count + 1
+        return this
+    }
+
+    to_str() -> Str {
+        return this.buffer
+    }
+
+    len() -> Int {
+        return this.buffer.length()
+    }
+
+    clear() {
+        this.buffer = ""
+        this.count = 0
+    }
+}
+
+fn string_builder_new() -> StringBuilder {
+    return StringBuilder {
+        buffer: "",
+        count: 0
+    }
+}

@@ -3,17 +3,39 @@
   "name": "Datara",
   "scopeName": "source.datara",
   "patterns": [
-    { "include": "#comments" },
-    { "include": "#strings" },
-    { "include": "#numbers" },
-    { "include": "#triad-declarations" },
-    { "include": "#interop-keywords" },
-    { "include": "#keywords" },
-    { "include": "#types" },
-    { "include": "#function-declarations" },
-    { "include": "#function-calls" },
-    { "include": "#operators" },
-    { "include": "#constants" }
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#triad-declarations"
+    },
+    {
+      "include": "#interop-keywords"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#function-declarations"
+    },
+    {
+      "include": "#function-calls"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#constants"
+    }
   ],
   "repository": {
     "comments": {
@@ -53,7 +75,9 @@
               "begin": "\\$\\{",
               "end": "\\}",
               "patterns": [
-                { "include": "$self" }
+                {
+                  "include": "$self"
+                }
               ]
             }
           ]
@@ -91,7 +115,7 @@
     "interop-keywords": {
       "patterns": [
         {
-          "match": "\\b(use|import|export|as)\\b",
+          "match": "\\b(use|import|export|as|from|replaces|extends)\\b",
           "name": "keyword.control.import.datara"
         },
         {
@@ -103,19 +127,19 @@
     "keywords": {
       "patterns": [
         {
-          "match": "\\b(fn|function|class|entity|behavior|component|role|packet|using|flow|process|task|actor|enum)\\b",
+          "match": "\\b(async|await|behavior|class|component|entity|enum|flow|fn|function|impl|packet|parallel|process|record|role|struct|task|trait|type)\\b",
           "name": "keyword.declaration.datara"
         },
         {
-          "match": "\\b(if|else|while|for|in|return|match|break|continue|decide|when|or|with|assert|panic)\\b",
+          "match": "\\b(assert|break|catch|continue|decide|else|ensure|for|if|in|loop|match|or|panic|require|return|select|then|try|when|where|while|with)\\b",
           "name": "keyword.control.datara"
         },
         {
-          "match": "\\b(out|err|print|println|eprintln|input)\\b",
+          "match": "\\b(eprintln|err|input|out|print|println)\\b",
           "name": "keyword.operator.io.datara"
         },
         {
-          "match": "\\b(pub|extern|async|await|const|view|mutView|mut_view)\\b",
+          "match": "\\b(asm|bit|bits|comptime|const|extern|mut-view|mutView|mut_view|own|pub|register|saturating|shared|unsafe|view|wrapping)\\b",
           "name": "storage.modifier.datara"
         },
         {
@@ -141,8 +165,12 @@
         {
           "match": "\\b(fn|function)\\s+([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
           "captures": {
-            "1": { "name": "keyword.declaration.datara" },
-            "2": { "name": "entity.name.function.datara" }
+            "1": {
+              "name": "keyword.declaration.datara"
+            },
+            "2": {
+              "name": "entity.name.function.datara"
+            }
           }
         }
       ]
@@ -152,7 +180,9 @@
         {
           "match": "\\b([a-zA-Z_][a-zA-Z0-9_]*)\\s*\\(",
           "captures": {
-            "1": { "name": "entity.name.function.call.datara" }
+            "1": {
+              "name": "entity.name.function.call.datara"
+            }
           }
         }
       ]

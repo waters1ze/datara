@@ -10,7 +10,14 @@ use std::time::Duration;
 
 /// Fetches raw bytes from a URL (http://, https://, or file://).
 pub fn fetch_url(url: &str) -> Result<Vec<u8>, String> {
-    if let Some(file_path) = url.strip_prefix("file://") {
+    if let Some(mut file_path) = url.strip_prefix("file://") {
+        if cfg!(windows)
+            && file_path.starts_with('/')
+            && file_path.len() > 2
+            && file_path.as_bytes()[2] == b':'
+        {
+            file_path = &file_path[1..];
+        }
         let p = Path::new(file_path);
         return fs::read(p)
             .map_err(|e| format!("Failed to read local file '{}': {}", file_path, e));

@@ -1,0 +1,57 @@
+//! Set<T> — Standard Library Hash/Distinct Collection
+//! Zero-dependency implementation backed by dynamic contiguous list.
+
+class Set<T> {
+    items: List<T>
+}
+
+behavior Set {
+    add(item: T) -> Bool {
+        for existing in this.items {
+            if existing == item {
+                return false
+            }
+        }
+        this.items = this.items.push(item)
+        return true
+    }
+
+    contains(item: T) -> Bool {
+        for existing in this.items {
+            if existing == item {
+                return true
+            }
+        }
+        return false
+    }
+
+    len() -> Int {
+        return this.items.len()
+    }
+
+    is_empty() -> Bool {
+        return this.items.len() == 0
+    }
+
+    remove(item: T) -> Bool {
+        mut new_items = []
+        mut found = false
+        for existing in this.items {
+            if existing == item && !found {
+                found = true
+            } else {
+                new_items = new_items.push(existing)
+            }
+        }
+        this.items = new_items
+        return found
+    }
+
+    to_list() -> List<T> {
+        return this.items
+    }
+}
+
+fn set_new<T>() -> Set<T> {
+    return Set<T> { items: [] }
+}

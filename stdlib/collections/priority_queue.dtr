@@ -1,0 +1,86 @@
+//! PriorityQueue<T> — Standard Library Binary Heap Priority Queue
+//! Elements are ordered according to standard scalar comparison.
+
+class PriorityQueue<T> {
+    items: List<T>
+}
+
+behavior PriorityQueue {
+    push(item: T) {
+        this.items = this.items.push(item)
+        mut i = this.items.len() - 1
+        mut keep_going = true
+        while i > 0 && keep_going {
+            let parent = (i - 1) / 2
+            let cur_val = this.items.get(i)
+            let parent_val = this.items.get(parent)
+            if cur_val > parent_val {
+                this.items = this.items.set(i, parent_val)
+                this.items = this.items.set(parent, cur_val)
+                i = parent
+            } else {
+                keep_going = false
+            }
+        }
+    }
+
+    peek() -> T {
+        return this.items.get(0)
+    }
+
+    pop() -> T {
+        let n = this.items.len()
+        let top = this.items.get(0)
+        if n <= 1 {
+            this.items = []
+            return top
+        }
+        let last = this.items.get(n - 1)
+        mut new_items = []
+        mut idx = 0
+        while idx < n - 1 {
+            new_items = new_items.push(this.items.get(idx))
+            idx = idx + 1
+        }
+        new_items = new_items.set(0, last)
+        this.items = new_items
+
+        mut i = 0
+        let count = this.items.len()
+        mut keep_sifting = true
+        while (i * 2 + 1) < count && keep_sifting {
+            mut largest = i
+            let left = i * 2 + 1
+            let right = i * 2 + 2
+
+            if this.items.get(left) > this.items.get(largest) {
+                largest = left
+            }
+            if right < count && this.items.get(right) > this.items.get(largest) {
+                largest = right
+            }
+            if largest != i {
+                let v_i = this.items.get(i)
+                let v_l = this.items.get(largest)
+                this.items = this.items.set(i, v_l)
+                this.items = this.items.set(largest, v_i)
+                i = largest
+            } else {
+                keep_sifting = false
+            }
+        }
+        return top
+    }
+
+    len() -> Int {
+        return this.items.len()
+    }
+
+    is_empty() -> Bool {
+        return this.items.len() == 0
+    }
+}
+
+fn priority_queue_new<T>() -> PriorityQueue<T> {
+    return PriorityQueue<T> { items: [] }
+}

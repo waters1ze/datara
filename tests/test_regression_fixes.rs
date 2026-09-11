@@ -93,7 +93,7 @@ fn if_conversion_arms_before_head_does_not_panic() {
     let mut module = diamond_module(false);
     let mut opt = Optimizer::new("release");
     // Must not panic and must remove the two arm blocks.
-    opt.optimize_module(&mut module);
+    let _ = opt.optimize_module(&mut module);
 
     let f = &module.functions["pick"];
     assert!(
@@ -108,7 +108,7 @@ fn if_conversion_arms_before_head_does_not_panic() {
 fn if_conversion_select_infers_float_type() {
     let mut module = diamond_module(true);
     let mut opt = Optimizer::new("release");
-    opt.optimize_module(&mut module);
+    let _ = opt.optimize_module(&mut module);
 
     let f = &module.functions["pick"];
     let sel_ty = f

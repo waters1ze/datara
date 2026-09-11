@@ -6,7 +6,10 @@ use std::os::raw::c_char;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::runtime::scheduler::{datara_rt_schedule_cancel, datara_rt_schedule_run};
+use crate::runtime::scheduler::{
+    datara_rt_schedule_cancel, datara_rt_schedule_run, datara_rt_time_delta_ms,
+    datara_rt_time_precise_ms,
+};
 
 unsafe extern "C" {
     pub fn datara_rt_out_int(v: i64);
@@ -37,6 +40,28 @@ unsafe extern "C" {
     pub fn datara_rt_print_backtrace();
     pub fn datara_rt_assert(cond: i64, msg: *const c_char);
     pub fn datara_rt_len(s: *const c_char) -> i64;
+    pub fn datara_rt_pgo_hit_func(name: *const c_char);
+    pub fn datara_rt_pgo_hit_branch(branch_id: *const c_char, taken: i64);
+    pub fn datara_rt_pgo_hit_loop(loop_id: *const c_char, trip_count: i64);
+    pub fn datara_rt_pgo_set_output_file(path: *const c_char);
+    pub fn datara_rt_pgo_flush(path: *const c_char);
+    pub fn datara_rt_pgo_reset();
+
+    pub fn datara_rt_chase_lev_create(capacity: i64) -> *mut ();
+    pub fn datara_rt_chase_lev_destroy(q: *mut ());
+    pub fn datara_rt_chase_lev_push(q: *mut (), task_id: i64);
+    pub fn datara_rt_chase_lev_pop(q: *mut ()) -> i64;
+    pub fn datara_rt_chase_lev_steal(q: *mut ()) -> i64;
+    pub fn datara_rt_chase_lev_size(q: *mut ()) -> i64;
+
+    pub fn datara_rt_fast_memcpy(dest: *mut (), src: *const (), n: usize) -> *mut ();
+    pub fn datara_rt_fast_memset(dest: *mut (), c: i32, n: usize) -> *mut ();
+    pub fn datara_rt_fast_strncmp(s1: *const c_char, s2: *const c_char, n: usize) -> i32;
+    pub fn datara_rt_fast_memcmp(s1: *const (), s2: *const (), n: usize) -> i32;
+
+    pub fn datara_rt_pin_thread(core_id: i64) -> i32;
+    pub fn datara_rt_get_current_core() -> i64;
+    pub fn datara_rt_pin_worker_threads();
 
     pub fn datara_rt_set_capture(enable: i32);
     pub fn datara_rt_get_capture() -> *const c_char;
@@ -261,6 +286,18 @@ unsafe extern "C" {
     pub fn datara_rt_own_acquire(val: i64) -> i64;
     pub fn datara_rt_own_release(val: i64);
 
+    pub fn datara_rt_pool_alloc(sz: usize) -> *mut ();
+    pub fn datara_rt_pool_free(ptr: *mut (), sz: usize);
+    pub fn datara_rt_box_alloc(val: i64) -> *mut i64;
+    pub fn datara_rt_box_get(b: *mut i64) -> i64;
+    pub fn datara_rt_box_free(b: *mut i64);
+    pub fn datara_rt_str_sso(s: *const c_char) -> *const c_char;
+    pub fn datara_rt_str_is_sso(s: *const c_char) -> i64;
+    pub fn datara_rt_heap_alloc_count() -> i64;
+    pub fn datara_rt_reset_heap_alloc_count();
+    pub fn datara_rt_list_init_stack(stack_buf: *mut (), cap: i64) -> *mut i64;
+    pub fn datara_rt_list_is_small_vec(list: *mut i64) -> i64;
+
     pub fn datara_rt_overflow_panic();
     pub fn datara_rt_div_zero_panic();
     pub fn datara_rt_checked_add(a: i64, b: i64) -> i64;
@@ -319,6 +356,15 @@ pub fn register_runtime_symbols(builder: &mut JITBuilder) {
     reg!("datara_rt_out_dec64", datara_rt_out_dec64);
     reg!("datara_rt_err", datara_rt_err);
     reg!("datara_rt_exit", datara_rt_exit);
+    reg!("datara_rt_pgo_hit_func", datara_rt_pgo_hit_func);
+    reg!("datara_rt_pgo_hit_branch", datara_rt_pgo_hit_branch);
+    reg!("datara_rt_pgo_hit_loop", datara_rt_pgo_hit_loop);
+    reg!(
+        "datara_rt_pgo_set_output_file",
+        datara_rt_pgo_set_output_file
+    );
+    reg!("datara_rt_pgo_flush", datara_rt_pgo_flush);
+    reg!("datara_rt_pgo_reset", datara_rt_pgo_reset);
     reg!("datara_rt_input", datara_rt_input);
     reg!("input", datara_rt_input);
     reg!("read_line", datara_rt_input);
@@ -498,6 +544,10 @@ pub fn register_runtime_symbols(builder: &mut JITBuilder) {
     reg!("datara_rt_now_unix_ms", datara_rt_now_unix_ms);
     reg!("datara_rt_now_precise_ms", datara_rt_now_precise_ms);
     reg!("now_precise_ms", datara_rt_now_precise_ms);
+    reg!("datara_rt_time_precise_ms", datara_rt_time_precise_ms);
+    reg!("time_precise_ms", datara_rt_time_precise_ms);
+    reg!("datara_rt_time_delta_ms", datara_rt_time_delta_ms);
+    reg!("time_delta_ms", datara_rt_time_delta_ms);
     reg!("datara_rt_now_ns", datara_rt_now_ns);
     reg!("now_ns", datara_rt_now_ns);
     reg!("datara_rt_env_get", datara_rt_env_get);
@@ -642,6 +692,37 @@ pub fn register_runtime_symbols(builder: &mut JITBuilder) {
     reg!("datara_rt_list_free", datara_rt_list_free);
     reg!("datara_rt_own_acquire", datara_rt_own_acquire);
     reg!("datara_rt_own_release", datara_rt_own_release);
+
+    reg!("datara_rt_pool_alloc", datara_rt_pool_alloc);
+    reg!("datara_rt_pool_free", datara_rt_pool_free);
+    reg!("datara_rt_box_alloc", datara_rt_box_alloc);
+    reg!("datara_rt_box_get", datara_rt_box_get);
+    reg!("datara_rt_box_free", datara_rt_box_free);
+    reg!("datara_rt_str_sso", datara_rt_str_sso);
+    reg!("datara_rt_str_is_sso", datara_rt_str_is_sso);
+    reg!("datara_rt_heap_alloc_count", datara_rt_heap_alloc_count);
+    reg!(
+        "datara_rt_reset_heap_alloc_count",
+        datara_rt_reset_heap_alloc_count
+    );
+    reg!("datara_rt_list_init_stack", datara_rt_list_init_stack);
+    reg!("datara_rt_list_is_small_vec", datara_rt_list_is_small_vec);
+
+    reg!("datara_rt_chase_lev_create", datara_rt_chase_lev_create);
+    reg!("datara_rt_chase_lev_destroy", datara_rt_chase_lev_destroy);
+    reg!("datara_rt_chase_lev_push", datara_rt_chase_lev_push);
+    reg!("datara_rt_chase_lev_pop", datara_rt_chase_lev_pop);
+    reg!("datara_rt_chase_lev_steal", datara_rt_chase_lev_steal);
+    reg!("datara_rt_chase_lev_size", datara_rt_chase_lev_size);
+
+    reg!("datara_rt_fast_memcpy", datara_rt_fast_memcpy);
+    reg!("datara_rt_fast_memset", datara_rt_fast_memset);
+    reg!("datara_rt_fast_strncmp", datara_rt_fast_strncmp);
+    reg!("datara_rt_fast_memcmp", datara_rt_fast_memcmp);
+
+    reg!("datara_rt_pin_thread", datara_rt_pin_thread);
+    reg!("datara_rt_get_current_core", datara_rt_get_current_core);
+    reg!("datara_rt_pin_worker_threads", datara_rt_pin_worker_threads);
 }
 
 pub fn create_jit_module(isa: Arc<dyn TargetIsa>) -> Result<JITModule, String> {

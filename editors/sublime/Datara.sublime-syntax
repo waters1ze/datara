@@ -54,13 +54,13 @@ contexts:
   keywords:
     - match: '\b(let|mut|val)\b'
       scope: storage.type.variable.datara
-    - match: '\b(fn|function|class|entity|behavior|component|role|packet|using|flow|process|task|actor|enum)\b'
+    - match: '(fn|function|class|struct|record|enum|component|role|behavior|trait|impl|packet|type|entity|task|flow|process)'
       scope: keyword.declaration.datara
-    - match: '\b(if|else|while|for|in|return|match|break|continue|decide|when|or|with|assert|panic)\b'
+    - match: '(if|else|while|for|in|loop|return|match|break|continue|decide|select|when|or|with|try|catch|where|require|ensure|assert|panic|then)'
       scope: keyword.control.datara
     - match: '\b(out|err|print|println|eprintln|input)\b'
       scope: keyword.operator.io.datara
-    - match: '\b(pub|extern|async|await|const|view|mutView|mut_view)\b'
+    - match: '(pub|extern|async|await|const|view|mutView|mut_view|own|shared|unsafe|comptime|wrapping|saturating)'
       scope: storage.modifier.datara
     - match: '\b(use|import|export|as)\b'
       scope: keyword.control.import.datara

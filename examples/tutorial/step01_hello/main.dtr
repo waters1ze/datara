@@ -1,0 +1,6 @@
+// Step 1: Hello World
+// The simplest Datara program demonstrating console output.
+
+fn main() {
+    out "Hello, Datara!"
+}

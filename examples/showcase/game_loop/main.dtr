@@ -1,0 +1,116 @@
+// Showcase: Deterministic 60 Hz Fixed-Timestep Game Loop with Accumulator & ECS
+// Demonstrates time_precise_ms, time_delta_ms, accumulator pattern, and SoA ECS.
+
+record TransformStore {
+    xs: List<Float>,
+    ys: List<Float>,
+}
+
+record VelocityStore {
+    vxs: List<Float>,
+    vys: List<Float>,
+}
+
+record EcsWorld {
+    count: Int,
+    transforms: TransformStore,
+    velocities: VelocityStore,
+}
+
+fn create_world(n: Int) -> EcsWorld {
+    let xs: List<Float> = []
+    let ys: List<Float> = []
+    let vxs: List<Float> = []
+    let vys: List<Float> = []
+
+    mut i = 0
+    while i < n {
+        let fi = str_to_float(int_to_str(i))
+        xs.append(fi * 2.0)
+        ys.append(fi * -1.5)
+        vxs.append(0.5 + (fi * 0.01))
+        vys.append(-0.25 + (fi * 0.005))
+        i = i + 1
+    }
+
+    let t = TransformStore { xs: xs, ys: ys }
+    let v = VelocityStore { vxs: vxs, vys: vys }
+    return EcsWorld { count: n, transforms: t, velocities: v }
+}
+
+fn physics_step(world: EcsWorld, dt: Float) -> EcsWorld {
+    let new_xs: List<Float> = []
+    let new_ys: List<Float> = []
+
+    mut i = 0
+    while i < world.count {
+        let px = world.transforms.xs[i]
+        let py = world.transforms.ys[i]
+        let vx = world.velocities.vxs[i]
+        let vy = world.velocities.vys[i]
+
+        new_xs.append(px + vx * dt)
+        new_ys.append(py + vy * dt)
+        i = i + 1
+    }
+
+    let t = TransformStore { xs: new_xs, ys: new_ys }
+    return EcsWorld {
+        count: world.count,
+        transforms: t,
+        velocities: world.velocities,
+    }
+}
+
+fn compute_world_checksum(world: EcsWorld) -> Int {
+    mut checksum: Int = 0
+    mut i = 0
+    while i < world.count {
+        let px = world.transforms.xs[i]
+        let py = world.transforms.ys[i]
+        let ix = str_to_int(float_to_str(math_floor(px * 1000.0)))
+        let iy = str_to_int(float_to_str(math_floor(py * 1000.0)))
+        let combined = math_xor(ix * 31, iy * 17)
+        let c_part = (checksum % 100000000) * 31
+        let comb_part = combined % 100000000
+        checksum = (c_part + comb_part) % 1000000007
+        i = i + 1
+    }
+    return checksum
+}
+
+fn main() {
+    // 1. Verify high-resolution time runtime APIs
+    let t_start = datara_rt_time_precise_ms()
+    let dt_init = datara_rt_time_delta_ms()
+
+    // 2. Fixed-timestep configuration (60 Hz = ~16.666667 ms per physics tick)
+    let fixed_dt: Float = 16.666667
+    let fixed_dt_sec: Float = 0.016666667
+    let max_frame_ticks = 60
+
+    mut world = create_world(16)
+    mut accumulator: Float = 0.0
+    mut ticks_simulated: Int = 0
+
+    // Deterministic simulation loop of 60 frames with variable incoming delta-times
+    mut frame: Int = 0
+    while frame < max_frame_ticks {
+        // Variable frame delta simulating realistic frame intervals (15ms - 33ms)
+        let frame_ms = 16.0 + str_to_float(int_to_str(frame % 5)) * 3.5
+        accumulator = accumulator + frame_ms
+
+        // Fixed timestep accumulator drain
+        while accumulator >= fixed_dt {
+            world = physics_step(world, fixed_dt_sec)
+            accumulator = accumulator - fixed_dt
+            ticks_simulated = ticks_simulated + 1
+        }
+        frame = frame + 1
+    }
+
+    let entity_count = world.count
+    let checksum = compute_world_checksum(world)
+    out "GAME_LOOP_OK: frames=" + max_frame_ticks + " ticks=" + ticks_simulated + " entities=" + entity_count
+    out "CHECKSUM:" + checksum
+}

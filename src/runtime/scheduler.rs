@@ -43,4 +43,36 @@ unsafe extern "C" {
 
     /// Reset verification counters.
     pub fn datara_rt_scheduler_reset_stats();
+
+    /// Current monotonic time in milliseconds.
+    pub fn datara_rt_time_now_ms() -> i64;
+
+    /// Current monotonic time in nanoseconds.
+    pub fn datara_rt_time_now_ns() -> i64;
+
+    /// High-resolution sub-millisecond monotonic time in milliseconds.
+    pub fn datara_rt_time_precise_ms() -> f64;
+
+    /// Elapsed delta time in milliseconds since the previous call to this function.
+    pub fn datara_rt_time_delta_ms() -> f64;
+
+    /// Reset the delta time baseline.
+    pub fn datara_rt_time_reset_delta();
+
+    /// Create an asynchronous timer that fires after delay_ms milliseconds.
+    pub fn datara_rt_timer_create(
+        delay_ms: i64,
+        callback: Option<extern "C" fn(*mut c_void)>,
+        ctx: *mut c_void,
+        region_id: i64,
+    ) -> i64;
+
+    /// Wait for a timer to complete or be cancelled.
+    pub fn datara_rt_timer_wait(timer_id: i64) -> i64;
+
+    /// Cancel a timer.
+    pub fn datara_rt_timer_cancel(timer_id: i64) -> i32;
+
+    /// Run concurrent timers and return deterministic checksum.
+    pub fn datara_rt_run_concurrent_timers(count: i64, delay_ms: i64) -> i64;
 }

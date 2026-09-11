@@ -64,6 +64,7 @@ def get_msvc_env():
         print(f"[WARN] Failed to load vcvars64.bat: {e}", file=sys.stderr)
 
     cl_bin = shutil.which("cl.exe", path=env.get("PATH")) or "cl.exe"
+    env["VSLANG"] = "1033"
     return env, str(cl_bin)
 
 
@@ -121,7 +122,9 @@ def get_host_metadata(msvc_env, cl_bin):
 
     cl_ver = "unknown"
     try:
-        res = subprocess.run([cl_bin], env=msvc_env, capture_output=True, text=True)
+        env_vslang = msvc_env.copy()
+        env_vslang["VSLANG"] = "1033"
+        res = subprocess.run([cl_bin], env=env_vslang, capture_output=True, text=True, encoding="utf-8", errors="replace")
         lines = (res.stderr or res.stdout).splitlines()
         for line in lines:
             if "Microsoft" in line or "19." in line:

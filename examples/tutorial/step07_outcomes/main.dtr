@@ -1,0 +1,26 @@
+// Step 7: Error Handling with Outcomes
+// Demonstrates type-safe Result/Outcome patterns without exceptions.
+
+record DivisionResult {
+    success: Bool,
+    quotient: Int,
+}
+
+fn safe_divide(numerator: Int, denominator: Int) -> DivisionResult {
+    if denominator == 0 {
+        return DivisionResult { success: false, quotient: 0 }
+    }
+    return DivisionResult { success: true, quotient: numerator / denominator }
+}
+
+fn main() {
+    let res1 = safe_divide(100, 4)
+    if res1.success {
+        out "100 / 4 = " + int_to_str(res1.quotient)
+    }
+
+    let res2 = safe_divide(50, 0)
+    if !res2.success {
+        out "50 / 0 safely handled as division by zero"
+    }
+}

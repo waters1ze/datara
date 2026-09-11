@@ -491,7 +491,7 @@ print((t1 - t0) * 1000.0)
 // ==========================================
 #[test]
 #[ignore = "intensive multi-language comparative benchmark matrix; run with cargo test -- --ignored"]
-fn test_multilanguage_comparative_matrix() {
+fn slow_test_multilanguage_comparative_matrix() {
     let runs = 3;
     println!(
         "\n=================================================================================================================="

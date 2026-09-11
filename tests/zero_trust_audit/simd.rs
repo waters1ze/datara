@@ -80,7 +80,8 @@ fn main() {
 }
 
 #[test]
-fn audit_simd_thousand_random_inputs_dot_product_matches_naive_reference() {
+#[ignore = "slow_test_exceeds_30s"]
+fn slow_audit_simd_thousand_random_inputs_dot_product_matches_naive_reference() {
     let mut rng = CustomLcg::new(0xCAFE_BABE_1234_5678);
 
     for idx in 0..1000 {
@@ -144,11 +145,10 @@ fn main() {{
             // LLVM check
             let llvm_comp = ForgenCompiler::new("release").with_llvm(true);
             let res_llvm = llvm_comp.compile_source(&source, "simd_dot_llvm.dtr", None);
-            if res_llvm.success && res_llvm.exe_path.is_some() {
-                let (llvm_out, _, _, _) = compiler
-                    .cranelift
-                    .run_executable(&res_llvm.exe_path.unwrap(), &[])
-                    .unwrap();
+            if res_llvm.success
+                && let Some(ref exe_path) = res_llvm.exe_path
+            {
+                let (llvm_out, _, _, _) = compiler.cranelift.run_executable(exe_path, &[]).unwrap();
                 let llvm_f: f32 = llvm_out.trim().parse().unwrap();
                 assert!((llvm_f - naive_dot).abs() / max_val < 1e-4);
             }

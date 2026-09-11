@@ -1,0 +1,20 @@
+// Step 4: Functions & Recursion
+// Demonstrates pure function definitions, arguments, and return values.
+
+fn square(x: Int) -> Int {
+    return x * x
+}
+
+fn fib(n: Int) -> Int {
+    if n <= 1 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn main() {
+    let s = square(7)
+    let f = fib(8)
+    out "Square of 7: " + int_to_str(s)
+    out "Fibonacci(8): " + int_to_str(f)
+}

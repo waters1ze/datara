@@ -1,0 +1,9 @@
+manifest_schema = 1
+
+[package]
+name = "jsonx"
+version = "0.1.0"
+description = "Safe JSON stream tokenizer and validator for Datara"
+authors = ["Datara Core Team"]
+license = "MIT OR Apache-2.0"
+entry = "src/lib.dtr"

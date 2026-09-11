@@ -33,7 +33,7 @@ New-Item -ItemType Directory -Force -Path $AssetsDir | Out-Null
 Write-Host "[2/5] Resolving latest Datara version..." -ForegroundColor Yellow
 $Repo = "waters1ze/datara"
 $ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
-$LatestTag = "v1.0.0"
+$LatestTag = "v1.1.0"
 $DownloadUrl = ""
 
 try {
@@ -67,15 +67,34 @@ $LocalCandidates = @(
 
 foreach ($cand in $LocalCandidates) {
     if (Test-Path $cand) {
+        $candDir = Split-Path $cand
         Copy-Item -Path $cand -Destination (Join-Path $BinDir "forgen.exe") -Force
-        Copy-Item -Path $cand -Destination (Join-Path $BinDir "datara.exe") -Force
-        $dpmLocal = Join-Path (Split-Path $cand) "dpm.exe"
+
+        $dataraLocal = Join-Path $candDir "datara.exe"
+        if (Test-Path $dataraLocal) {
+            Copy-Item -Path $dataraLocal -Destination (Join-Path $BinDir "datara.exe") -Force
+        } else {
+            Copy-Item -Path $cand -Destination (Join-Path $BinDir "datara.exe") -Force
+        }
+
+        $dpmLocal = Join-Path $candDir "dpm.exe"
         if (Test-Path $dpmLocal) {
             Copy-Item -Path $dpmLocal -Destination (Join-Path $BinDir "dpm.exe") -Force
         } else {
             Copy-Item -Path $cand -Destination (Join-Path $BinDir "dpm.exe") -Force
         }
-        Write-Host "  -> Installed toolchain binaries (forgen, datara, dpm) from local source: $cand" -ForegroundColor Green
+
+        $sparksLocal = Join-Path $candDir "sparks.exe"
+        if (Test-Path $sparksLocal) {
+            Copy-Item -Path $sparksLocal -Destination (Join-Path $BinDir "sparks.exe") -Force
+        } else {
+            Copy-Item -Path (Join-Path $BinDir "dpm.exe") -Destination (Join-Path $BinDir "sparks.exe") -Force
+        }
+
+        Set-Content -Path (Join-Path $BinDir "sparks.cmd") -Value "@echo off`r`n`"%~dp0sparks.exe`" %*"
+        Set-Content -Path (Join-Path $BinDir "dpm.cmd") -Value "@echo off`r`n`"%~dp0dpm.exe`" %*"
+
+        Write-Host "  -> Installed toolchain binaries (forgen, datara, dpm, sparks) from local source: $cand" -ForegroundColor Green
         $InstalledSuccessfully = $true
         break
     }
@@ -92,15 +111,30 @@ if (-not $InstalledSuccessfully -and $DownloadUrl) {
         $extractedExe = Get-ChildItem -Path $env:TEMP\datara_extracted -Recurse -Filter "forgen.exe" | Select-Object -First 1
         if ($extractedExe) {
             Copy-Item -Path $extractedExe.FullName -Destination (Join-Path $BinDir "forgen.exe") -Force
-            Copy-Item -Path $extractedExe.FullName -Destination (Join-Path $BinDir "datara.exe") -Force
+            $extractedDatara = Get-ChildItem -Path $env:TEMP\datara_extracted -Recurse -Filter "datara.exe" | Select-Object -First 1
+            if ($extractedDatara) {
+                Copy-Item -Path $extractedDatara.FullName -Destination (Join-Path $BinDir "datara.exe") -Force
+            } else {
+                Copy-Item -Path $extractedExe.FullName -Destination (Join-Path $BinDir "datara.exe") -Force
+            }
             $extractedDpm = Get-ChildItem -Path $env:TEMP\datara_extracted -Recurse -Filter "dpm.exe" | Select-Object -First 1
             if ($extractedDpm) {
                 Copy-Item -Path $extractedDpm.FullName -Destination (Join-Path $BinDir "dpm.exe") -Force
             } else {
                 Copy-Item -Path $extractedExe.FullName -Destination (Join-Path $BinDir "dpm.exe") -Force
             }
+            $extractedSparks = Get-ChildItem -Path $env:TEMP\datara_extracted -Recurse -Filter "sparks.exe" | Select-Object -First 1
+            if ($extractedSparks) {
+                Copy-Item -Path $extractedSparks.FullName -Destination (Join-Path $BinDir "sparks.exe") -Force
+            } else {
+                Copy-Item -Path (Join-Path $BinDir "dpm.exe") -Destination (Join-Path $BinDir "sparks.exe") -Force
+            }
+
+            Set-Content -Path (Join-Path $BinDir "sparks.cmd") -Value "@echo off`r`n`"%~dp0sparks.exe`" %*"
+            Set-Content -Path (Join-Path $BinDir "dpm.cmd") -Value "@echo off`r`n`"%~dp0dpm.exe`" %*"
+
             $InstalledSuccessfully = $true
-            Write-Host "  -> Downloaded and installed $LatestTag binaries successfully." -ForegroundColor Green
+            Write-Host "  -> Downloaded and installed $LatestTag binaries (forgen, datara, dpm, sparks) successfully." -ForegroundColor Green
         }
     } catch {
         Write-Host "  -> Download failed, attempting fallback to Cargo compilation..." -ForegroundColor Gray
@@ -122,13 +156,26 @@ if (-not $InstalledSuccessfully) {
         $builtExe = Join-Path $ScriptDir "target\release\forgen.exe"
         if (Test-Path $builtExe) {
             Copy-Item -Path $builtExe -Destination (Join-Path $BinDir "forgen.exe") -Force
-            Copy-Item -Path $builtExe -Destination (Join-Path $BinDir "datara.exe") -Force
+            $builtDatara = Join-Path $ScriptDir "target\release\datara.exe"
+            if (Test-Path $builtDatara) {
+                Copy-Item -Path $builtDatara -Destination (Join-Path $BinDir "datara.exe") -Force
+            }
             $builtDpm = Join-Path $ScriptDir "target\release\dpm.exe"
             if (Test-Path $builtDpm) {
                 Copy-Item -Path $builtDpm -Destination (Join-Path $BinDir "dpm.exe") -Force
             }
+            $builtSparks = Join-Path $ScriptDir "target\release\sparks.exe"
+            if (Test-Path $builtSparks) {
+                Copy-Item -Path $builtSparks -Destination (Join-Path $BinDir "sparks.exe") -Force
+            } else {
+                Copy-Item -Path (Join-Path $BinDir "dpm.exe") -Destination (Join-Path $BinDir "sparks.exe") -Force
+            }
+
+            Set-Content -Path (Join-Path $BinDir "sparks.cmd") -Value "@echo off`r`n`"%~dp0sparks.exe`" %*"
+            Set-Content -Path (Join-Path $BinDir "dpm.cmd") -Value "@echo off`r`n`"%~dp0dpm.exe`" %*"
+
             $InstalledSuccessfully = $true
-            Write-Host "  -> Cargo compilation succeeded and binaries installed." -ForegroundColor Green
+            Write-Host "  -> Cargo compilation succeeded and binaries (forgen, datara, dpm, sparks) installed." -ForegroundColor Green
         }
     }
 }
@@ -136,6 +183,12 @@ if (-not $InstalledSuccessfully) {
 if (-not $InstalledSuccessfully) {
     Write-Error "Failed to install forgen.exe. Please download Datara-Setup.exe or run 'cargo build --release'."
     exit 1
+}
+
+# Sync to Local Programs if present to ensure PATH precedence consistency
+$LocalProgramsDir = Join-Path $env:LOCALAPPDATA "Programs\Datara\bin"
+if (Test-Path $LocalProgramsDir) {
+    Copy-Item -Path (Join-Path $BinDir "*") -Destination $LocalProgramsDir -Force
 }
 
 # 4. Install Standard Library & Assets

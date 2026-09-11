@@ -268,7 +268,11 @@ impl ScheduleProof {
         if let Some(eff) = eff_opt {
             if eff.effects.contains(&Effect::Network) {
                 ScheduleEffectClass::Network
-            } else if eff.effects.contains(&Effect::IO) || eff.effects.contains(&Effect::Database) {
+            } else if eff.effects.contains(&Effect::IO)
+                || eff.effects.contains(&Effect::Database)
+                || eff.effects.contains(&Effect::Foreign)
+                || eff.effects.contains(&Effect::Nondeterministic)
+            {
                 ScheduleEffectClass::IO
             } else if eff.effects.contains(&Effect::Parallel) {
                 ScheduleEffectClass::Parallel

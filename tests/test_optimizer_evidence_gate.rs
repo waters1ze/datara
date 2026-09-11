@@ -55,7 +55,7 @@ fn gate_downgrades_applied_without_ir_delta() {
     let mut optimizer = Optimizer::new("domain");
     // A pass that lies: reports Applied during the pass, changes nothing,
     // bumps counters — exactly how a dishonest pass emits its records.
-    optimizer.run_mutating_pass("lying_pass", &mut module, |opt, _m| {
+    let _ = optimizer.run_mutating_pass("lying_pass", &mut module, |opt, _m| {
         opt.trace.records.push(record("lying_pass", "Applied"));
         opt.trace.records.push(record("lying_pass", "Candidate"));
         opt.report.constants_folded += 5;
@@ -115,7 +115,7 @@ fn gate_keeps_applied_with_real_ir_delta() {
         .records
         .push(record("honest_pass", "Applied"));
 
-    optimizer.run_mutating_pass("honest_pass", &mut module, |_opt, m| {
+    let _ = optimizer.run_mutating_pass("honest_pass", &mut module, |_opt, m| {
         let f = m.functions.get_mut("f").unwrap();
         f.blocks[0].instructions[0] = Inst::ConstInt {
             dest: ValueId(1),
@@ -138,18 +138,24 @@ fn gate_keeps_applied_with_real_ir_delta() {
 }
 
 #[test]
-#[should_panic(expected = "DMIR verification failed after optimizer pass")]
 fn gate_fails_closed_when_pass_corrupts_ir() {
     let mut module = trivial_module();
     let mut optimizer = Optimizer::new("domain");
 
-    optimizer.run_mutating_pass("corrupting_pass", &mut module, |_opt, m| {
+    let res = optimizer.run_mutating_pass("corrupting_pass", &mut module, |_opt, m| {
         // Referencing an undefined value: the verifier must reject this.
         let f = m.functions.get_mut("f").unwrap();
         f.blocks[0].terminator = Terminator::Return {
             value: Some(ValueId(999)),
         };
     });
+    assert!(res.is_err(), "corrupted pass must return Err diagnostic");
+    let err = res.unwrap_err();
+    assert_eq!(
+        err.code,
+        forgen::diagnostics::ErrorCode::InternalVerification.as_str()
+    );
+    assert!(err.message.contains("E0901"));
 }
 
 #[test]

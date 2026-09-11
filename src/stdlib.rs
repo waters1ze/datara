@@ -57,6 +57,13 @@ pub fn get_embedded_stdlib_source(module_path: &str) -> Option<&'static str> {
         "async.task" => Some(include_str!("../stdlib/async/task.dtr")),
         "async.future" => Some(include_str!("../stdlib/async/future.dtr")),
         "async.event_loop" => Some(include_str!("../stdlib/async/event_loop.dtr")),
+        "collections.set" => Some(include_str!("../stdlib/collections/set.dtr")),
+        "collections.deque" => Some(include_str!("../stdlib/collections/deque.dtr")),
+        "collections.priority_queue" => {
+            Some(include_str!("../stdlib/collections/priority_queue.dtr"))
+        }
+        "collections.iter" => Some(include_str!("../stdlib/collections/iter.dtr")),
+        "text.string_builder" => Some(include_str!("../stdlib/text/string_builder.dtr")),
         _ => None,
     }
 }
@@ -114,4 +121,9 @@ pub const ALL_EMBEDDED_MODULES: &[&str] = &[
     "async.task",
     "async.future",
     "async.event_loop",
+    "collections.set",
+    "collections.deque",
+    "collections.priority_queue",
+    "collections.iter",
+    "text.string_builder",
 ];

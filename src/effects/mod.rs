@@ -184,6 +184,15 @@ impl EffectAnalyzer {
                             self.function_effects.insert(f.name.clone(), effects);
                         }
                     }
+                    Decl::ExternFn(ef) => {
+                        let mut effects = EffectSet::new();
+                        effects.add(Effect::Foreign);
+                        effects.add(Effect::Nondeterministic);
+                        if !self.function_effects.contains_key(&ef.name) {
+                            changed = true;
+                            self.function_effects.insert(ef.name.clone(), effects);
+                        }
+                    }
                     Decl::Class(c) => {
                         for item in &c.body_items {
                             if let ClassItem::Method(m) = item

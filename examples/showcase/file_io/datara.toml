@@ -1,0 +1,6 @@
+[package]
+name = "file_io"
+version = "1.0.0"
+entry = "main.dtr"
+authors = ["Datara Team"]
+description = "Showcase file I/O operations through capability security boundaries"

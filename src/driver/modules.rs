@@ -763,10 +763,12 @@ impl ForgenCompiler {
                             } else {
                                 String::new()
                             };
-                            diag.error(
+                            let help_msg = format!("verify the module path or spelling: '{}'", key);
+                            diag.error_with_help(
                                 ErrorCode::ResolveUnreachableModule,
                                 format!("Module '{}' not found in project or stdlib{}", key, hint),
                                 Some(u.span.clone()),
+                                Some(help_msg),
                             );
                         }
                         continue;
@@ -797,10 +799,13 @@ impl ForgenCompiler {
                 let src = match fs::read_to_string(&file) {
                     Ok(s) => s,
                     Err(_) => {
-                        diag.error(
+                        let help_msg =
+                            format!("check that the module file exists at '{}'", file.display());
+                        diag.error_with_help(
                             ErrorCode::ResolveUnreachableModule,
                             format!("Module '{}' not found", file.display()),
                             Some(span),
+                            Some(help_msg),
                         );
                         continue;
                     }

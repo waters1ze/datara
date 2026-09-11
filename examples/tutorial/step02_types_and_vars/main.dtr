@@ -1,0 +1,16 @@
+// Step 2: Types and Mutability
+// Demonstrates Datara's primitive types and explicit mutability.
+
+fn main() {
+    let name: String = "Datara"
+    let version: Int = 1
+    let pi_approx: Float = 3.14159
+    let is_fast: Bool = true
+
+    mut counter = 0
+    counter = counter + 10
+
+    out "Language: " + name
+    out "Version: " + int_to_str(version)
+    out "Counter: " + int_to_str(counter)
+}

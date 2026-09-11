@@ -29,6 +29,8 @@ pub fn generate_docs(target_dir: &Path, output_file: &Path) -> Result<usize, Str
         return Err("No Datara (.dtr or .forge) files found to document.".to_string());
     }
 
+    check_doc_examples(&modules)?;
+
     let mut total_items = 0;
     for m in &modules {
         total_items += m.items.len();
@@ -98,6 +100,7 @@ pub fn generate_markdown_docs(target_dir: &Path, output_file: &Path) -> Result<u
     if modules.is_empty() {
         return Err("No Datara (.dtr or .forge) files found to document.".to_string());
     }
+    check_doc_examples(&modules)?;
     let total_items: usize = modules.iter().map(|m| m.items.len()).sum();
     let md = render_markdown(&modules);
     if let Some(parent) = output_file.parent() {
@@ -217,7 +220,7 @@ fn parse_file_doc_items(content: &str, file_path: &str) -> Vec<DocItem> {
         }
 
         if trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ") {
-            let doc_text = pending_doc.join(" ");
+            let doc_text = pending_doc.join("\n");
             pending_doc.clear();
 
             let sig_end = trimmed.find('{').unwrap_or(trimmed.len());
@@ -257,7 +260,7 @@ fn parse_file_doc_items(content: &str, file_path: &str) -> Vec<DocItem> {
                 effects,
             });
         } else if trimmed.starts_with("class ") {
-            let doc_text = pending_doc.join(" ");
+            let doc_text = pending_doc.join("\n");
             pending_doc.clear();
 
             let sig_end = trimmed.find('{').unwrap_or(trimmed.len());

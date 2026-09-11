@@ -1,10 +1,12 @@
 pub mod decision;
 pub mod execution;
+pub mod layout;
 pub mod representation;
 pub mod strategy;
 
 pub use decision::{AdaptationCategory, AdaptationDecisionLog, AdaptationRecord};
 pub use execution::ExecutionAdapter;
+pub use layout::{ClassLayout, LayoutAdapter};
 pub use representation::RepresentationAdapter;
 pub use strategy::StrategyAdapter;
 
@@ -29,6 +31,9 @@ impl SemanticAdaptationEngine {
             // Quick mode skips heavy SAE passes for sub-millisecond turnarounds
             return;
         }
+
+        // 0. Aggregate layout & field reordering adaptation (Phase 13)
+        LayoutAdapter::adapt_layout(module, &mut self.log);
 
         // Sorted-name iteration so adaptation decisions and log entries are
         // deterministic regardless of HashMap ordering.

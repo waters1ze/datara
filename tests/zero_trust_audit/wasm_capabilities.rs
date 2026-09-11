@@ -150,7 +150,11 @@ fn main(caps: SystemCapabilities) {
 
 #[test]
 fn audit_wasm_no_mapped_call_bypass_pattern_in_source() {
-    let wasm_emitter_source = include_str!("../../src/codegen/wasm.rs");
+    let wasm_emitter_source = concat!(
+        include_str!("../../src/codegen/wasm/mod.rs"),
+        include_str!("../../src/codegen/wasm/emit_inst.rs"),
+        include_str!("../../src/codegen/wasm/emit_call.rs")
+    );
     // Ensure no bypass comment or dummy mapped call stub replaces real calls
     assert!(
         !wasm_emitter_source.contains("mapped-call")

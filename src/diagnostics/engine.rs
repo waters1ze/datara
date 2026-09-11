@@ -12,6 +12,18 @@ pub struct Diagnostic {
     pub help: Option<String>,
 }
 
+impl Diagnostic {
+    pub fn error(code: ErrorCode, message: impl Into<String>, span: Option<SourceSpan>) -> Self {
+        Self {
+            code: code.as_str().to_string(),
+            severity: "ERROR".to_string(),
+            message: message.into(),
+            span,
+            help: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DiagnosticEngine {
     pub locale: String,

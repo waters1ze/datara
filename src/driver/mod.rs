@@ -33,8 +33,10 @@ pub struct ForgenCompiler {
     pub cranelift: CraneliftBackend,
     pub use_llvm: bool,
     pub pgo_profile: Option<PathBuf>,
+    pub profile_generate: Option<PathBuf>,
     pub debug_info: bool,
     pub target_triple: Option<String>,
+    pub native: bool,
 }
 
 impl ForgenCompiler {
@@ -48,8 +50,10 @@ impl ForgenCompiler {
             cranelift: backend,
             use_llvm: false,
             pgo_profile: None,
+            profile_generate: None,
             debug_info,
             target_triple: None,
+            native: false,
         }
     }
 
@@ -63,6 +67,11 @@ impl ForgenCompiler {
         self
     }
 
+    pub fn with_profile_generate(mut self, path: Option<PathBuf>) -> Self {
+        self.profile_generate = path;
+        self
+    }
+
     pub fn with_debug(mut self, debug_info: bool) -> Self {
         self.debug_info = debug_info;
         self
@@ -70,6 +79,11 @@ impl ForgenCompiler {
 
     pub fn with_target(mut self, target_triple: Option<String>) -> Self {
         self.target_triple = target_triple;
+        self
+    }
+
+    pub fn with_native(mut self, native: bool) -> Self {
+        self.native = native;
         self
     }
 
@@ -286,14 +300,22 @@ impl ForgenCompiler {
                 // the former code generated the full IR on every build and threw it
                 // away for Cranelift-only builds.
                 let llvm_code = if self.use_llvm {
-                    let target_info = if let Some(ref triple) = self.target_triple {
-                        crate::codegen::target::TargetInfo::from_triple(triple)
-                            .unwrap_or_else(|_| self.cranelift.target.clone())
-                    } else {
-                        self.cranelift.target.clone()
-                    };
+                    let target_info =
+                        if self.native || self.target_triple.as_deref() == Some("native") {
+                            crate::codegen::target::TargetInfo::native()
+                        } else if let Some(ref triple) = self.target_triple {
+                            crate::codegen::target::TargetInfo::from_triple(triple)
+                                .unwrap_or_else(|_| self.cranelift.target.clone())
+                        } else {
+                            self.cranelift.target.clone()
+                        };
+                    let loaded_profile = self
+                        .pgo_profile
+                        .as_ref()
+                        .and_then(|p| crate::pgo::ProfileData::load_from_file(p).ok());
                     let llvm_emitter = crate::codegen::llvm::LlvmEmitter::new(&target_info)
-                        .with_debug(self.debug_info);
+                        .with_debug(self.debug_info)
+                        .with_profile(loaded_profile.as_ref());
                     let code = llvm_emitter.emit_module(&dmir_module, &program, &type_checker);
                     let _ = std::fs::write(&ll_path, &code);
                     Some(code)
@@ -329,12 +351,24 @@ impl ForgenCompiler {
                                 .map(|c| c.join(&target_exe))
                                 .unwrap_or_else(|_| target_exe.clone())
                         };
+                        let target_triple_for_clang = if self.native {
+                            Some("native")
+                        } else {
+                            self.target_triple.as_deref()
+                        };
+                        let opt_level = match self.mode.as_str() {
+                            "tiny" | "size" => "tiny",
+                            "debug" => "0",
+                            "1" => "1",
+                            "2" => "2",
+                            _ => "3",
+                        };
                         match crate::codegen::linker::compile_with_clang(
                             &ll_path,
                             rt_opt,
                             &abs_target,
-                            "3",
-                            self.target_triple.as_deref(),
+                            opt_level,
+                            target_triple_for_clang,
                             self.debug_info,
                         ) {
                             Ok(()) => {

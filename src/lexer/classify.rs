@@ -6,6 +6,7 @@ use crate::diagnostics::DiagnosticEngine;
 pub enum TopLevelKind {
     Fn,
     Class,
+    Record,
     Entity,
     Behavior,
     Role,
@@ -33,6 +34,7 @@ pub fn classify_top_level(source: &str) -> TopLevelKind {
         match &tok.token_type {
             TokenType::Fn | TokenType::Function => TopLevelKind::Fn,
             TokenType::Class => TopLevelKind::Class,
+            TokenType::Record => TopLevelKind::Record,
             TokenType::Entity => TopLevelKind::Entity,
             TokenType::Behavior => TopLevelKind::Behavior,
             TokenType::Role => TopLevelKind::Role,
@@ -49,6 +51,7 @@ pub fn classify_top_level(source: &str) -> TopLevelKind {
                     match &next.token_type {
                         TokenType::Fn | TokenType::Function => TopLevelKind::Fn,
                         TokenType::Class => TopLevelKind::Class,
+                        TokenType::Record => TopLevelKind::Record,
                         TokenType::Entity => TopLevelKind::Entity,
                         TokenType::Behavior => TopLevelKind::Behavior,
                         TokenType::Role => TopLevelKind::Role,

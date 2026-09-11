@@ -1,0 +1,28 @@
+{
+  "metadata": {
+    "benchmark_suite_version": "1.1.0",
+    "timestamp_utc": "2026-09-11T09:28:24.059180+00:00",
+    "status": "frozen_baseline",
+    "methodology": "1 warmup run + 7 timed runs, median-of-7, same-algorithm comparison"
+  },
+  "hardware": {
+    "cpu": "AMD Ryzen 5 7600 6-Core Processor",
+    "physical_cores": 6,
+    "logical_cores": 12,
+    "architecture": "x86_64",
+    "ram_gb": 31.12,
+    "os": "Windows-11-10.0.26200-SP0"
+  },
+  "toolchains": {
+    "rustc": "rustc 1.98.0 (88d9e12ae 2026-08-18)",
+    "cargo": "cargo 1.98.0 (797e8a9bc 2026-08-05)",
+    "datara_version": "1.0.0",
+    "c_compiler_msvc": "Microsoft (R) C/C++ Optimizing Compiler Version 19.50.35727 for x64",
+    "llvm_backend": "LLVM 18/19 native target"
+  },
+  "performance_goals": {
+    "tier1_universal_parity_ceiling": 1.03,
+    "tier2_targeted_win_speedup_minimum": 1.15,
+    "tier3_maximum_allowable_regression": 0.05
+  }
+}

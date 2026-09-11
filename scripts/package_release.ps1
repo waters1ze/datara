@@ -197,6 +197,29 @@ Compress-Archive -Path "$DarwinStaging\*" -DestinationPath $DarwinTar -Force
 Copy-Item -Force $DarwinTar $DarwinTarGeneric
 Write-Host "  [OK] Created: $DarwinTar" -ForegroundColor Green
 
+# Update SHA256SUMS.txt
+$SumFile = "$DistDir\SHA256SUMS.txt"
+$filesToSum = @(
+    "Datara-Setup.exe",
+    "Datara-$TagVer-Setup.exe",
+    "forgen-windows-x64.zip",
+    "forgen-$TagVer-windows-x64.zip",
+    "forgen-linux-x64.zip",
+    "forgen-$TagVer-linux-x64.zip",
+    "forgen-darwin-arm64.zip",
+    "forgen-$TagVer-darwin-arm64.zip"
+)
+$sumLines = @()
+foreach ($f in $filesToSum) {
+    $p = "$DistDir\$f"
+    if (Test-Path $p) {
+        $hash = (Get-FileHash -Algorithm SHA256 $p).Hash.ToLower()
+        $sumLines += "$hash  $f"
+    }
+}
+Set-Content -Path $SumFile -Value ($sumLines -join "`r`n") -Encoding ASCII
+Write-Host "  [OK] Updated: $SumFile" -ForegroundColor Green
+
 Write-Host "`n=======================================================================" -ForegroundColor Cyan
 Write-Host " All distribution packages successfully assembled in dist/!" -ForegroundColor Green
 Write-Host " Ready for deployment to GitHub Releases $TagVer." -ForegroundColor White

@@ -8,9 +8,9 @@ endif
 
 " Keywords
 syn keyword dataraTriad let mut val
-syn keyword dataraDecl fn function class entity behavior component role packet using flow process task actor enum
-syn keyword dataraControl if else while for in return match break continue decide when or with assert panic
-syn keyword dataraModifier pub extern async await const view mutView mut_view
+syn keyword dataraDecl fn function class struct record enum component role behavior trait impl packet type entity task flow process
+syn keyword dataraControl if else while for in loop return match break continue decide select when or with try catch where require ensure assert panic then
+syn keyword dataraModifier pub extern async await const view mutView mut_view own shared unsafe comptime wrapping saturating
 syn keyword dataraIO out err print println eprintln input
 syn keyword dataraImport use import export as
 syn keyword dataraBoolean true false nil null None Some Ok Err

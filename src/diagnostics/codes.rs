@@ -77,6 +77,7 @@ pub enum ErrorCode {
     InlineAsmUnsupported,
     UnknownBinop,
     CApiArgLimitExceeded,
+    AsyncBackendUnsupported,
 }
 
 impl ErrorCode {
@@ -142,6 +143,7 @@ impl ErrorCode {
             ErrorCode::InlineAsmUnsupported => "E0902",
             ErrorCode::UnknownBinop => "E0903",
             ErrorCode::CApiArgLimitExceeded => "E0904",
+            ErrorCode::AsyncBackendUnsupported => "E0955",
         }
     }
 
@@ -258,6 +260,9 @@ impl ErrorCode {
                 ErrorCode::CApiArgLimitExceeded => {
                     "Превышен лимит аргументов C API (поддерживается до 8 аргументов)"
                 }
+                ErrorCode::AsyncBackendUnsupported => {
+                    "Асинхронное исполнение (async/await) не поддерживается данным целевым бэкендом (требуется PCS Runtime)"
+                }
             }
         } else {
             match self {
@@ -368,6 +373,9 @@ impl ErrorCode {
                 }
                 ErrorCode::CApiArgLimitExceeded => {
                     "C API argument limit exceeded (maximum 8 supported arguments)"
+                }
+                ErrorCode::AsyncBackendUnsupported => {
+                    "Async execution (async/await) is unsupported on the selected target backend: requires PCS runtime"
                 }
             }
         }

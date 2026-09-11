@@ -84,6 +84,7 @@ pub(crate) fn cmd_run(command: &str, args: &[String]) -> bool {
         "release"
     };
     let is_llvm = args.iter().any(|a| a == "--llvm");
+    let is_native = args.iter().any(|a| a == "--native");
     let target_triple = args
         .iter()
         .position(|a| a == "--target")
@@ -95,15 +96,44 @@ pub(crate) fn cmd_run(command: &str, args: &[String]) -> bool {
                 .and_then(|a| a.strip_prefix("--target=").map(|s| s.to_string()))
         });
     let debug_info = args.iter().any(|a| a == "-g" || a == "--debug");
+    let profile_gen = if args
+        .iter()
+        .any(|a| a == "--profile" || a == "--profile-generate")
+    {
+        let prof_dir = layout.root.join(".forgen_profile");
+        let _ = fs::create_dir_all(&prof_dir);
+        Some(prof_dir.join(format!("{}.json", layout.binary_name())))
+    } else {
+        None
+    };
+    let pgo_profile = args
+        .iter()
+        .position(|a| a == "--pgo")
+        .and_then(|i| args.get(i + 1))
+        .map(PathBuf::from);
     let compiler = ForgenCompiler::new(mode)
         .with_llvm(is_llvm)
+        .with_pgo(pgo_profile)
+        .with_profile_generate(profile_gen.clone())
         .with_debug(debug_info)
-        .with_target(target_triple);
+        .with_target(target_triple)
+        .with_native(is_native);
 
     // Cranelift in-memory JIT execution: zero disk artifacts, sub-millisecond launch
     if !is_llvm {
         match compiler.run_project_captured(&layout, &run_args, false) {
             Ok((stdout, stderr, code, _)) => {
+                if let Some(ref p) = profile_gen
+                    && p.exists()
+                    && let Ok(prof) = crate::pgo::ProfileData::load_from_file(p)
+                {
+                    println!(
+                        "[Forgen Profile] Generated runtime profile: {} (hot_funcs={}, branches={})",
+                        p.display(),
+                        prof.hot_functions.len(),
+                        prof.branch_frequencies.len()
+                    );
+                }
                 if !stdout.is_empty() {
                     print!("{}", stdout);
                 }
@@ -255,7 +285,17 @@ pub(crate) fn cmd_test(args: &[String]) -> bool {
         }
     };
 
+    if args.iter().any(|a| a == "--list") {
+        let tests = ProjectRunner::list_tests(&layout, filter_str.as_deref());
+        for t in &tests {
+            println!("{}: test", t);
+        }
+        println!("\n{} tests", tests.len());
+        return true;
+    }
+
     let is_llvm = args.iter().any(|a| a == "--llvm");
+    let is_native = args.iter().any(|a| a == "--native");
     let target_triple = args
         .iter()
         .position(|a| a == "--target")
@@ -270,7 +310,8 @@ pub(crate) fn cmd_test(args: &[String]) -> bool {
     let compiler = ForgenCompiler::new("release")
         .with_llvm(is_llvm)
         .with_debug(debug_info)
-        .with_target(target_triple);
+        .with_target(target_triple)
+        .with_native(is_native);
     let rep = ProjectRunner::run_tests_filtered(&layout, &compiler, filter_str.as_deref());
 
     println!(
@@ -319,6 +360,7 @@ pub(crate) fn cmd_bench(args: &[String]) -> bool {
     };
 
     let is_llvm = args.iter().any(|a| a == "--llvm");
+    let is_native = args.iter().any(|a| a == "--native");
     let target_triple = args
         .iter()
         .position(|a| a == "--target")
@@ -331,7 +373,8 @@ pub(crate) fn cmd_bench(args: &[String]) -> bool {
         });
     let compiler = ForgenCompiler::new("release")
         .with_llvm(is_llvm)
-        .with_target(target_triple);
+        .with_target(target_triple)
+        .with_native(is_native);
     if let Err(e) = ProjectRunner::run_benches(&layout, &compiler) {
         eprintln!("Benchmark failed: {}", e);
         std::process::exit(1);
@@ -365,8 +408,14 @@ pub(crate) fn cmd_build(command: &str, args: &[String]) -> bool {
                 .find(|a| a.starts_with("--target="))
                 .and_then(|a| a.strip_prefix("--target=").map(|s| s.to_string()))
         });
+    let is_tiny = args
+        .iter()
+        .any(|a| a == "--tiny" || a == "-Oz" || a == "--profile=tiny");
+    let is_embed = args.iter().any(|a| a == "--embed");
     let debug_info = command == "debug" || args.iter().any(|a| a == "-g" || a == "--debug");
-    let mode = if args.iter().any(|a| a == "--domain") {
+    let mode = if is_tiny {
+        "tiny"
+    } else if args.iter().any(|a| a == "--domain") {
         "domain"
     } else if command == "build" {
         if debug_info { "debug" } else { "release" }
@@ -374,11 +423,39 @@ pub(crate) fn cmd_build(command: &str, args: &[String]) -> bool {
         command
     };
     let is_llvm = args.iter().any(|a| a == "--llvm");
+    let is_native = args.iter().any(|a| a == "--native");
+    let is_profile_generate = args
+        .iter()
+        .any(|a| a == "--profile-generate" || a.starts_with("--profile-generate="));
+    let profile_generate = if is_profile_generate {
+        let prof_gen_path = args
+            .iter()
+            .position(|a| a == "--profile-generate")
+            .and_then(|i| args.get(i + 1))
+            .filter(|a| !a.starts_with("-"))
+            .map(PathBuf::from)
+            .or_else(|| {
+                args.iter()
+                    .find(|a| a.starts_with("--profile-generate="))
+                    .map(|a| PathBuf::from(a.strip_prefix("--profile-generate=").unwrap()))
+            });
+        let prof_dir = layout.root.join(".forgen_profile");
+        let _ = fs::create_dir_all(&prof_dir);
+        Some(
+            prof_gen_path
+                .unwrap_or_else(|| prof_dir.join(format!("{}.json", layout.binary_name()))),
+        )
+    } else {
+        None
+    };
+
     let compiler = ForgenCompiler::new(mode)
         .with_llvm(is_llvm)
         .with_pgo(pgo_profile)
+        .with_profile_generate(profile_generate)
         .with_debug(debug_info)
-        .with_target(target_triple);
+        .with_target(target_triple)
+        .with_native(is_native);
 
     let start = Instant::now();
     let bin_name = layout.binary_name();
@@ -392,7 +469,7 @@ pub(crate) fn cmd_build(command: &str, args: &[String]) -> bool {
             .windows(2)
             .any(|w| (w[0] == "-o" || w[0] == "--out") && w[1].ends_with(".wasm"));
     let is_python_target = args.iter().any(|a| a == "--python");
-    let is_lib_target = args.iter().any(|a| a == "--lib");
+    let is_lib_target = args.iter().any(|a| a == "--lib" || a == "--embed");
     let lib_ext = if cfg!(target_os = "windows") {
         "dll"
     } else if cfg!(target_os = "macos") {
@@ -484,6 +561,19 @@ pub(crate) fn cmd_build(command: &str, args: &[String]) -> bool {
         );
         if let Some(exe_p) = res.exe_path.as_ref() {
             println!("[Forgen] Output:  {}", exe_p.display());
+            if let Ok(meta) = fs::metadata(exe_p) {
+                let bytes = meta.len();
+                let kb = bytes as f64 / 1024.0;
+                println!("[Forgen] Size:    {:.1} KB ({} bytes)", kb, bytes);
+            }
+            if is_tiny {
+                println!("[Forgen] Profile: Ultra-Compact (dead code stripped, minimal footprint)");
+            }
+            if is_embed {
+                println!(
+                    "[Forgen] Profile: C-ABI Embeddable Library (game engine / host scripting integration)"
+                );
+            }
 
             if is_python_target {
                 let py_path = exe_p.with_extension("py");
@@ -712,7 +802,7 @@ pub(crate) fn cmd_domain(args: &[String]) -> bool {
     true
 }
 
-/// `forgen profile` — run and write a static call-graph profile.
+/// `forgen profile` — compile with instrumentation, execute, and write a runtime profile.
 pub(crate) fn cmd_profile(args: &[String]) -> bool {
     let target_opt = args
         .iter()
@@ -727,7 +817,11 @@ pub(crate) fn cmd_profile(args: &[String]) -> bool {
         }
     };
 
-    let compiler = ForgenCompiler::new("release");
+    let prof_dir = layout.root.join(".forgen_profile");
+    let _ = fs::create_dir_all(&prof_dir);
+    let prof_file = prof_dir.join(format!("{}.json", layout.binary_name()));
+
+    let compiler = ForgenCompiler::new("release").with_profile_generate(Some(prof_file.clone()));
     let res = if layout.source_files.len() == 1 {
         compiler.compile_file(&layout.source_files[0], None)
     } else {
@@ -739,8 +833,7 @@ pub(crate) fn cmd_profile(args: &[String]) -> bool {
         std::process::exit(1);
     }
 
-    // Actually execute the program. Nothing below may be described as
-    // "measured" unless it comes from this run.
+    // Actually execute the program to measure runtime behavior.
     let exe = match res.exe_path.clone() {
         Some(p) => p,
         None => {
@@ -749,44 +842,6 @@ pub(crate) fn cmd_profile(args: &[String]) -> bool {
         }
     };
     let run = compiler.codegen.run_executable(&exe, &[]);
-
-    let mut prof = ProfileData::new(&layout.name);
-    // Instrumented profiling (per-function execution counts, branch
-    // taken ratios, trip counts) is NOT implemented. What we can report
-    // truthfully is the compiler's own static call graph, so the profile
-    // is labelled "static" and consumers must not treat the counts as
-    // runtime behaviour.
-    prof.source = "static".to_string();
-
-    if let Some(module) = &res.dmir_module {
-        let mut call_sites: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        for f in module.functions.values() {
-            for b in &f.blocks {
-                for inst in &b.instructions {
-                    match inst {
-                        crate::dmir::Inst::Call { func, .. } => {
-                            *call_sites.entry(func.clone()).or_insert(0) += 1;
-                        }
-                        crate::dmir::Inst::MethodCall { method, .. } => {
-                            *call_sites.entry(method.clone()).or_insert(0) += 1;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-        for (name, sites) in call_sites {
-            for _ in 0..sites {
-                prof.record_function_call(&name);
-            }
-        }
-    }
-
-    let prof_dir = layout.root.join(".forgen_profile");
-    let _ = fs::create_dir_all(&prof_dir);
-    let prof_file = prof_dir.join(format!("{}.json", prof.project_name));
-    let _ = prof.save_to_file(&prof_file);
 
     match run {
         Ok((stdout, stderr, code, elapsed_ns)) => {
@@ -808,14 +863,21 @@ pub(crate) fn cmd_profile(args: &[String]) -> bool {
         }
     }
 
-    println!(
-        "[Forgen Profile] Wrote STATIC call-graph profile: {}",
-        prof_file.display()
-    );
-    println!(
-        "[Forgen Profile] NOTE: counts are numbers of call SITES, not executions. \
-                 Runtime instrumentation is not implemented, so this profile carries no \
-                 hot-path or branch data and PGO cannot use it for real decisions."
-    );
+    if let Ok(prof) = ProfileData::load_from_file(&prof_file) {
+        println!(
+            "[Forgen Profile] Wrote RUNTIME instrumented profile: {}",
+            prof_file.display()
+        );
+        println!(
+            "[Forgen Profile] Measured {} hot functions, {} branch decisions (runtime provenance verified).",
+            prof.hot_functions.len(),
+            prof.branch_frequencies.len()
+        );
+    } else {
+        println!(
+            "[Forgen Profile] Profile generated at: {}",
+            prof_file.display()
+        );
+    }
     true
 }

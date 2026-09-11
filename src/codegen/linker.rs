@@ -474,10 +474,11 @@ pub fn link_args(
         LinkerFlavor::Msvc => {
             args.push("/NOLOGO".into());
             args.push("/INCREMENTAL:NO".into());
-            args.push("/DEBUG".into());
+            args.push("/DEBUG:NONE".into());
+            args.push("/OPT:REF".into());
+            args.push("/OPT:ICF".into());
             if is_shared {
                 args.push("/DLL".into());
-                args.push("/NOENTRY".into());
                 for exp in exports {
                     args.push(format!("/EXPORT:{}", exp));
                 }
@@ -525,9 +526,18 @@ pub fn link_args(
         }
         LinkerFlavor::Unix => {
             if is_shared {
-                args.push("-shared".into());
+                if cfg!(target_os = "macos") {
+                    args.push("-dynamiclib".into());
+                } else {
+                    args.push("-shared".into());
+                }
             } else if cfg!(target_os = "linux") {
                 args.push("-no-pie".into());
+            }
+            if cfg!(target_os = "macos") {
+                args.push("-Wl,-dead_strip".into());
+            } else {
+                args.push("-Wl,--gc-sections".into());
             }
             if std::env::var("RUSTFLAGS")
                 .map(|f| f.contains("sanitizer=address"))
@@ -718,7 +728,10 @@ pub fn compile_with_llc(
     let input_for_llc = if opt_bin.exists() {
         let mut opt_cmd = Command::new(&opt_bin);
         opt_cmd.arg(opt_flag);
-        if let Some(target) = target_triple {
+        if let Some(target) = target_triple
+            && target != "native"
+            && target != "host"
+        {
             opt_cmd.arg(format!("-mtriple={}", target));
         }
         opt_cmd.arg("-mcpu=native");
@@ -747,7 +760,10 @@ pub fn compile_with_llc(
     cmd.arg(opt_flag);
     cmd.arg("-filetype=obj");
     cmd.arg("-relocation-model=pic");
-    if let Some(target) = target_triple {
+    if let Some(target) = target_triple
+        && target != "native"
+        && target != "host"
+    {
         cmd.arg(format!("-mtriple={}", target));
     }
     cmd.arg("-mcpu=native");
@@ -809,23 +825,38 @@ pub fn compile_with_clang(
     debug_info: bool,
 ) -> Result<(), String> {
     if let Some(clang) = find_clang() {
+        let is_tiny = opt_level == "tiny" || opt_level == "z" || opt_level == "size";
         let opt_flag = match opt_level {
             "0" | "debug" => "-O0",
             "1" => "-O1",
             "2" => "-O2",
+            "tiny" | "z" | "size" => "-Oz",
+            "s" => "-Os",
             _ => "-O3",
         };
         let run_clang = |use_lto: bool| -> Result<std::process::Output, String> {
             let mut cmd = Command::new(&clang);
             cmd.arg(opt_flag);
-            if let Some(target) = target_triple {
+            if !is_tiny {
+                cmd.arg("-ffast-math");
+            }
+            cmd.arg("-ffunction-sections");
+            cmd.arg("-fdata-sections");
+            if is_tiny {
+                cmd.arg("-fno-asynchronous-unwind-tables");
+                cmd.arg("-fno-unwind-tables");
+            }
+            if let Some(target) = target_triple
+                && target != "native"
+                && target != "host"
+            {
                 cmd.arg(format!("--target={}", target));
             }
             if debug_info {
-                cmd.arg("-g");
                 let is_win_target = target_triple
                     .map(|t| t.contains("windows"))
                     .unwrap_or(cfg!(windows));
+                cmd.arg("-g");
                 if is_win_target {
                     cmd.arg("-gcodeview");
                 }
@@ -836,7 +867,10 @@ pub fn compile_with_clang(
                     cmd.arg("-fuse-ld=lld");
                 }
             }
-            if target_triple.is_none() {
+            if target_triple.is_none()
+                || target_triple == Some("native")
+                || target_triple == Some("host")
+            {
                 cmd.arg("-march=native");
             }
             cmd.arg(ll_path);
@@ -849,12 +883,25 @@ pub fn compile_with_clang(
             let is_win_target = target_triple
                 .map(|t| t.contains("windows"))
                 .unwrap_or(cfg!(windows));
+            let is_macos_target = target_triple
+                .map(|t| t.contains("apple") || t.contains("darwin"))
+                .unwrap_or(cfg!(target_os = "macos"));
             if is_win_target {
+                cmd.arg("-Wl,/OPT:REF");
+                cmd.arg("-Wl,/OPT:ICF");
                 cmd.arg("-lws2_32");
                 cmd.arg("-luser32");
                 cmd.arg("-lkernel32");
                 cmd.arg("-ldbghelp");
+            } else if is_macos_target {
+                cmd.arg("-Wl,-dead_strip");
+                cmd.arg("-lm");
+                cmd.arg("-lpthread");
             } else {
+                cmd.arg("-Wl,--gc-sections");
+                if !debug_info {
+                    cmd.arg("-s");
+                }
                 // On Linux, disable PIE so the binary doesn't crash due to
                 // text relocations in the LLVM IR that lacks PIC annotations.
                 let is_linux_target = target_triple

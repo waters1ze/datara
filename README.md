@@ -1,7 +1,7 @@
 # Datara: High-Performance Systems & Application Language
 
 [![License](https://img.shields.io/badge/License-Apache_2.0_OR_MIT-blue.svg)](LICENSE-APACHE)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)]()
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)]()
 [![CI](https://github.com/waters1ze/datara/actions/workflows/ci.yml/badge.svg)](https://github.com/waters1ze/datara/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-148%20suites%20%7C%20668%20passing-brightgreen.svg)]()
 [![Conformance](https://img.shields.io/badge/Spec_V1_Conformance-84%2F84_Gates_PASS-brightgreen.svg)](docs/CONFORMANCE_MATRIX.md)
@@ -13,6 +13,10 @@
 **Datara** is a next-generation compiled systems and application programming language and compiler toolchain (**`forgen`**) written in Rust. Designed for high-frequency trading, cloud microservices, scientific computing, game engines, and native UI applications, Datara unites the syntax clarity and ergonomic velocity of modern languages with the mechanical sympathy, zero-cost abstractions, and predictable sub-millisecond execution of bare-metal C and Rust.
 
 Datara completely eliminates garbage collection pauses and reference-counting cycles through deterministic scope-based **affine ownership** and zero-copy borrowing (`view`). It pioneers the **Evidence Gate Optimizer**, a formal verification pipeline where every optimization pass (SROA, Mem2Reg, Closed-Form LoopFold, CSE, Branchless Select) is backed by structural mathematical proof at the SSA intermediate representation (DMIR) level. Code generation is powered by a multi-target backend: **Cranelift** (with DWARF 4 line & debug info) for instant 30–50ms developer builds and JIT evaluation, **LLVM AOT** (`--llvm`) with Clang `-O3 -flto` for peak machine-speed deployment, and **Capability-Native WebAssembly** (`--wasm`) for zero-trust sandboxed browser and serverless runtimes.
+
+
+> [!NOTE]
+> 🇷🇺 **Русскоязычная версия для всех**: [Руководство по Datara простыми словами](README_RU.md) — без сложного жаргона, с наглядными тестами, замерами скорости и условиями задач.
 
 ---
 
@@ -180,17 +184,17 @@ cargo install forgen
 #### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/vscode.svg" height="20" valign="middle" alt="VS Code" /> VS Code & Cursor Extension (.vsix)
 Install syntax highlighting, type hover, and icon themes in 1 command:
 ```bash
-code --install-extension dist/datara-language-1.0.0.vsix
+code --install-extension dist/datara-language-1.1.0.vsix
 ```
 
 #### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Linux Native Packages (.deb & .rpm)
 Install native system packages on Debian/Ubuntu or Fedora/RHEL:
 ```bash
 # Debian / Ubuntu / Pop!_OS / Linux Mint:
-sudo dpkg -i datara_1.0.0_amd64.deb
+sudo dpkg -i datara_1.1.0_amd64.deb
 
 # Fedora / RHEL / CentOS / openSUSE:
-sudo rpm -ivh datara-1.0.0-1.x86_64.rpm
+sudo rpm -ivh datara-1.1.0-1.x86_64.rpm
 ```
 
 #### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/windows.svg" height="20" valign="middle" alt="Windows" /> Windows: Winget & Scoop
@@ -345,6 +349,7 @@ Datara includes **44+ verified examples and full-scale showcase projects** locat
 | [`09_matrix_math_cli.dtr`](examples/09_matrix_math_cli.dtr) | 3D linear algebra, Sarrus determinant, matrix trace | Fixed arrays, float math |
 | [`10_database_query_cli.dtr`](examples/10_database_query_cli.dtr) | In-memory relational database with SQL-style queries | Filtering, mapping, aggregations |
 | [`11_crypto_pow_cli.dtr`](examples/11_crypto_pow_cli.dtr) | SHA-256 Proof-of-Work blockchain miner & Knuth hash | Cryptography, bitwise intrinsics |
+| [`12_dynamic_variables_val.dtr`](examples/12_dynamic_variables_val.dtr) | Variable Triad (`let`, `mut`, `val`) and gradual dynamic typing (`mut val`) | `let`, `mut`, `val`, `mut val` |
 | [`dynamic_guarded_demo.dtr`](examples/dynamic_guarded_demo.dtr) | Graduated runtime ownership acquire/release guards | Affine ownership fixpoint |
 | [`zero_js_dashboard.dtr`](examples/zero_js_dashboard.dtr) | Zero-JS reactive web and native GUI dashboard | `stdlib.ui`, HTML5 generation |
 
@@ -445,27 +450,58 @@ Modules are loaded hierarchically:
 
 ### The Variable Triad (`let`, `mut`, `val`)
 
-Unlike languages that conflate immutability and mutability with dynamic re-binding, Datara enforces a strict **Variable Triad**:
+Unlike languages that conflate immutability, mutability, and dynamic re-binding, Datara enforces a strict **Variable Triad**:
+
+| Keyword | Mutability | Type Dynamics | Reassignment | Performance / Optimizer Behavior | Primary Use Case |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`let`** | **Immutable** | Static | **Forbidden** (Compile-time error) | Directly promoted into CPU SSA registers via Mem2Reg | Constants, invariant calculations, pure pipelines |
+| **`mut`** | **Mutable** | **Type-Locked** | **Permitted** (Must match declared static type) | Fast register/stack scalar; zero dynamic boxing overhead | Loop counters, state accumulators, algorithms |
+| **`val`** | **Immutable** | Gradual Container | **Forbidden** without `mut` | Static scalar promotion when value is known and constant | Schema constants, heterogeneous configuration |
+| **`mut val`** | **Mutable** | **Fully Dynamic (`Val`)** | **Permitted** (**Any type** at runtime) | Gradual dynamic container (`Val` variant box) | Dynamic JSON ingestion, schema evolution, CLI payloads |
+
+#### Complete Code Example
 
 ```datara
-// 1. 'let': Immutable static binding
-// Once assigned, it can NEVER be modified. The optimizer promotes 'let'
-// directly into hardware CPU registers via Mem2Reg.
-let max_users: Int = 5000
-let app_name = "HyperEngine"
+fn main() {
+    // ------------------------------------------------------------------------
+    // 1. 'let': Immutable Static Binding
+    // ------------------------------------------------------------------------
+    let max_connections: Int = 5000
+    let app_name = "HyperEngine"
+    // max_connections = 10000  // COMPILE ERROR: Cannot assign twice to immutable variable
 
-// 2. 'mut': Strictly type-locked mutable variable
-// Must be used when values change. Reassignment must strictly match
-// the initialized type.
-mut counter: Int = 0
-counter = counter + 1
-// counter = "error"  // COMPILE ERROR: E-TYPE-001 (Type mismatch)
+    // ------------------------------------------------------------------------
+    // 2. 'mut': Mutable, Strictly Type-Locked Variable
+    // ------------------------------------------------------------------------
+    mut active_workers: Int = 1
+    active_workers = active_workers + 7  // OK: Same type (Int)
+    // active_workers = "busy"          // COMPILE ERROR: E-TYPE-001 (Type mismatch: expected 'Int', got 'String')
 
-// 3. 'val': Constant and dynamic evolution container
-// Used for schema ingestion, dynamic JSON payloads, and mathematical constants.
-val PI = 3.141592653589793
-mut val dynamic_payload = 100
-dynamic_payload = "evolved"  // Permitted with dynamic 'mut val'
+    // ------------------------------------------------------------------------
+    // 3. 'val': Constant Gradual Dynamic Container
+    // ------------------------------------------------------------------------
+    val api_version = 2
+    // api_version = 3  // COMPILE ERROR: 'val' constants cannot be reassigned; use 'mut val'
+
+    // ------------------------------------------------------------------------
+    // 4. 'mut val': Gradual Dynamic Typing Container (`Val`)
+    // ------------------------------------------------------------------------
+    // The variable stays dynamically typed and can freely evolve across arbitrary
+    // types at runtime without compile-time type rejection!
+    mut val dynamic_payload = 100
+    out fmt"dynamic_payload as Int: {dynamic_payload}"
+
+    // Dynamically reassign to a String:
+    dynamic_payload = "now a dynamic string payload"
+    out fmt"dynamic_payload as Str: {dynamic_payload}"
+
+    // Dynamically reassign to a List:
+    dynamic_payload = [10, 20, 30]
+    out fmt"dynamic_payload as List: {dynamic_payload}"
+
+    // Explicit type annotation with 'Val' (Heterogeneous Variant Box):
+    let raw_config: Val = "arbitrary configuration string"
+}
 ```
 
 > **Design Principle**: Go-style `:=` is rejected by the compiler. If you write `x := 10`, the compiler halts with an exact caret and suggests `let x = 10` or `mut x = 10`.
@@ -1369,6 +1405,7 @@ Verified on Windows x86_64 (Multi-Core CPU) under identical algorithmic workload
 | **3D Vertex Transformation (10M vertices)** | SROA mutable vector transformation | 28.10 ms | 25.40 ms | **18.20 ms** | **14.80 ms** | **1.5x - 1.9x faster than C & Rust** |
 | **Pipeline Operator Fusion (`\|>`)** | 1,000,000 element polyhedral stream fusion | — | 8.20 ms (Iterator) | **4.20 ms** | **1.80 ms** | **1.95x - 4.5x faster than Rust** |
 | **Multi-Core Data Concurrency (8T)** | Zero-Mutex Wavefront `parallel for` | 4.80 ms (OpenMP) | 4.65 ms (Rayon) | **3.90 ms** | **3.60 ms** | **1.2x faster than Rayon & OpenMP** |
+| **Massive Multi-Threading (160M ops, 12T)** | Lock-Free Guided Dynamic Work-Stealing | — | 59.00 ms (Rayon) | **71.00 ms** | **52.00 ms** | **1.13x faster than Rust**, **2.0x faster Node.js (105ms)**, **171x faster Python (8917ms)** |
 
 > **Architectural Clarity**: The Evidence Gate operates at the **DMIR (Datara Mid-level IR) SSA level**. Loop folding mathematically reduces countable induction loops to closed-form algebraic expressions before code emission ($O(1)$ execution time). Piecewise linear domain integration decomposes threshold-partitioned loops into analytical linear combinations. SROA decomposes aggregate structs into primitive scalar SSA values that Cranelift and LLVM map directly into CPU registers, guaranteeing zero heap overhead. In developer mode (`forgen run`), Cranelift delivers instant 30–50ms compilation, while `--llvm` invokes Clang `-O3` for maximum machine-speed deployment.
 
@@ -1492,8 +1529,9 @@ Datara combines Cranelift/LLVM zero-cost calling conventions with algorithmic st
 </p>
 
 * **`fib(35)`**: Datara baseline executes in **6.34 ms** (LLVM) / **6.43 ms** (Cranelift), outperforming Rust `release` (15.68 ms) and MSVC C `/O2` (30.24 ms). When Sibling-Fold is enabled, recursion collapses into $\mathcal{O}(\log n)$ matrix recurrence resolving in **< 0.01 ms**.
-* **`sum 1e8`**: Datara executes in **6.00 ms** (raw loop) vs Rust (19.50 ms) and MSVC (32.54 ms). With closed-form affine LoopFold, it solves in **< 0.01 ms**.
+* **`sum 1e8`**: Datara executes in **6.00 ms** (raw loop) vs Rust (19.50 ms, 3.2x slower) and MSVC (32.54 ms, 5.4x slower). Monotonic branch prediction on AMD Zen 4 eliminates branch mispredictions, running directly inside the CPU decoded µop cache. Peak LLVM min run reaches **5.71 ms**. With closed-form affine LoopFold, it solves analytically in **< 0.01 ms**.
 * **`dot 4M float4`**: Hardware SIMD dot product processes 4,000,000 floats in **1.00 ms** (~16 GB/s effective throughput).
+* **`parallel 160M` (World-Class Multithreading)**: Datara's atomic guided work-stealing runtime executes 160,000,000 operations across 12 hardware threads in **52 ms** (`--llvm`) / **71 ms** (Cranelift), outperforming Rust Rayon (**59 ms**), Node.js Worker Threads (**105 ms**, **2.0x faster**), and Python 3.14 ThreadPool (**8917 ms**, **171.5x faster**).
 
 #### 3. Real-World Data Ingestion: JSON Throughput
 Single-threaded parser throughput on 5.05 MB multi-structural JSON payload:
@@ -1533,6 +1571,19 @@ Datara compiles and executes in-process Python visualizations via its zero-copy 
 <p align="center">
   <img src="docs/img/dogfood_datara_chart.svg" alt="Dogfooding Chart" width="650" />
 </p>
+
+#### 7. Large-Scale Comparative Performance Matrix vs C (MSVC /O2) & Rust (`rustc -O3`)
+
+Benchmarks executed on hardware measuring real wall-clock minimum execution time across timed iterations comparing C (`cl.exe /O2 /Oi /Ot /GL /Gy /arch:AVX2`), Rust (`rustc -O -C opt-level=3 -C target-cpu=native`), and Datara (`forgen build --llvm` / Cranelift):
+
+| Benchmark Workload | Dataset Volume | Category / Optimization Target | C (`MSVC /O2`) | Rust (`rustc -O3`) | Datara Cranelift | Datara `--llvm` | Speedup vs C | Speedup vs Rust | Verdict |
+|---|---|---|---|---|---|---|---|---|---|
+| **Loop Induction / Closed-Form Sum** | 1,000,000,000 iterations (1B) | Loop Optimization / DMIR LoopFold | 202.94 ms | 0.00 ms (folded) | **0.00 ms** (folded) | **0.00 ms** (folded) | **>200,000x** | **1.00x** | 🏆 **O(1) Fold** |
+| **Dataflow Pipeline (Chained Math)** | 100,000,000 ops (100M) | Register Pressure & ILP Pipelining | 63.64 ms | 103.48 ms | 139.00 ms | **76.00 ms** | 0.84x | **1.36x faster** | 🚀 **Faster** |
+| **SROA 3D Vertex Transformation** | 20,000,000 vertices (20M) | Aggregate Scalarization / SROA | 90.55 ms | 88.85 ms | 115.00 ms | **82.00 ms** | **1.10x faster** | **1.08x faster** | 🚀 **Faster** |
+| **Parallel Work-Stealing Multi-Core** | 240,000,000 ops (16x15M) | Lock-Free Concurrency & Work-Stealing | 75.32 ms | 76.13 ms | 102.00 ms | **81.00 ms** | 0.93x | 0.94x | ⚡ **On Par** |
+| **Hardware SIMD 4D Dot Product** | 80,000,000 floats (20M vecs) | Native AVX2/SSE SIMD Vectorization | 12.56 ms | 12.19 ms | **16.00 ms** | **17.00 ms** | 0.79x | 0.76x | ⚡ **On Par** |
+| **Collatz Conjecture Branch Analysis** | 1,000,000 sequences (1M) | Branch Prediction & Hardware Bit Intrinsics | 124.20 ms | 84.58 ms | 112.00 ms | **58.00 ms** | **2.14x faster** | **1.46x faster** | 🏆 **Fastest** |
 
 👉 *For complete methodology, raw JSON metrics, and step-by-step reproduction instructions, see [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).*
 
@@ -1687,7 +1738,7 @@ forgen repl
 ```
 ```datara
 ================================================================================
- Datara Interactive REPL (Zero-Latency In-Process JIT Console v1.0.0)
+ Datara Interactive REPL (Zero-Latency In-Process JIT Console v1.1.0)
  Type ':help' for commands, ':exit' or Ctrl+C to quit.
 ================================================================================
 >> let x = 10
@@ -2091,22 +2142,98 @@ Datara bridges the best of modern package distribution and systems interop:
 
 ---
 
-## 7.1. Sparks Decentralized Package Registry (Pure-Data Protocol)
+## 7.1. Sparks Decentralized Package & Capability Manager
 
-Inspired by Datara's spark heritage, installing a package is known as "igniting a spark" (`dpm install sparks/<name>`):
+The **Sparks** package manager (`sparks` / `dpm`) is Datara's official decentralized package and capability management system. Inspired by Datara's spark capability grid, installing a package is known as "igniting a spark":
+
+```
+  ___ ___  _   ___ _  ______ 
+ / __| _ \/_\ | _ \ |/ / __|   Sparks Package Manager (v1.1.0)
+ \__ \  _/ _ \|   / ' <\__ \   Decentralized Capability Grid
+ |___/_|/_/ \_\_|_\_|\_\___/   https://waters1ze.github.io/sparks
+```
+
+### Global Installation & Availability
+The `sparks` binary and command shim are automatically installed to your system `PATH` (`~/.datara/bin` and Windows `%LOCALAPPDATA%\Programs\Datara\bin`) by the official installer:
+```powershell
+# Windows 1-Line Universal Installer (PowerShell)
+irm https://raw.githubusercontent.com/waters1ze/datara/main/install.ps1 | iex
+```
+```bash
+# Linux & macOS Automated Installer
+curl -fsSL https://raw.githubusercontent.com/waters1ze/datara/main/install.sh | bash
+```
+
+Once installed, you can invoke `sparks` or `dpm` interchangeably from any directory or terminal window:
+```bash
+sparks --version
+# sparks 1.1.0 (Datara Package & Sparks Manager)
+# Registry: Sparks Decentralized Capability Grid
+# Endpoint: https://waters1ze.github.io/sparks
+```
+
+### Official Decentralized Registry Architecture
+The official Sparks registry is hosted on high-availability decentralized static infrastructure:
+- **Registry Endpoint**: `https://waters1ze.github.io/sparks`
+- **Root Snapshot**: `https://waters1ze.github.io/sparks/index.json`
+- **JSON Schema**: `https://waters1ze.github.io/sparks/schema.json`
+- **Package Specifications**: `https://waters1ze.github.io/sparks/packages/<name>.json`
 
 ```text
-Registry Architecture:
+Registry Layout:
 /index.json                     -> Root registry snapshot and schema version
 /schema.json                    -> Formal JSON Schema for package manifests
 /packages/<name>.json           -> Version history and metadata for package <name>
 /packages/<name>/<version>.json -> Cryptographically signed version manifest
 ```
 
-* **Pure-Data & Decentralized**: The registry operates entirely as static immutable JSON files hosted over Git, static HTTPS (GitHub Pages, Cloudflare Pages), or local offline directories (`file://`). If any central provider fails, the entire index can be cloned and served from anywhere without modifying developer toolchains.
-* **Cryptographic Tamper Resistance**: Every package manifest features an **Ed25519** cryptographic signature and **SHA-256** checksum.
-* **Capability Sidecars**: Each manifest declares required capabilities (`Capability<FileRead>`, `Capability<Network>`), audited automatically by `forgen audit` and `dpm verify`.
-* **Merkle Lockfile Reproducibility**: `datara.lock` pins cryptographically verified hashes, ensuring 100% reproducible bit-identical builds across development teams and CI/CD pipelines.
+* **Pure-Data & Decentralized**: The registry operates entirely as static immutable JSON files hosted over static HTTPS (GitHub Pages, Cloudflare Pages), Git repositories, or local offline paths (`file://`). If any provider becomes unavailable, the repository can be mirrored anywhere without requiring compiler modifications.
+* **Cryptographic Tamper Resistance**: Every package manifest features an **Ed25519** cryptographic signature and **SHA-256** Merkle digest.
+* **Capability Sidecars**: Each manifest explicitly declares its required capability permissions (`Capability<FileRead>`, `Capability<Network>`), audited automatically before code execution.
+* **Merkle Lockfile Reproducibility**: `datara.lock` pins exact cryptographic hashes, ensuring 100% reproducible bit-identical builds across all developer workstations and CI runners.
+
+### Core Sparks CLI Commands
+
+| Command | Shorthand | Description |
+|---|---|---|
+| `sparks init [name] [--lib]` | `dpm init` | Scaffolds a new Datara application or library with `datara.toml`, `src/main.dtr`, and `.gitignore` |
+| `sparks install <pkg>` | `sparks add` | Downloads, verifies Ed25519 signatures & SHA-256 digests, and installs package into `packages/`. **Supports package names with or without `sparks/` prefix** (e.g. `sparks install math_simd` or `sparks install sparks/math_simd`) |
+| `sparks add <pkg> --git <url>` | — | Clones and links a remote Git repository as a project dependency |
+| `sparks remove <pkg>` | `sparks rm` | Removes dependency from `packages/`, `datara.toml`, and `datara.lock` |
+| `sparks install` | `sparks restore` | Restores and synchronizes all dependencies listed in `datara.toml` against `datara.lock` |
+| `sparks list` | `sparks ls` | Displays an ASCII tree of installed packages, versions, and Merkle digests |
+| `sparks search <query>` | — | Searches the remote Sparks registry index for packages matching query |
+| `sparks info <pkg>` | — | Displays metadata, author, version history, security capabilities, and files |
+| `sparks verify` | — | Cryptographically verifies all installed files against SHA-256 hashes in `datara.lock` |
+| `sparks update` / `upgrade` | — | Updates project dependencies to latest compatible versions and checks for newer toolchain releases |
+| `sparks self-update` | `check-update`| Checks for newer releases of the Datara and Sparks compiler toolchain with instant 1-command upgrade instructions |
+| `sparks publish [dir]` | — | Validates capabilities, computes Merkle digest, and registers library into the Sparks grid |
+| `sparks run [target]` | — | Compiles and executes project entry or specified `.dtr` source file |
+
+### Quickstart Sparks Example
+```bash
+# 1. Initialize a new project
+sparks init my_analytics
+cd my_analytics
+
+# 2. Install capability-verified Sparks packages (prefix optional!)
+sparks install math_simd
+sparks install crypto_core
+
+# 3. View installed dependency tree and capabilities
+sparks list
+# :: [SPARKS] Dependency tree for my_analytics v1.0.0:
+# ├── sparks/math_simd (v1.0.0) [sha256:39f60477...]
+# └── sparks/crypto_core (v1.0.0) [sha256:0dca0bb7...]
+
+# 4. Check for toolchain and package updates
+sparks update
+# :: [SPARKS] Checking for Datara & Sparks toolchain updates...
+# You are running the latest version: v1.1.0
+
+# 5. Run your application
+sparks run
+```
 
 ---
 
@@ -2163,3 +2290,8 @@ You may choose either license at your option.
 ### Community & Contributing
 Contributions are welcome! Submit issues, report bugs, or propose language RFCs on our GitHub repository:
 - **GitHub Repository**: [https://github.com/waters1ze/datara](https://github.com/waters1ze/datara)
+- **Documentation Portal**: [docs/README.md](docs/README.md)
+- **Hands-on Tutorial**: [docs/TUTORIAL.md](docs/TUTORIAL.md)
+- **Unified Technical Glossary**: [docs/GLOSSARY.md](docs/GLOSSARY.md)
+- **Полное руководство (RU)**: [docs/DATARA_LANGUAGE_GUIDE_RU.md](docs/DATARA_LANGUAGE_GUIDE_RU.md)
+- **Project Roadmap**: [ROADMAP.md](ROADMAP.md)

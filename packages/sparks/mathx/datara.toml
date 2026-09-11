@@ -1,0 +1,9 @@
+manifest_schema = 1
+
+[package]
+name = "mathx"
+version = "0.1.0"
+description = "Advanced numeric, statistical, and linear algebra utilities for Datara"
+authors = ["Datara Core Team"]
+license = "MIT OR Apache-2.0"
+entry = "src/lib.dtr"

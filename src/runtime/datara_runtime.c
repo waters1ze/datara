@@ -31,6 +31,7 @@
 #include <dbghelp.h>
 #else
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -39,9 +40,6 @@
 #include <fcntl.h>
 #include <time.h>
 #include <pthread.h>
-#if defined(__APPLE__)
-#include <sys/sysctl.h>
-#endif
 #if defined(__has_include)
 #if __has_include(<execinfo.h>)
 #include <execinfo.h>
@@ -114,7 +112,10 @@ void datara_rt_err(const char* s) {
     fprintf(stderr, "%s\n", s != NULL ? s : "None");
 }
 
+static void datara_rt_pgo_auto_flush(void);
+
 void datara_rt_exit(int32_t code) {
+    datara_rt_pgo_auto_flush();
     exit(code);
 }
 
@@ -128,6 +129,130 @@ void datara_rt_exit(int32_t code) {
 
 static DATARA_TLS char tls_int_bufs[256][32];
 static DATARA_TLS uint32_t tls_int_idx = 0;
+
+// ============================================================================
+// Phase 13: Size-Class Thread-Local Pool Allocator & SSO
+// ============================================================================
+#define DATARA_POOL_NUM_CLASSES 10
+#define DATARA_POOL_SLAB_SIZE (64 * 1024)
+
+static const size_t g_pool_class_sizes[DATARA_POOL_NUM_CLASSES] = {
+    16, 32, 48, 64, 96, 128, 192, 256, 512, 1024
+};
+
+static inline int pool_class_for_size(size_t sz) {
+    if (sz <= 16) return 0;
+    if (sz <= 32) return 1;
+    if (sz <= 48) return 2;
+    if (sz <= 64) return 3;
+    if (sz <= 96) return 4;
+    if (sz <= 128) return 5;
+    if (sz <= 192) return 6;
+    if (sz <= 256) return 7;
+    if (sz <= 512) return 8;
+    if (sz <= 1024) return 9;
+    return -1;
+}
+
+static DATARA_TLS void* tls_pool_freelist[DATARA_POOL_NUM_CLASSES] = {0};
+static DATARA_TLS char* tls_pool_slab = NULL;
+static DATARA_TLS size_t tls_pool_slab_remaining = 0;
+static DATARA_TLS int64_t tls_heap_alloc_count = 0;
+
+int64_t datara_rt_heap_alloc_count(void) {
+    return tls_heap_alloc_count;
+}
+
+void datara_rt_reset_heap_alloc_count(void) {
+    tls_heap_alloc_count = 0;
+}
+
+void* datara_rt_pool_alloc(size_t sz) {
+    if (sz == 0) return NULL;
+    int cls = pool_class_for_size(sz);
+    if (cls < 0) {
+        tls_heap_alloc_count++;
+        return malloc(sz);
+    }
+    void* p = tls_pool_freelist[cls];
+    if (p) {
+        tls_pool_freelist[cls] = *(void**)p;
+        return p;
+    }
+    size_t blk_sz = g_pool_class_sizes[cls];
+    if (tls_pool_slab_remaining < blk_sz) {
+        tls_pool_slab = (char*)malloc(DATARA_POOL_SLAB_SIZE);
+        if (!tls_pool_slab) {
+            tls_heap_alloc_count++;
+            return malloc(sz);
+        }
+        tls_pool_slab_remaining = DATARA_POOL_SLAB_SIZE;
+        tls_heap_alloc_count++;
+    }
+    void* blk = (void*)tls_pool_slab;
+    tls_pool_slab += blk_sz;
+    tls_pool_slab_remaining -= blk_sz;
+    return blk;
+}
+
+void datara_rt_pool_free(void* ptr, size_t sz) {
+    if (!ptr) return;
+    int cls = pool_class_for_size(sz);
+    if (cls >= 0) {
+        *(void**)ptr = tls_pool_freelist[cls];
+        tls_pool_freelist[cls] = ptr;
+    } else {
+        free(ptr);
+    }
+}
+
+int64_t* datara_rt_box_alloc(int64_t val) {
+    int64_t* b = (int64_t*)datara_rt_pool_alloc(sizeof(int64_t) * 2);
+    if (b) {
+        *b = val;
+    }
+    return b;
+}
+
+int64_t datara_rt_box_get(int64_t* b) {
+    return b ? *b : 0;
+}
+
+void datara_rt_box_free(int64_t* b) {
+    if (b) {
+        datara_rt_pool_free(b, sizeof(int64_t) * 2);
+    }
+}
+
+#define DATARA_SSO_MAX_LEN 22
+#define DATARA_SSO_RING_COUNT 2048
+#define DATARA_SSO_SLOT_SIZE 24
+
+static DATARA_TLS char tls_sso_ring[DATARA_SSO_RING_COUNT][DATARA_SSO_SLOT_SIZE];
+static DATARA_TLS uint32_t tls_sso_idx = 0;
+
+const char* datara_rt_str_sso(const char* s) {
+    if (!s) return "";
+    size_t len = strlen(s);
+    if (len <= DATARA_SSO_MAX_LEN) {
+        uint32_t idx = (tls_sso_idx++) % DATARA_SSO_RING_COUNT;
+        char* slot = tls_sso_ring[idx];
+        memcpy(slot, s, len);
+        slot[len] = '\0';
+        return slot;
+    }
+    tls_heap_alloc_count++;
+    char* buf = (char*)malloc(len + 1);
+    if (!buf) return "";
+    memcpy(buf, s, len);
+    buf[len] = '\0';
+    return buf;
+}
+
+int64_t datara_rt_str_is_sso(const char* s) {
+    if (!s) return 1;
+    return strlen(s) <= DATARA_SSO_MAX_LEN ? 1 : 0;
+}
 
 static DATARA_TLS char* tls_scratch_ring = NULL;
 static DATARA_TLS size_t tls_scratch_offset = 0;
@@ -177,6 +302,14 @@ const char* datara_rt_str_concat(const char* a, const char* b) {
     size_t la = strlen(a);
     size_t lb = strlen(b);
     size_t total = la + lb;
+    if (total <= DATARA_SSO_MAX_LEN) {
+        uint32_t idx = (tls_sso_idx++) % DATARA_SSO_RING_COUNT;
+        char* slot = tls_sso_ring[idx];
+        datara_fast_copy(slot, a, la);
+        datara_fast_copy(slot + la, b, lb);
+        slot[total] = '\0';
+        return slot;
+    }
     char* buf = datara_scratch_alloc(total);
     if (!buf) return "";
     datara_fast_copy(buf, a, la);
@@ -1371,7 +1504,7 @@ void datara_rt_out_dec64(int64_t val) {
     int64_t integer = val / 10000;
     int64_t frac = val % 10000;
     if (frac < 0) frac = -frac;
-    printf("%lld.%04lld\n", integer, frac);
+    printf("%lld.%04lld\n", (long long)integer, (long long)frac);
 }
 
 int64_t datara_rt_str_eq(const char* a, const char* b) {
@@ -1421,15 +1554,51 @@ typedef struct {
     int64_t magic;
 } DataraListHeader;
 
-#define DATARA_LIST_MAGIC 0x4441544C49535430ULL
+#define DATARA_LIST_MAGIC      0x4441544C49535430ULL
+#define DATARA_LIST_MAGIC_MASK 0xFFFFFFFFFFFFFFF0ULL
+#define DATARA_LIST_FLAG_HEAP  0x0ULL
+#define DATARA_LIST_FLAG_POOL  0x1ULL
+#define DATARA_LIST_FLAG_STACK 0x2ULL
+#define DATARA_LIST_FLAG_SMALL 0x4ULL
+
+int64_t* datara_rt_list_init_stack(void* stack_buf, int64_t cap) {
+    if (!stack_buf || cap <= 0) return NULL;
+    DataraListHeader* hdr = (DataraListHeader*)stack_buf;
+    hdr->capacity = cap;
+    hdr->magic = DATARA_LIST_MAGIC | DATARA_LIST_FLAG_STACK | (cap <= 8 ? DATARA_LIST_FLAG_SMALL : 0);
+    int64_t* list = (int64_t*)(hdr + 1);
+    list[0] = 0;
+    return list;
+}
+
+int64_t datara_rt_list_is_small_vec(int64_t* list) {
+    if (!list) return 0;
+    DataraListHeader* hdr = ((DataraListHeader*)list) - 1;
+    if ((hdr->magic & DATARA_LIST_MAGIC_MASK) == DATARA_LIST_MAGIC) {
+        return (hdr->magic & DATARA_LIST_FLAG_SMALL) ? 1 : (hdr->capacity <= 8 ? 1 : 0);
+    }
+    return 0;
+}
 
 int64_t* datara_rt_list_create_capacity(int64_t cap) {
     if (cap < 8) cap = 8;
     if (cap > (int64_t)((SIZE_MAX - sizeof(DataraListHeader)) / sizeof(int64_t) - 1)) return NULL;
-    DataraListHeader* hdr = (DataraListHeader*)malloc(sizeof(DataraListHeader) + (size_t)(cap + 1) * sizeof(int64_t));
+    size_t alloc_sz = sizeof(DataraListHeader) + (size_t)(cap + 1) * sizeof(int64_t);
+    DataraListHeader* hdr = NULL;
+    int64_t flag = DATARA_LIST_FLAG_HEAP;
+    if (alloc_sz <= 1024) {
+        hdr = (DataraListHeader*)datara_rt_pool_alloc(alloc_sz);
+        flag = DATARA_LIST_FLAG_POOL;
+    } else {
+        tls_heap_alloc_count++;
+        hdr = (DataraListHeader*)malloc(alloc_sz);
+    }
     if (!hdr) return NULL;
+    if (cap <= 8) {
+        flag |= DATARA_LIST_FLAG_SMALL;
+    }
     hdr->capacity = cap;
-    hdr->magic = DATARA_LIST_MAGIC;
+    hdr->magic = DATARA_LIST_MAGIC | flag;
     int64_t* list = (int64_t*)(hdr + 1);
     list[0] = 0;
     return list;
@@ -1450,16 +1619,53 @@ int64_t* datara_rt_list_append(int64_t* list, int64_t v) {
     int64_t count = list[0];
     if (count < 0) return list;
     DataraListHeader* hdr = ((DataraListHeader*)list) - 1;
-    if (hdr->magic == DATARA_LIST_MAGIC && hdr->capacity >= count) {
+    if ((hdr->magic & DATARA_LIST_MAGIC_MASK) == DATARA_LIST_MAGIC && hdr->capacity >= count) {
         if (count + 1 > hdr->capacity) {
             if (hdr->capacity > (int64_t)((SIZE_MAX - sizeof(DataraListHeader)) / (2 * sizeof(int64_t)) - 1)) return list;
             int64_t new_cap = hdr->capacity * 2;
             if (new_cap < 8) new_cap = 8;
-            DataraListHeader* new_hdr = (DataraListHeader*)realloc(hdr, sizeof(DataraListHeader) + (size_t)(new_cap + 1) * sizeof(int64_t));
-            if (!new_hdr) return list;
-            hdr = new_hdr;
-            hdr->capacity = new_cap;
-            list = (int64_t*)(hdr + 1);
+            size_t new_alloc_sz = sizeof(DataraListHeader) + (size_t)(new_cap + 1) * sizeof(int64_t);
+            int64_t flag = hdr->magic & 0xFULL;
+            DataraListHeader* new_hdr = NULL;
+            if (flag & DATARA_LIST_FLAG_STACK) {
+                int64_t new_flag = DATARA_LIST_FLAG_HEAP;
+                if (new_alloc_sz <= 1024) {
+                    new_hdr = (DataraListHeader*)datara_rt_pool_alloc(new_alloc_sz);
+                    new_flag = DATARA_LIST_FLAG_POOL;
+                } else {
+                    tls_heap_alloc_count++;
+                    new_hdr = (DataraListHeader*)malloc(new_alloc_sz);
+                }
+                if (!new_hdr) return list;
+                memcpy(new_hdr, hdr, sizeof(DataraListHeader) + (size_t)(count + 1) * sizeof(int64_t));
+                new_hdr->magic = DATARA_LIST_MAGIC | new_flag;
+                new_hdr->capacity = new_cap;
+                hdr = new_hdr;
+                list = (int64_t*)(hdr + 1);
+            } else if (flag & DATARA_LIST_FLAG_POOL) {
+                int64_t new_flag = DATARA_LIST_FLAG_HEAP;
+                if (new_alloc_sz <= 1024) {
+                    new_hdr = (DataraListHeader*)datara_rt_pool_alloc(new_alloc_sz);
+                    new_flag = DATARA_LIST_FLAG_POOL;
+                } else {
+                    tls_heap_alloc_count++;
+                    new_hdr = (DataraListHeader*)malloc(new_alloc_sz);
+                }
+                if (!new_hdr) return list;
+                memcpy(new_hdr, hdr, sizeof(DataraListHeader) + (size_t)(count + 1) * sizeof(int64_t));
+                size_t old_alloc_sz = sizeof(DataraListHeader) + (size_t)(hdr->capacity + 1) * sizeof(int64_t);
+                datara_rt_pool_free(hdr, old_alloc_sz);
+                new_hdr->magic = DATARA_LIST_MAGIC | new_flag;
+                new_hdr->capacity = new_cap;
+                hdr = new_hdr;
+                list = (int64_t*)(hdr + 1);
+            } else {
+                new_hdr = (DataraListHeader*)realloc(hdr, new_alloc_sz);
+                if (!new_hdr) return list;
+                hdr = new_hdr;
+                hdr->capacity = new_cap;
+                list = (int64_t*)(hdr + 1);
+            }
         }
         list[0] = count + 1;
         list[count + 1] = v;
@@ -1472,6 +1678,7 @@ int64_t* datara_rt_list_append(int64_t* list, int64_t v) {
     DataraListHeader* new_hdr = (DataraListHeader*)malloc(sizeof(DataraListHeader) + (size_t)(new_cap + 1) * sizeof(int64_t));
     if (!new_hdr) return list;
     new_hdr->capacity = new_cap;
+    new_hdr->magic = DATARA_LIST_MAGIC | DATARA_LIST_FLAG_HEAP;
     int64_t* new_list = (int64_t*)(new_hdr + 1);
     new_list[0] = count + 1;
     for (int64_t i = 1; i <= count; i++) {
@@ -1573,15 +1780,26 @@ typedef struct {
     int64_t magic;
 } DataraMapHeader;
 
-#define DATARA_MAP_MAGIC 0x4441544D41503130ULL
+#define DATARA_MAP_MAGIC      0x4441544D41503130ULL
+#define DATARA_MAP_MAGIC_MASK 0xFFFFFFFFFFFFFFF0ULL
+#define DATARA_MAP_FLAG_HEAP  0x0ULL
+#define DATARA_MAP_FLAG_POOL  0x1ULL
 
 void* datara_rt_map_create(void) {
     size_t init_cap = 8;
     size_t total_bytes = sizeof(DataraMapHeader) + (1 + init_cap * 2) * sizeof(int64_t);
-    DataraMapHeader* hdr = (DataraMapHeader*)malloc(total_bytes);
+    DataraMapHeader* hdr = NULL;
+    int64_t flag = DATARA_MAP_FLAG_HEAP;
+    if (total_bytes <= 1024) {
+        hdr = (DataraMapHeader*)datara_rt_pool_alloc(total_bytes);
+        flag = DATARA_MAP_FLAG_POOL;
+    } else {
+        tls_heap_alloc_count++;
+        hdr = (DataraMapHeader*)malloc(total_bytes);
+    }
     if (!hdr) return NULL;
-    hdr->capacity = init_cap;
-    hdr->magic = DATARA_MAP_MAGIC;
+    hdr->capacity = (int64_t)init_cap;
+    hdr->magic = DATARA_MAP_MAGIC | flag;
     int64_t* map = (int64_t*)(hdr + 1);
     map[0] = 0;
     return map;
@@ -1663,7 +1881,7 @@ int64_t datara_rt_map_get(int64_t* map, const char* key) {
 static inline DataraMapHeader* datara_rt_map_get_header(int64_t* map) {
     if (!map) return NULL;
     DataraMapHeader* hdr = ((DataraMapHeader*)map) - 1;
-    if (hdr->magic == DATARA_MAP_MAGIC) return hdr;
+    if ((hdr->magic & DATARA_MAP_MAGIC_MASK) == DATARA_MAP_MAGIC) return hdr;
     return NULL;
 }
 
@@ -1699,9 +1917,27 @@ int64_t* datara_rt_map_insert(int64_t* map, const char* key, int64_t val) {
         }
         int64_t new_cap = hdr->capacity * 2;
         size_t total_bytes = sizeof(DataraMapHeader) + (1 + new_cap * 2) * sizeof(int64_t);
-        DataraMapHeader* new_hdr = (DataraMapHeader*)realloc(hdr, total_bytes);
-        if (!new_hdr) return map;
-        new_hdr->capacity = new_cap;
+        DataraMapHeader* new_hdr = NULL;
+        if ((hdr->magic & 0xFULL) == DATARA_MAP_FLAG_POOL) {
+            int64_t flag = DATARA_MAP_FLAG_HEAP;
+            if (total_bytes <= 1024) {
+                new_hdr = (DataraMapHeader*)datara_rt_pool_alloc(total_bytes);
+                flag = DATARA_MAP_FLAG_POOL;
+            } else {
+                tls_heap_alloc_count++;
+                new_hdr = (DataraMapHeader*)malloc(total_bytes);
+            }
+            if (!new_hdr) return map;
+            memcpy(new_hdr, hdr, sizeof(DataraMapHeader) + (1 + (size_t)count * 2) * sizeof(int64_t));
+            size_t old_total_bytes = sizeof(DataraMapHeader) + (1 + (size_t)hdr->capacity * 2) * sizeof(int64_t);
+            datara_rt_pool_free(hdr, old_total_bytes);
+            new_hdr->magic = DATARA_MAP_MAGIC | flag;
+            new_hdr->capacity = new_cap;
+        } else {
+            new_hdr = (DataraMapHeader*)realloc(hdr, total_bytes);
+            if (!new_hdr) return map;
+            new_hdr->capacity = new_cap;
+        }
         int64_t* new_map = (int64_t*)(new_hdr + 1);
         new_map[1 + count * 2] = (int64_t)key;
         new_map[2 + count * 2] = val;
@@ -1731,7 +1967,12 @@ void datara_rt_map_free(void* map) {
     if (!map) return;
     DataraMapHeader* hdr = datara_rt_map_get_header((int64_t*)map);
     if (hdr) {
-        free(hdr);
+        if ((hdr->magic & 0xFULL) == DATARA_MAP_FLAG_POOL) {
+            size_t total_bytes = sizeof(DataraMapHeader) + (1 + (size_t)hdr->capacity * 2) * sizeof(int64_t);
+            datara_rt_pool_free(hdr, total_bytes);
+        } else {
+            free(hdr);
+        }
     } else {
         free(map);
     }
@@ -3432,7 +3673,16 @@ void datara_rt_str_free(const char* s) {
 void datara_rt_list_free(void* list) {
     if (!list) return;
     DataraListHeader* hdr = ((DataraListHeader*)list) - 1;
-    if (hdr->magic == DATARA_LIST_MAGIC) {
+    if ((hdr->magic & DATARA_LIST_MAGIC_MASK) == DATARA_LIST_MAGIC) {
+        int64_t flag = hdr->magic & 0xFULL;
+        if (flag & DATARA_LIST_FLAG_STACK) {
+            return;
+        }
+        if (flag & DATARA_LIST_FLAG_POOL) {
+            size_t alloc_sz = sizeof(DataraListHeader) + (size_t)(hdr->capacity + 1) * sizeof(int64_t);
+            datara_rt_pool_free(hdr, alloc_sz);
+            return;
+        }
         free(hdr);
     } else {
         free(list);
@@ -3461,6 +3711,34 @@ typedef struct {
 static int g_workers_count = 0;
 static int g_workers_initialized = 0;
 
+static volatile int64_t g_par_cur = 0;
+static int64_t g_par_end = 0;
+static int64_t g_par_chunk = 1;
+static void (*g_par_fn)(int64_t, void*) = NULL;
+static void* g_par_ctx = NULL;
+
+static void datara_rt_run_dynamic_loop(void) {
+    int64_t chunk = g_par_chunk;
+    int64_t end = g_par_end;
+    void (*fn)(int64_t, void*) = g_par_fn;
+    void* ctx = g_par_ctx;
+    if (!fn) return;
+
+    while (1) {
+#ifdef _WIN32
+        int64_t my_start = InterlockedAdd64(&g_par_cur, chunk) - chunk;
+#else
+        int64_t my_start = __sync_fetch_and_add(&g_par_cur, chunk);
+#endif
+        if (my_start >= end) break;
+        int64_t my_end = my_start + chunk;
+        if (my_end > end) my_end = end;
+        for (int64_t i = my_start; i < my_end; i++) {
+            fn(i, ctx);
+        }
+    }
+}
+
 #ifdef _WIN32
 static HANDLE g_worker_threads[DATARA_MAX_WORKERS];
 static HANDLE g_start_events[DATARA_MAX_WORKERS];
@@ -3477,12 +3755,7 @@ static DWORD WINAPI datara_worker_proc(LPVOID arg) {
         if (g_shutdown) break;
 
         if (g_worker_mode[worker_idx] == 1) {
-            DataraParallelChunk* c = &g_worker_chunks[worker_idx];
-            if (c->fn) {
-                for (int64_t i = c->start; i < c->end; i++) {
-                    c->fn(i, c->ctx);
-                }
-            }
+            datara_rt_run_dynamic_loop();
         } else if (g_worker_mode[worker_idx] == 2) {
             DataraTask* t = &g_worker_tasks[worker_idx];
             if (t->task_fn) {
@@ -3523,12 +3796,7 @@ static void* datara_worker_proc(void* arg) {
         pthread_mutex_unlock(&g_worker_mutexes[worker_idx]);
 
         if (g_worker_mode[worker_idx] == 1) {
-            DataraParallelChunk* c = &g_worker_chunks[worker_idx];
-            if (c->fn) {
-                for (int64_t i = c->start; i < c->end; i++) {
-                    c->fn(i, c->ctx);
-                }
-            }
+            datara_rt_run_dynamic_loop();
         } else if (g_worker_mode[worker_idx] == 2) {
             DataraTask* t = &g_worker_tasks[worker_idx];
             if (t->task_fn) {
@@ -3553,11 +3821,6 @@ void datara_rt_thread_pool_init(int64_t workers) {
         SYSTEM_INFO sys;
         GetSystemInfo(&sys);
         workers = (int64_t)sys.dwNumberOfProcessors;
-#elif defined(__APPLE__)
-        int count = 0;
-        size_t count_len = sizeof(count);
-        sysctlbyname("hw.logicalcpu", &count, &count_len, NULL, 0);
-        workers = count > 0 ? (int64_t)count : 4;
 #else
         workers = (int64_t)sysconf(_SC_NPROCESSORS_ONLN);
 #endif
@@ -3613,17 +3876,18 @@ void datara_rt_parallel_for(int64_t start, int64_t end, void (*fn)(int64_t idx, 
     tls_in_parallel_region = 1;
 
     if (num_w > total) num_w = (int)total;
-    int64_t chunk_size = total / num_w;
-    int64_t rem = total % num_w;
 
-    int64_t cur_start = start + chunk_size + (0 < rem ? 1 : 0);
+    int64_t chunk = total / (num_w * 4);
+    if (chunk < 1) chunk = 1;
+    if (chunk > 2048) chunk = 2048;
+
+    g_par_cur = start;
+    g_par_end = end;
+    g_par_chunk = chunk;
+    g_par_fn = fn;
+    g_par_ctx = ctx;
+
     for (int w = 1; w < num_w; w++) {
-        int64_t w_chunk = chunk_size + (w < rem ? 1 : 0);
-        int64_t w_end = cur_start + w_chunk;
-        g_worker_chunks[w].fn = fn;
-        g_worker_chunks[w].ctx = ctx;
-        g_worker_chunks[w].start = cur_start;
-        g_worker_chunks[w].end = w_end;
         g_worker_mode[w] = 1;
 #ifdef _WIN32
         ResetEvent(g_done_events[w]);
@@ -3635,19 +3899,15 @@ void datara_rt_parallel_for(int64_t start, int64_t end, void (*fn)(int64_t idx, 
         pthread_cond_signal(&g_worker_conds[w]);
         pthread_mutex_unlock(&g_worker_mutexes[w]);
 #endif
-        cur_start = w_end;
     }
 
-    // Current thread immediately executes the first chunk (zero overhead)
-    int64_t main_end = start + chunk_size + (0 < rem ? 1 : 0);
-    for (int64_t i = start; i < main_end; i++) {
-        fn(i, ctx);
-    }
+    // Current thread immediately executes dynamic chunks alongside workers
+    datara_rt_run_dynamic_loop();
 
     // Wait for all worker threads to complete
 #ifdef _WIN32
-    for (int w = 1; w < num_w; w++) {
-        WaitForSingleObject(g_done_events[w], INFINITE);
+    if (num_w > 1) {
+        WaitForMultipleObjects((DWORD)(num_w - 1), &g_done_events[1], TRUE, INFINITE);
     }
 #else
     for (int w = 1; w < num_w; w++) {
@@ -3911,4 +4171,599 @@ void datara_rt_own_release(int64_t val) {
         }
     }
 }
+
+// ============================================================================
+// Phase 16: Profile-Guided Optimization (PGO) Runtime Instrumentation
+// ============================================================================
+#define DATARA_PGO_MAX_FUNCS 4096
+#define DATARA_PGO_MAX_BRANCHES 8192
+#define DATARA_PGO_MAX_LOOPS 4096
+
+typedef struct {
+    char name[128];
+    uint64_t count;
+} DataraPgoFunc;
+
+typedef struct {
+    char id[128];
+    uint64_t taken;
+    uint64_t total;
+} DataraPgoBranch;
+
+typedef struct {
+    char id[128];
+    uint64_t trip_count;
+} DataraPgoLoop;
+
+static DataraPgoFunc g_pgo_funcs[DATARA_PGO_MAX_FUNCS];
+static size_t g_pgo_func_count = 0;
+
+static DataraPgoBranch g_pgo_branches[DATARA_PGO_MAX_BRANCHES];
+static size_t g_pgo_branch_count = 0;
+
+static DataraPgoLoop g_pgo_loops[DATARA_PGO_MAX_LOOPS];
+static size_t g_pgo_loop_count = 0;
+
+static char g_pgo_output_path[512] = {0};
+static int g_pgo_atexit_registered = 0;
+
+#if defined(_WIN32)
+static SRWLOCK g_pgo_lock = SRWLOCK_INIT;
+#define PGO_LOCK() AcquireSRWLockExclusive(&g_pgo_lock)
+#define PGO_UNLOCK() ReleaseSRWLockExclusive(&g_pgo_lock)
+#else
+static pthread_mutex_t g_pgo_lock = PTHREAD_MUTEX_INITIALIZER;
+#define PGO_LOCK() pthread_mutex_lock(&g_pgo_lock)
+#define PGO_UNLOCK() pthread_mutex_unlock(&g_pgo_lock)
+#endif
+
+static void datara_rt_pgo_ensure_parent_dirs(const char* path) {
+    if (!path) return;
+    char tmp[512];
+    strncpy(tmp, path, sizeof(tmp) - 1);
+    tmp[sizeof(tmp) - 1] = '\0';
+    for (char* p = tmp + 1; *p; p++) {
+        if (*p == '/' || *p == '\\') {
+            char ch = *p;
+            *p = '\0';
+#ifdef _WIN32
+            CreateDirectoryA(tmp, NULL);
+#else
+            mkdir(tmp, 0755);
+#endif
+            *p = ch;
+        }
+    }
+}
+
+static void datara_rt_pgo_auto_flush(void) {
+    if (g_pgo_func_count == 0 && g_pgo_branch_count == 0 && g_pgo_loop_count == 0) {
+        return;
+    }
+    const char* path = g_pgo_output_path;
+    if (!path || path[0] == '\0') {
+        path = getenv("DATARA_PGO_FILE");
+    }
+    if (!path || path[0] == '\0') {
+        path = getenv("FORGEN_PGO_FILE");
+    }
+    if (!path || path[0] == '\0') {
+        path = "default.pgo";
+    }
+    datara_rt_pgo_flush(path);
+}
+
+void datara_rt_pgo_set_output_file(const char* path) {
+    if (!path) return;
+    PGO_LOCK();
+    strncpy(g_pgo_output_path, path, sizeof(g_pgo_output_path) - 1);
+    g_pgo_output_path[sizeof(g_pgo_output_path) - 1] = '\0';
+    if (!g_pgo_atexit_registered) {
+        atexit(datara_rt_pgo_auto_flush);
+        g_pgo_atexit_registered = 1;
+    }
+    PGO_UNLOCK();
+}
+
+void datara_rt_pgo_hit_func(const char* name) {
+    if (!name || name[0] == '\0') return;
+    PGO_LOCK();
+    if (!g_pgo_atexit_registered) {
+        atexit(datara_rt_pgo_auto_flush);
+        g_pgo_atexit_registered = 1;
+    }
+    for (size_t i = 0; i < g_pgo_func_count; i++) {
+        if (strcmp(g_pgo_funcs[i].name, name) == 0) {
+            g_pgo_funcs[i].count++;
+            PGO_UNLOCK();
+            return;
+        }
+    }
+    if (g_pgo_func_count < DATARA_PGO_MAX_FUNCS) {
+        strncpy(g_pgo_funcs[g_pgo_func_count].name, name, sizeof(g_pgo_funcs[0].name) - 1);
+        g_pgo_funcs[g_pgo_func_count].name[sizeof(g_pgo_funcs[0].name) - 1] = '\0';
+        g_pgo_funcs[g_pgo_func_count].count = 1;
+        g_pgo_func_count++;
+    }
+    PGO_UNLOCK();
+}
+
+void datara_rt_pgo_hit_branch(const char* branch_id, int64_t taken) {
+    if (!branch_id || branch_id[0] == '\0') return;
+    PGO_LOCK();
+    if (!g_pgo_atexit_registered) {
+        atexit(datara_rt_pgo_auto_flush);
+        g_pgo_atexit_registered = 1;
+    }
+    for (size_t i = 0; i < g_pgo_branch_count; i++) {
+        if (strcmp(g_pgo_branches[i].id, branch_id) == 0) {
+            g_pgo_branches[i].total++;
+            if (taken != 0) {
+                g_pgo_branches[i].taken++;
+            }
+            PGO_UNLOCK();
+            return;
+        }
+    }
+    if (g_pgo_branch_count < DATARA_PGO_MAX_BRANCHES) {
+        strncpy(g_pgo_branches[g_pgo_branch_count].id, branch_id, sizeof(g_pgo_branches[0].id) - 1);
+        g_pgo_branches[g_pgo_branch_count].id[sizeof(g_pgo_branches[0].id) - 1] = '\0';
+        g_pgo_branches[g_pgo_branch_count].total = 1;
+        g_pgo_branches[g_pgo_branch_count].taken = (taken != 0) ? 1 : 0;
+        g_pgo_branch_count++;
+    }
+    PGO_UNLOCK();
+}
+
+void datara_rt_pgo_hit_loop(const char* loop_id, int64_t trip_count) {
+    if (!loop_id || loop_id[0] == '\0') return;
+    PGO_LOCK();
+    if (!g_pgo_atexit_registered) {
+        atexit(datara_rt_pgo_auto_flush);
+        g_pgo_atexit_registered = 1;
+    }
+    for (size_t i = 0; i < g_pgo_loop_count; i++) {
+        if (strcmp(g_pgo_loops[i].id, loop_id) == 0) {
+            g_pgo_loops[i].trip_count += (uint64_t)trip_count;
+            PGO_UNLOCK();
+            return;
+        }
+    }
+    if (g_pgo_loop_count < DATARA_PGO_MAX_LOOPS) {
+        strncpy(g_pgo_loops[g_pgo_loop_count].id, loop_id, sizeof(g_pgo_loops[0].id) - 1);
+        g_pgo_loops[g_pgo_loop_count].id[sizeof(g_pgo_loops[0].id) - 1] = '\0';
+        g_pgo_loops[g_pgo_loop_count].trip_count = (uint64_t)trip_count;
+        g_pgo_loop_count++;
+    }
+    PGO_UNLOCK();
+}
+
+void datara_rt_pgo_reset(void) {
+    PGO_LOCK();
+    g_pgo_func_count = 0;
+    g_pgo_branch_count = 0;
+    g_pgo_loop_count = 0;
+    g_pgo_output_path[0] = '\0';
+    PGO_UNLOCK();
+}
+
+void datara_rt_pgo_flush(const char* path) {
+    if (!path || path[0] == '\0') {
+        path = g_pgo_output_path;
+    }
+    if (!path || path[0] == '\0') {
+        path = getenv("DATARA_PGO_FILE");
+    }
+    if (!path || path[0] == '\0') {
+        path = getenv("FORGEN_PGO_FILE");
+    }
+    if (!path || path[0] == '\0') {
+        path = "default.pgo";
+    }
+
+    PGO_LOCK();
+    datara_rt_pgo_ensure_parent_dirs(path);
+    FILE* f = fopen(path, "w");
+    if (!f) {
+        PGO_UNLOCK();
+        return;
+    }
+
+    fprintf(f, "{\n");
+    fprintf(f, "  \"project_name\": \"datara_pgo\",\n");
+    fprintf(f, "  \"source\": \"runtime\",\n");
+    fprintf(f, "  \"hot_functions\": {\n");
+    for (size_t i = 0; i < g_pgo_func_count; i++) {
+        fprintf(f, "    \"%s\": %llu%s\n",
+            g_pgo_funcs[i].name,
+            (unsigned long long)g_pgo_funcs[i].count,
+            (i + 1 < g_pgo_func_count) ? "," : "");
+    }
+    fprintf(f, "  },\n");
+    fprintf(f, "  \"branch_frequencies\": {\n");
+    for (size_t i = 0; i < g_pgo_branch_count; i++) {
+        fprintf(f, "    \"%s\": [%llu, %llu]%s\n",
+            g_pgo_branches[i].id,
+            (unsigned long long)g_pgo_branches[i].taken,
+            (unsigned long long)g_pgo_branches[i].total,
+            (i + 1 < g_pgo_branch_count) ? "," : "");
+    }
+    fprintf(f, "  },\n");
+    fprintf(f, "  \"loop_trip_counts\": {\n");
+    for (size_t i = 0; i < g_pgo_loop_count; i++) {
+        fprintf(f, "    \"%s\": %llu%s\n",
+            g_pgo_loops[i].id,
+            (unsigned long long)g_pgo_loops[i].trip_count,
+            (i + 1 < g_pgo_loop_count) ? "," : "");
+    }
+    fprintf(f, "  },\n");
+    fprintf(f, "  \"allocation_hotspots\": {},\n");
+    fprintf(f, "  \"type_feedback\": {}\n");
+    fprintf(f, "}\n");
+    fclose(f);
+    PGO_UNLOCK();
+}
+
+// ============================================================================
+// Phase 17: Runtime Systems Layer
+// ============================================================================
+
+// 1. Chase-Lev Work-Stealing Deque (Lock-Free SPMC)
+struct DataraChaseLevDeque {
+    volatile int64_t top;
+    volatile int64_t bottom;
+    int64_t* volatile buffer;
+    volatile int64_t capacity;
+    volatile int64_t mask;
+    int64_t** retired_buffers;
+    size_t retired_count;
+    size_t retired_capacity;
+};
+
+DataraChaseLevDeque* datara_rt_chase_lev_create(int64_t capacity) {
+    if (capacity <= 0) capacity = 1024;
+    int64_t cap = 1;
+    while (cap < capacity) cap <<= 1;
+
+    DataraChaseLevDeque* q = (DataraChaseLevDeque*)malloc(sizeof(DataraChaseLevDeque));
+    if (!q) return NULL;
+    q->top = 0;
+    q->bottom = 0;
+    q->capacity = cap;
+    q->mask = cap - 1;
+    q->retired_buffers = NULL;
+    q->retired_count = 0;
+    q->retired_capacity = 0;
+    q->buffer = (int64_t*)malloc(sizeof(int64_t) * (size_t)cap);
+    if (!q->buffer) {
+        free(q);
+        return NULL;
+    }
+    return q;
+}
+
+void datara_rt_chase_lev_destroy(DataraChaseLevDeque* q) {
+    if (q) {
+        if (q->buffer) {
+            free(q->buffer);
+            q->buffer = NULL;
+        }
+        if (q->retired_buffers) {
+            for (size_t i = 0; i < q->retired_count; i++) {
+                if (q->retired_buffers[i]) {
+                    free(q->retired_buffers[i]);
+                }
+            }
+            free(q->retired_buffers);
+            q->retired_buffers = NULL;
+        }
+        free(q);
+    }
+}
+
+void datara_rt_chase_lev_push(DataraChaseLevDeque* q, int64_t task_id) {
+    if (!q || !q->buffer) return;
+    int64_t b = q->bottom;
+    int64_t t = q->top;
+    if (b - t >= q->capacity) {
+        int64_t old_cap = q->capacity;
+        int64_t new_cap = old_cap * 2;
+        int64_t* new_buf = (int64_t*)malloc(sizeof(int64_t) * (size_t)new_cap);
+        if (new_buf) {
+            for (int64_t i = t; i < b; i++) {
+                new_buf[i & (new_cap - 1)] = q->buffer[i & q->mask];
+            }
+            if (q->retired_count >= q->retired_capacity) {
+                size_t new_rcap = q->retired_capacity ? q->retired_capacity * 2 : 16;
+                int64_t** new_retired = (int64_t**)realloc(q->retired_buffers, sizeof(int64_t*) * new_rcap);
+                if (new_retired) {
+                    q->retired_buffers = new_retired;
+                    q->retired_capacity = new_rcap;
+                }
+            }
+            if (q->retired_count < q->retired_capacity) {
+                q->retired_buffers[q->retired_count++] = q->buffer;
+            }
+            q->mask = new_cap - 1;
+            q->capacity = new_cap;
+            q->buffer = new_buf;
+#ifdef _WIN32
+            MemoryBarrier();
+#else
+            __sync_synchronize();
+#endif
+        }
+    }
+    q->buffer[b & q->mask] = task_id;
+#ifdef _WIN32
+    MemoryBarrier();
+#else
+    __sync_synchronize();
+#endif
+    q->bottom = b + 1;
+}
+
+int64_t datara_rt_chase_lev_pop(DataraChaseLevDeque* q) {
+    if (!q || !q->buffer) return -1;
+    int64_t b = q->bottom - 1;
+    q->bottom = b;
+#ifdef _WIN32
+    MemoryBarrier();
+#else
+    __sync_synchronize();
+#endif
+    int64_t t = q->top;
+    if (t <= b) {
+        int64_t val = q->buffer[b & q->mask];
+        if (t == b) {
+#ifdef _WIN32
+            if (InterlockedCompareExchange64(&q->top, t + 1, t) != t) {
+                val = -1;
+            }
+#else
+            if (!__sync_bool_compare_and_swap(&q->top, t, t + 1)) {
+                val = -1;
+            }
+#endif
+            q->bottom = t + 1;
+        }
+        return val;
+    } else {
+        q->bottom = t;
+        return -1;
+    }
+}
+
+int64_t datara_rt_chase_lev_steal(DataraChaseLevDeque* q) {
+    if (!q || !q->buffer) return -1;
+    while (1) {
+        int64_t t = q->top;
+#ifdef _WIN32
+        MemoryBarrier();
+#else
+        __sync_synchronize();
+#endif
+        int64_t b = q->bottom;
+        if (t >= b) {
+            return -1; // Empty
+        }
+        int64_t* buf = q->buffer;
+        int64_t mask = q->mask;
+        int64_t val = buf[t & mask];
+#ifdef _WIN32
+        if (InterlockedCompareExchange64(&q->top, t + 1, t) == t) {
+            return val;
+        }
+#else
+        if (__sync_bool_compare_and_swap(&q->top, t, t + 1)) {
+            return val;
+        }
+#endif
+        // Lost race to another thief or owner pop: retry
+    }
+}
+
+int64_t datara_rt_chase_lev_size(DataraChaseLevDeque* q) {
+    if (!q) return 0;
+    int64_t b = q->bottom;
+    int64_t t = q->top;
+    return b >= t ? (b - t) : 0;
+}
+
+// 2. SIMD-Accelerated Fast Memory Operations
+void* datara_rt_fast_memcpy(void* dest, const void* src, size_t n) {
+    if (!dest || !src || n == 0) return dest;
+    uint8_t* d = (uint8_t*)dest;
+    const uint8_t* s = (const uint8_t*)src;
+
+    // 64-byte unrolled loop (8 x 64-bit uint64 words)
+    while (n >= 64) {
+        uint64_t w0, w1, w2, w3, w4, w5, w6, w7;
+        memcpy(&w0, s + 0, 8);
+        memcpy(&w1, s + 8, 8);
+        memcpy(&w2, s + 16, 8);
+        memcpy(&w3, s + 24, 8);
+        memcpy(&w4, s + 32, 8);
+        memcpy(&w5, s + 40, 8);
+        memcpy(&w6, s + 48, 8);
+        memcpy(&w7, s + 56, 8);
+
+        memcpy(d + 0, &w0, 8);
+        memcpy(d + 8, &w1, 8);
+        memcpy(d + 16, &w2, 8);
+        memcpy(d + 24, &w3, 8);
+        memcpy(d + 32, &w4, 8);
+        memcpy(d + 40, &w5, 8);
+        memcpy(d + 48, &w6, 8);
+        memcpy(d + 56, &w7, 8);
+
+        d += 64;
+        s += 64;
+        n -= 64;
+    }
+
+    // 8-byte chunks
+    while (n >= 8) {
+        uint64_t w;
+        memcpy(&w, s, 8);
+        memcpy(d, &w, 8);
+        d += 8;
+        s += 8;
+        n -= 8;
+    }
+
+    // Residual bytes
+    while (n > 0) {
+        *d++ = *s++;
+        n--;
+    }
+    return dest;
+}
+
+void* datara_rt_fast_memset(void* dest, int c, size_t n) {
+    if (!dest || n == 0) return dest;
+    uint8_t* d = (uint8_t*)dest;
+    uint8_t b_val = (uint8_t)c;
+    uint64_t w = 0x0101010101010101ULL * (uint64_t)b_val;
+
+    while (n >= 64) {
+        memcpy(d + 0, &w, 8);
+        memcpy(d + 8, &w, 8);
+        memcpy(d + 16, &w, 8);
+        memcpy(d + 24, &w, 8);
+        memcpy(d + 32, &w, 8);
+        memcpy(d + 40, &w, 8);
+        memcpy(d + 48, &w, 8);
+        memcpy(d + 56, &w, 8);
+        d += 64;
+        n -= 64;
+    }
+
+    while (n >= 8) {
+        memcpy(d, &w, 8);
+        d += 8;
+        n -= 8;
+    }
+
+    while (n > 0) {
+        *d++ = b_val;
+        n--;
+    }
+    return dest;
+}
+
+int datara_rt_fast_strncmp(const char* s1, const char* s2, size_t n) {
+    if (n == 0 || !s1 || !s2) return 0;
+    const uint8_t* p1 = (const uint8_t*)s1;
+    const uint8_t* p2 = (const uint8_t*)s2;
+
+    while (n >= 8) {
+        uint64_t v1, v2;
+        memcpy(&v1, p1, 8);
+        memcpy(&v2, p2, 8);
+
+        // Check for null terminator in v1
+        uint64_t has_zero = (v1 - 0x0101010101010101ULL) & ~v1 & 0x8080808080808080ULL;
+        if (v1 != v2 || has_zero) {
+            for (int i = 0; i < 8; i++) {
+                if (p1[i] != p2[i] || p1[i] == 0) {
+                    return (int)p1[i] - (int)p2[i];
+                }
+            }
+        }
+        p1 += 8;
+        p2 += 8;
+        n -= 8;
+    }
+
+    while (n > 0) {
+        if (*p1 != *p2 || *p1 == 0) {
+            return (int)*p1 - (int)*p2;
+        }
+        p1++;
+        p2++;
+        n--;
+    }
+    return 0;
+}
+
+int datara_rt_fast_memcmp(const void* s1, const void* s2, size_t n) {
+    if (n == 0 || !s1 || !s2) return 0;
+    const uint8_t* p1 = (const uint8_t*)s1;
+    const uint8_t* p2 = (const uint8_t*)s2;
+
+    while (n >= 8) {
+        uint64_t v1, v2;
+        memcpy(&v1, p1, 8);
+        memcpy(&v2, p2, 8);
+        if (v1 != v2) {
+            for (int i = 0; i < 8; i++) {
+                if (p1[i] != p2[i]) {
+                    return (int)p1[i] - (int)p2[i];
+                }
+            }
+        }
+        p1 += 8;
+        p2 += 8;
+        n -= 8;
+    }
+
+    while (n > 0) {
+        if (*p1 != *p2) {
+            return (int)*p1 - (int)*p2;
+        }
+        p1++;
+        p2++;
+        n--;
+    }
+    return 0;
+}
+
+// 3. Thread Pinning / Core Affinity
+int datara_rt_pin_thread(int64_t core_id) {
+    if (core_id < 0) return -1;
+#ifdef _WIN32
+    DWORD_PTR mask = (DWORD_PTR)1 << (core_id % 64);
+    DWORD_PTR prev = SetThreadAffinityMask(GetCurrentThread(), mask);
+    return prev != 0 ? 0 : -1;
+#elif defined(__APPLE__)
+    (void)core_id;
+    return 0;
+#else
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(core_id, &cpuset);
+    return pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+#endif
+}
+
+int64_t datara_rt_get_current_core(void) {
+#ifdef _WIN32
+    return (int64_t)GetCurrentProcessorNumber();
+#elif defined(__APPLE__)
+    return 0;
+#else
+    return (int64_t)sched_getcpu();
+#endif
+}
+
+void datara_rt_pin_worker_threads(void) {
+    datara_rt_ensure_threads();
+#ifdef _WIN32
+    for (int i = 1; i < g_workers_count; i++) {
+        if (g_worker_threads[i]) {
+            DWORD_PTR mask = (DWORD_PTR)1 << (i % 64);
+            SetThreadAffinityMask(g_worker_threads[i], mask);
+        }
+    }
+#elif !defined(__APPLE__)
+    for (int i = 1; i < g_workers_count; i++) {
+        cpu_set_t cpuset;
+        CPU_ZERO(&cpuset);
+        CPU_SET(i, &cpuset);
+        pthread_setaffinity_np(g_worker_threads[i], sizeof(cpu_set_t), &cpuset);
+    }
+#endif
+}
+
 

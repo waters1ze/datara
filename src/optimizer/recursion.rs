@@ -1080,8 +1080,7 @@ pub fn eliminate_tail_recursion(f: &mut Function) -> bool {
             let call_idx = self_calls_in_b[0];
             let call_dest = match &b.instructions[call_idx] {
                 Inst::Call { dest, .. } => *dest,
-                // INVARIANT: self_calls_in_b only stores indices of Inst::Call instructions
-                _ => unreachable!("self_calls_in_b only contains indices of Inst::Call"),
+                _ => continue,
             };
 
             // Check that instructions after call_idx in b are harmless

@@ -69,6 +69,13 @@ fn loop_instructions(module: &forgen::dmir::Module) -> Vec<Inst> {
     let f = module
         .functions
         .get("count_iters")
+        .or_else(|| {
+            module
+                .functions
+                .iter()
+                .find(|(name, _)| name.starts_with("count_iters"))
+                .map(|(_, f)| f)
+        })
         .expect("count_iters must exist");
     let cfg = ControlFlowGraph::build(f);
     cfg.loops
@@ -120,7 +127,7 @@ fn licm_physically_removes_invariant_multiply_from_loop() {
     for mode in ["release", "domain"] {
         let mut module = lower(&src);
         let mut opt = Optimizer::new(mode);
-        opt.optimize_module(&mut module);
+        let _ = opt.optimize_module(&mut module);
 
         let after = loop_instructions(&module);
         assert!(
@@ -174,7 +181,7 @@ fn licm_preserves_zero_and_single_trip_loops() {
         for mode in ["release", "domain"] {
             let mut module = lower(&src);
             let mut opt = Optimizer::new(mode);
-            opt.optimize_module(&mut module);
+            let _ = opt.optimize_module(&mut module);
             assert_eq!(
                 compile_and_run(&module, &format!("{}_{}", tag, mode)),
                 expected,
@@ -197,7 +204,7 @@ fn loop_body_is_not_duplicated_by_any_pass() {
     for mode in ["release", "domain"] {
         let mut module = lower(&src);
         let mut opt = Optimizer::new(mode);
-        opt.optimize_module(&mut module);
+        let _ = opt.optimize_module(&mut module);
         let got = loop_instructions(&module).len();
         assert!(
             got <= baseline,

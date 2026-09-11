@@ -174,28 +174,108 @@ impl ProfileGuidedOptimizer {
             };
             optimizer.optimize_function(f);
 
-            // If branch is heavily biased towards hot path, optimize block layout
-            for block in &mut f.blocks {
-                if let crate::dmir::Terminator::CondBranch { .. } = &mut block.terminator {
+            let measured = profile.is_runtime_measured();
+            let mut biased_branches = Vec::new();
+            for block in &f.blocks {
+                if let crate::dmir::Terminator::CondBranch { .. } = &block.terminator {
                     let branch_id = format!("{}_{}", name, block.id.0);
                     if let Some((always_taken, confidence)) =
                         profile.is_branch_heavily_biased(&branch_id)
-                        && confidence > 0.95
-                        && always_taken
                     {
-                        optimizer.trace.record(
-                            "PGO_BranchPredict",
-                            &branch_id,
-                            "Rejected",
-                            "Branch bias observed; block layout was not changed",
-                            "Backend block-reordering proof required",
-                            &format!(
-                                "Biased branch with confidence {:.2}; preserving CFG",
-                                confidence
-                            ),
-                        );
+                        biased_branches.push((block.id, branch_id, always_taken, confidence));
                     }
                 }
+            }
+
+            for (_, branch_id, _always_taken, confidence) in &biased_branches {
+                if measured {
+                    let (taken, total) = profile
+                        .branch_frequencies
+                        .get(branch_id)
+                        .copied()
+                        .unwrap_or((0, 0));
+                    let pct = if total > 0 {
+                        100.0 * (taken as f64) / (total as f64)
+                    } else {
+                        0.0
+                    };
+                    optimizer.trace.record(
+                        "PGO_BranchPredict",
+                        branch_id,
+                        "Applied",
+                        "Biased branch layout optimized: hot successor prioritized and cold blocks deferred",
+                        "None (semantic CFG equivalence preserved)",
+                        &format!(
+                            "Runtime measured branch bias: taken={}/{} ({:.1}%, confidence={:.2})",
+                            taken, total, pct, confidence
+                        ),
+                    );
+                } else {
+                    optimizer.trace.record(
+                        "PGO_BranchPredict",
+                        branch_id,
+                        "Rejected",
+                        "Branch bias observed; block layout was not changed",
+                        "Runtime provenance required",
+                        &format!(
+                            "Biased branch with confidence {:.2}; preserving CFG due to lack of measured runtime data",
+                            confidence
+                        ),
+                    );
+                }
+            }
+
+            if measured && !biased_branches.is_empty() {
+                let mut original_blocks: std::collections::HashMap<
+                    crate::dmir::BasicBlockId,
+                    crate::dmir::BasicBlock,
+                > = f.blocks.drain(..).map(|b| (b.id, b)).collect();
+                let mut orig_ids: Vec<crate::dmir::BasicBlockId> =
+                    original_blocks.keys().cloned().collect();
+                orig_ids.sort_by_key(|bid| bid.0);
+                let mut new_order = Vec::with_capacity(original_blocks.len());
+                let mut placed = std::collections::HashSet::new();
+
+                let mut curr_id = Some(f.entry_block);
+                while let Some(id) = curr_id {
+                    if !placed.contains(&id)
+                        && let Some(blk) = original_blocks.remove(&id)
+                    {
+                        placed.insert(id);
+                        let next_candidate = match &blk.terminator {
+                            crate::dmir::Terminator::CondBranch {
+                                then_block,
+                                else_block,
+                                ..
+                            } => {
+                                let branch_id = format!("{}_{}", name, blk.id.0);
+                                if let Some((taken_hot, _)) =
+                                    profile.is_branch_heavily_biased(&branch_id)
+                                {
+                                    if taken_hot {
+                                        Some(*then_block)
+                                    } else {
+                                        Some(*else_block)
+                                    }
+                                } else {
+                                    Some(*then_block)
+                                }
+                            }
+                            crate::dmir::Terminator::Branch { target, .. } => Some(*target),
+                            _ => None,
+                        };
+                        new_order.push(blk);
+                        if let Some(nxt) = next_candidate
+                            && !placed.contains(&nxt)
+                            && original_blocks.contains_key(&nxt)
+                        {
+                            curr_id = Some(nxt);
+                            continue;
+                        }
+                    }
+                    curr_id = orig_ids.iter().find(|bid| !placed.contains(bid)).copied();
+                }
+                f.blocks = new_order;
             }
         }
 
@@ -203,11 +283,236 @@ impl ProfileGuidedOptimizer {
         // a PGO mutation that corrupts DMIR must abort instead of being
         // tolerated.
         if let Err(error) = crate::dmir::verify_module(module) {
-            // INVARIANT: PGO mutation must never produce invalid DMIR
-            panic!(
-                "[E0901] DMIR verification failed after PGO optimization: {}",
-                error
+            let diag = crate::diagnostics::Diagnostic::error(
+                crate::diagnostics::ErrorCode::InternalVerification,
+                format!(
+                    "[E0901] DMIR verification failed after PGO optimization: {}",
+                    error
+                ),
+                None,
             );
+            optimizer.diagnostics.push(diag);
+            return;
+        }
+
+        // Finalize decision trace in optimizer report
+        optimizer.report.decision_trace = optimizer.trace.records.clone();
+    }
+}
+
+fn inst_max_vid(inst: &crate::dmir::Inst) -> usize {
+    let mut m = 0;
+    match inst {
+        crate::dmir::Inst::ConstInt { dest, .. }
+        | crate::dmir::Inst::ConstFloat { dest, .. }
+        | crate::dmir::Inst::ConstStr { dest, .. }
+        | crate::dmir::Inst::ConstBool { dest, .. }
+        | crate::dmir::Inst::LoadVar { dest, .. }
+        | crate::dmir::Inst::GetFuncAddr { dest, .. } => {
+            m = m.max(dest.0);
+        }
+        crate::dmir::Inst::AssignVar { value, .. } => {
+            m = m.max(value.0);
+        }
+        crate::dmir::Inst::BinOp {
+            dest, left, right, ..
+        } => {
+            m = m.max(dest.0).max(left.0).max(right.0);
+        }
+        crate::dmir::Inst::UnOp { dest, operand, .. } => {
+            m = m.max(dest.0).max(operand.0);
+        }
+        crate::dmir::Inst::Call { dest, args, .. } => {
+            m = m.max(dest.0);
+            for a in args {
+                m = m.max(a.0);
+            }
+        }
+        crate::dmir::Inst::MethodCall {
+            dest, object, args, ..
+        } => {
+            m = m.max(dest.0).max(object.0);
+            for a in args {
+                m = m.max(a.0);
+            }
+        }
+        crate::dmir::Inst::StructInit { dest, fields, .. } => {
+            m = m.max(dest.0);
+            for (_, v) in fields {
+                m = m.max(v.0);
+            }
+        }
+        crate::dmir::Inst::GetField { dest, object, .. } => {
+            m = m.max(dest.0).max(object.0);
+        }
+        crate::dmir::Inst::SetField { object, value, .. } => {
+            m = m.max(object.0).max(value.0);
+        }
+        crate::dmir::Inst::Return { value } => {
+            if let Some(v) = value {
+                m = m.max(v.0);
+            }
+        }
+        crate::dmir::Inst::Select {
+            dest,
+            cond,
+            then_val,
+            else_val,
+            ..
+        } => {
+            m = m.max(dest.0).max(cond.0).max(then_val.0).max(else_val.0);
+        }
+        crate::dmir::Inst::InlineAsm {
+            outputs, inputs, ..
+        } => {
+            for (_, v) in outputs {
+                m = m.max(v.0);
+            }
+            for (_, v) in inputs {
+                m = m.max(v.0);
+            }
+        }
+        _ => {}
+    }
+    m
+}
+
+pub struct ProfileInstrumenter;
+
+impl ProfileInstrumenter {
+    pub fn instrument_module(module: &mut crate::dmir::Module, default_out_file: Option<&str>) {
+        module.extern_functions.insert(
+            "datara_rt_pgo_hit_func".to_string(),
+            (vec!["Str".to_string()], "Unit".to_string()),
+        );
+        module.extern_functions.insert(
+            "datara_rt_pgo_hit_branch".to_string(),
+            (
+                vec!["Str".to_string(), "Int".to_string()],
+                "Unit".to_string(),
+            ),
+        );
+        module.extern_functions.insert(
+            "datara_rt_pgo_hit_loop".to_string(),
+            (
+                vec!["Str".to_string(), "Int".to_string()],
+                "Unit".to_string(),
+            ),
+        );
+        module.extern_functions.insert(
+            "datara_rt_pgo_set_output_file".to_string(),
+            (vec!["Str".to_string()], "Unit".to_string()),
+        );
+        module.extern_functions.insert(
+            "datara_rt_pgo_flush".to_string(),
+            (vec!["Str".to_string()], "Unit".to_string()),
+        );
+
+        let mut fn_names: Vec<String> = module.functions.keys().cloned().collect();
+        fn_names.sort();
+
+        for fname in fn_names {
+            if fname.starts_with("datara_rt_pgo_") {
+                continue;
+            }
+            let f = match module.functions.get_mut(&fname) {
+                Some(f) => f,
+                None => continue,
+            };
+
+            let mut max_vid = 0usize;
+            for (_, _, v) in &f.params {
+                max_vid = max_vid.max(v.0);
+            }
+            for b in &f.blocks {
+                for p in &b.params {
+                    max_vid = max_vid.max(p.val.0);
+                }
+                for inst in &b.instructions {
+                    max_vid = max_vid.max(inst_max_vid(inst));
+                }
+            }
+
+            let entry_id = f.entry_block;
+            if let Some(entry_blk) = f.blocks.iter_mut().find(|b| b.id == entry_id) {
+                let mut prefix_insts = Vec::new();
+                if fname == "main"
+                    && let Some(out_path) = default_out_file
+                    && !out_path.is_empty()
+                {
+                    max_vid += 1;
+                    let path_vid = crate::dmir::ValueId(max_vid);
+                    max_vid += 1;
+                    let call_vid = crate::dmir::ValueId(max_vid);
+                    prefix_insts.push(crate::dmir::Inst::ConstStr {
+                        dest: path_vid,
+                        value: out_path.to_string(),
+                    });
+                    prefix_insts.push(crate::dmir::Inst::Call {
+                        dest: call_vid,
+                        func: "datara_rt_pgo_set_output_file".to_string(),
+                        args: vec![path_vid],
+                        ty: "Unit".to_string(),
+                    });
+                }
+
+                max_vid += 1;
+                let name_vid = crate::dmir::ValueId(max_vid);
+                max_vid += 1;
+                let call_vid = crate::dmir::ValueId(max_vid);
+                prefix_insts.push(crate::dmir::Inst::ConstStr {
+                    dest: name_vid,
+                    value: fname.clone(),
+                });
+                prefix_insts.push(crate::dmir::Inst::Call {
+                    dest: call_vid,
+                    func: "datara_rt_pgo_hit_func".to_string(),
+                    args: vec![name_vid],
+                    ty: "Unit".to_string(),
+                });
+
+                prefix_insts.append(&mut entry_blk.instructions);
+                entry_blk.instructions = prefix_insts;
+            }
+
+            for blk in &mut f.blocks {
+                match &blk.terminator {
+                    crate::dmir::Terminator::CondBranch { cond, .. } => {
+                        let branch_id = format!("{}_{}", fname, blk.id.0);
+                        max_vid += 1;
+                        let br_str_vid = crate::dmir::ValueId(max_vid);
+                        max_vid += 1;
+                        let call_vid = crate::dmir::ValueId(max_vid);
+                        blk.instructions.push(crate::dmir::Inst::ConstStr {
+                            dest: br_str_vid,
+                            value: branch_id,
+                        });
+                        blk.instructions.push(crate::dmir::Inst::Call {
+                            dest: call_vid,
+                            func: "datara_rt_pgo_hit_branch".to_string(),
+                            args: vec![br_str_vid, *cond],
+                            ty: "Unit".to_string(),
+                        });
+                    }
+                    crate::dmir::Terminator::Return { .. } if fname == "main" => {
+                        max_vid += 1;
+                        let empty_vid = crate::dmir::ValueId(max_vid);
+                        max_vid += 1;
+                        let flush_vid = crate::dmir::ValueId(max_vid);
+                        blk.instructions.push(crate::dmir::Inst::ConstStr {
+                            dest: empty_vid,
+                            value: String::new(),
+                        });
+                        blk.instructions.push(crate::dmir::Inst::Call {
+                            dest: flush_vid,
+                            func: "datara_rt_pgo_flush".to_string(),
+                            args: vec![empty_vid],
+                            ty: "Unit".to_string(),
+                        });
+                    }
+                    _ => {}
+                }
+            }
         }
     }
 }

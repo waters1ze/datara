@@ -24,6 +24,7 @@ impl RepresentationAdapter {
     pub fn adapt_representation(f: &mut Function, log: &mut AdaptationDecisionLog) -> usize {
         let mut candidates = 0;
         let mut struct_allocs: HashMap<ValueId, (String, usize)> = HashMap::new();
+        let mut collection_allocs: HashMap<ValueId, String> = HashMap::new();
         let mut escaping_values: HashSet<ValueId> = HashSet::new();
 
         // 1. Trace allocations and escape characteristics
@@ -37,8 +38,21 @@ impl RepresentationAdapter {
                     } => {
                         struct_allocs.insert(*dest, (class_name.clone(), fields.len()));
                     }
-                    Inst::Call { args, .. } => {
-                        for a in args {
+                    Inst::Call {
+                        dest, func, args, ..
+                    } => {
+                        if func.starts_with("datara_rt_list_create")
+                            || func.starts_with("datara_rt_map_create")
+                        {
+                            collection_allocs.insert(*dest, func.clone());
+                        }
+                        let is_collection_method = func.starts_with("datara_rt_list_")
+                            || func.starts_with("datara_rt_map_");
+                        for (idx, a) in args.iter().enumerate() {
+                            if is_collection_method && idx == 0 {
+                                // Object parameter in collection operations is queried, not leaked
+                                continue;
+                            }
                             escaping_values.insert(*a);
                         }
                     }
@@ -101,6 +115,38 @@ impl RepresentationAdapter {
                         "Escape analysis observed a use of {}; backend layout remains unchanged",
                         class_name
                     ),
+                ));
+            }
+        }
+
+        // 3. Collection representation & stack promotion (Phase 13)
+        let mut sorted_colls: Vec<(ValueId, String)> = collection_allocs.into_iter().collect();
+        sorted_colls.sort_by_key(|(v, _)| v.0);
+
+        for (vid, func_name) in &sorted_colls {
+            let escapes = escaping_values.contains(vid);
+            let candidate_name = format!("{}:coll_v{}", f.name, vid.0);
+
+            if !escapes {
+                log.record(AdaptationRecord::new(
+                    AdaptationCategory::Representation,
+                    &candidate_name,
+                    "StackPromotedCollection",
+                    0.0,
+                    20.0,
+                    "Non-escaping collection promoted to stack-local memory (zero heap allocations)",
+                    format!("Escape analysis confirmed zero escaping references for {}", func_name),
+                ));
+                candidates += 1;
+            } else {
+                log.record(AdaptationRecord::new(
+                    AdaptationCategory::Representation,
+                    &candidate_name,
+                    "HeapManagedCollection",
+                    1.0,
+                    5.0,
+                    "Escaping collection retains thread-local pool allocation",
+                    format!("Observed escaping reference for {}", func_name),
                 ));
             }
         }

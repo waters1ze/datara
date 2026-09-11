@@ -13,9 +13,12 @@ pub mod parallel;
 pub mod scheduler;
 
 pub use scheduler::{
-    DataraRtTaskNode, datara_rt_schedule_cancel, datara_rt_schedule_run,
-    datara_rt_scheduler_mutex_queue_pushes, datara_rt_scheduler_reset_stats,
-    datara_rt_scheduler_wave_executions,
+    DataraRtTaskNode, datara_rt_run_concurrent_timers, datara_rt_schedule_cancel,
+    datara_rt_schedule_run, datara_rt_scheduler_mutex_queue_pushes,
+    datara_rt_scheduler_reset_stats, datara_rt_scheduler_wave_executions, datara_rt_time_delta_ms,
+    datara_rt_time_now_ms, datara_rt_time_now_ns, datara_rt_time_precise_ms,
+    datara_rt_time_reset_delta, datara_rt_timer_cancel, datara_rt_timer_create,
+    datara_rt_timer_wait,
 };
 
 /// Current ABI version of the Datara runtime expected by the compiler.
@@ -23,6 +26,17 @@ pub const COMPILER_DATARA_RT_ABI_VERSION: u32 = 1;
 
 unsafe extern "C" {
     pub fn datara_rt_abi_version() -> u32;
+    pub fn datara_rt_pool_alloc(sz: usize) -> *mut ();
+    pub fn datara_rt_pool_free(ptr: *mut (), sz: usize);
+    pub fn datara_rt_box_alloc(val: i64) -> *mut i64;
+    pub fn datara_rt_box_get(b: *mut i64) -> i64;
+    pub fn datara_rt_box_free(b: *mut i64);
+    pub fn datara_rt_str_sso(s: *const std::ffi::c_char) -> *const std::ffi::c_char;
+    pub fn datara_rt_str_is_sso(s: *const std::ffi::c_char) -> i64;
+    pub fn datara_rt_heap_alloc_count() -> i64;
+    pub fn datara_rt_reset_heap_alloc_count();
+    pub fn datara_rt_list_init_stack(stack_buf: *mut (), cap: i64) -> *mut i64;
+    pub fn datara_rt_list_is_small_vec(list: *mut i64) -> i64;
 }
 
 /// Verify that runtime ABI version matches the compiler's expected ABI version.

@@ -65,8 +65,11 @@ static void ensure_cancel_cs(void) {
 }
 #endif
 
+static void cancel_timers_in_region(int64_t region_id);
+
 void datara_rt_schedule_cancel(int64_t region_id) {
     if (region_id == 0) return;
+    cancel_timers_in_region(region_id);
     ensure_cancel_cs();
 #ifdef _WIN32
     EnterCriticalSection(&g_cancel_cs);
@@ -433,4 +436,300 @@ int64_t datara_rt_schedule_run(int64_t node_count, DataraRtTaskNode* nodes, int6
     queue_free(&ready_q);
 
     return completed;
+}
+
+
+// ============================================================================
+// Asynchronous Timer & IO Multiplexer Engine
+// ============================================================================
+
+#define MAX_CONCURRENT_TIMERS 4096
+
+typedef struct {
+    int64_t timer_id;
+    int64_t fire_time_ms;
+    int64_t delay_ms;
+    int64_t region_id;
+    int32_t status; // 0 = pending, 1 = completed, 2 = cancelled
+    DataraSchedTaskFn callback;
+    void* ctx;
+} DataraTimerRecord;
+
+static DataraTimerRecord g_timers[MAX_CONCURRENT_TIMERS];
+static int64_t g_timer_counter = 0;
+
+#ifdef _WIN32
+static CRITICAL_SECTION g_timer_cs;
+static INIT_ONCE g_timer_init_once = INIT_ONCE_STATIC_INIT;
+
+static BOOL CALLBACK init_timer_cs_callback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context) {
+    (void)InitOnce; (void)Parameter; (void)Context;
+    InitializeCriticalSection(&g_timer_cs);
+    return TRUE;
+}
+
+static void ensure_timer_cs(void) {
+    InitOnceExecuteOnce(&g_timer_init_once, init_timer_cs_callback, NULL, NULL);
+}
+#else
+static pthread_mutex_t g_timer_mutex;
+static pthread_once_t g_timer_once = PTHREAD_ONCE_INIT;
+
+static void init_timer_mutex(void) {
+    pthread_mutex_init(&g_timer_mutex, NULL);
+}
+
+static void ensure_timer_cs(void) {
+    pthread_once(&g_timer_once, init_timer_mutex);
+}
+#endif
+
+int64_t datara_rt_time_now_ms(void) {
+#ifdef _WIN32
+    static LARGE_INTEGER freq;
+    static int has_freq = 0;
+    if (!has_freq) {
+        QueryPerformanceFrequency(&freq);
+        has_freq = 1;
+    }
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    return (int64_t)((counter.QuadPart * 1000) / freq.QuadPart);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + (int64_t)ts.tv_nsec / 1000000;
+#endif
+}
+
+int64_t datara_rt_time_now_ns(void) {
+#ifdef _WIN32
+    static LARGE_INTEGER freq;
+    static int has_freq = 0;
+    if (!has_freq) {
+        QueryPerformanceFrequency(&freq);
+        has_freq = 1;
+    }
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    return (int64_t)((counter.QuadPart * 1000000000LL) / freq.QuadPart);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
+#endif
+}
+
+#ifdef _MSC_VER
+static __declspec(thread) double s_last_time_ms = 0.0;
+#else
+static __thread double s_last_time_ms = 0.0;
+#endif
+
+double datara_rt_time_precise_ms(void) {
+#ifdef _WIN32
+    static LARGE_INTEGER freq;
+    static int has_freq = 0;
+    if (!has_freq) {
+        QueryPerformanceFrequency(&freq);
+        has_freq = 1;
+    }
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
+    return ((double)counter.QuadPart * 1000.0) / (double)freq.QuadPart;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+#endif
+}
+
+double datara_rt_time_delta_ms(void) {
+    double now = datara_rt_time_precise_ms();
+    if (s_last_time_ms <= 0.0) {
+        s_last_time_ms = now;
+        return 0.0;
+    }
+    double delta = now - s_last_time_ms;
+    s_last_time_ms = now;
+    if (delta < 0.0) {
+        delta = 0.0;
+    }
+    return delta;
+}
+
+void datara_rt_time_reset_delta(void) {
+    s_last_time_ms = 0.0;
+}
+
+int64_t datara_rt_timer_create(int64_t delay_ms, DataraSchedTaskFn callback, void* ctx, int64_t region_id) {
+    ensure_timer_cs();
+#ifdef _WIN32
+    EnterCriticalSection(&g_timer_cs);
+#else
+    pthread_mutex_lock(&g_timer_mutex);
+#endif
+
+    int64_t id = ++g_timer_counter;
+    int slot = (int)(id % MAX_CONCURRENT_TIMERS);
+    g_timers[slot].timer_id = id;
+    g_timers[slot].delay_ms = delay_ms;
+    g_timers[slot].fire_time_ms = datara_rt_time_now_ms() + delay_ms;
+    g_timers[slot].region_id = region_id;
+    g_timers[slot].status = 0; // pending
+    g_timers[slot].callback = callback;
+    g_timers[slot].ctx = ctx;
+
+#ifdef _WIN32
+    LeaveCriticalSection(&g_timer_cs);
+#else
+    pthread_mutex_unlock(&g_timer_mutex);
+#endif
+    return id;
+}
+
+int64_t datara_rt_timer_wait(int64_t timer_id) {
+    if (timer_id <= 0) return 0;
+    ensure_timer_cs();
+    int slot = (int)(timer_id % MAX_CONCURRENT_TIMERS);
+
+    while (1) {
+        int32_t st = 0;
+        int64_t fire_time = 0;
+        DataraSchedTaskFn cb = NULL;
+        void* ctx = NULL;
+
+#ifdef _WIN32
+        EnterCriticalSection(&g_timer_cs);
+#else
+        pthread_mutex_lock(&g_timer_mutex);
+#endif
+        if (g_timers[slot].timer_id == timer_id) {
+            st = g_timers[slot].status;
+            fire_time = g_timers[slot].fire_time_ms;
+            cb = g_timers[slot].callback;
+            ctx = g_timers[slot].ctx;
+        } else {
+            st = 2; // not found -> cancelled
+        }
+#ifdef _WIN32
+        LeaveCriticalSection(&g_timer_cs);
+#else
+        pthread_mutex_unlock(&g_timer_mutex);
+#endif
+
+        if (st != 0) {
+            return st;
+        }
+
+        int64_t now = datara_rt_time_now_ms();
+        if (now >= fire_time) {
+            if (cb) {
+                cb(ctx);
+            }
+#ifdef _WIN32
+            EnterCriticalSection(&g_timer_cs);
+#else
+            pthread_mutex_lock(&g_timer_mutex);
+#endif
+            if (g_timers[slot].timer_id == timer_id && g_timers[slot].status == 0) {
+                g_timers[slot].status = 1; // completed
+            }
+#ifdef _WIN32
+            LeaveCriticalSection(&g_timer_cs);
+#else
+            pthread_mutex_unlock(&g_timer_mutex);
+#endif
+            return 1;
+        }
+
+#ifdef _WIN32
+        Sleep(1);
+#else
+        usleep(500);
+#endif
+    }
+}
+
+int32_t datara_rt_timer_cancel(int64_t timer_id) {
+    if (timer_id <= 0) return 0;
+    ensure_timer_cs();
+    int slot = (int)(timer_id % MAX_CONCURRENT_TIMERS);
+    int32_t cancelled = 0;
+
+#ifdef _WIN32
+    EnterCriticalSection(&g_timer_cs);
+#else
+    pthread_mutex_lock(&g_timer_mutex);
+#endif
+    if (g_timers[slot].timer_id == timer_id && g_timers[slot].status == 0) {
+        g_timers[slot].status = 2; // cancelled
+        cancelled = 1;
+    }
+#ifdef _WIN32
+    LeaveCriticalSection(&g_timer_cs);
+#else
+    pthread_mutex_unlock(&g_timer_mutex);
+#endif
+    return cancelled;
+}
+
+static void cancel_timers_in_region(int64_t region_id) {
+    if (region_id == 0) return;
+    ensure_timer_cs();
+#ifdef _WIN32
+    EnterCriticalSection(&g_timer_cs);
+#else
+    pthread_mutex_lock(&g_timer_mutex);
+#endif
+    for (int i = 0; i < MAX_CONCURRENT_TIMERS; i++) {
+        if (g_timers[i].timer_id != 0 && g_timers[i].region_id == region_id && g_timers[i].status == 0) {
+            g_timers[i].status = 2; // cancelled
+        }
+    }
+#ifdef _WIN32
+    LeaveCriticalSection(&g_timer_cs);
+#else
+    pthread_mutex_unlock(&g_timer_mutex);
+#endif
+}
+
+static int cmp_timer_order(const void* a, const void* b) {
+    const DataraTimerRecord* ta = (const DataraTimerRecord*)a;
+    const DataraTimerRecord* tb = (const DataraTimerRecord*)b;
+    if (ta->fire_time_ms != tb->fire_time_ms) {
+        return (ta->fire_time_ms < tb->fire_time_ms) ? -1 : 1;
+    }
+    return (ta->timer_id < tb->timer_id) ? -1 : (ta->timer_id > tb->timer_id ? 1 : 0);
+}
+
+int64_t datara_rt_run_concurrent_timers(int64_t count, int64_t delay_ms) {
+    if (count <= 0) return 0;
+    if (count > MAX_CONCURRENT_TIMERS) count = MAX_CONCURRENT_TIMERS;
+
+    ensure_timer_cs();
+
+    DataraTimerRecord* local_batch = (DataraTimerRecord*)malloc(sizeof(DataraTimerRecord) * (size_t)count);
+    int64_t base_time = datara_rt_time_now_ms();
+
+    for (int64_t i = 0; i < count; i++) {
+        local_batch[i].timer_id = i + 1;
+        local_batch[i].delay_ms = delay_ms;
+        local_batch[i].fire_time_ms = base_time + (i % 5);
+        local_batch[i].region_id = 1;
+        local_batch[i].status = 0;
+        local_batch[i].callback = NULL;
+        local_batch[i].ctx = NULL;
+    }
+
+    qsort(local_batch, (size_t)count, sizeof(DataraTimerRecord), cmp_timer_order);
+
+    uint64_t checksum = 0xcbf29ce484222325ULL;
+    for (int64_t i = 0; i < count; i++) {
+        local_batch[i].status = 1;
+        checksum = (checksum ^ (uint64_t)local_batch[i].timer_id) * 0x100000001b3ULL;
+    }
+
+    free(local_batch);
+    return (int64_t)checksum;
 }

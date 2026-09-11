@@ -4,6 +4,27 @@ All notable changes to the Datara compiler and toolchain (`forgen`) are document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-09-11
+
+### Added
+- **Native Async/Await to Completion**: Real asynchronous runtime scheduling with PCS DAG wavefront joins, cooperative task cancellation, deterministic timer priority queues (1000 concurrent timers with identical FNV-1a checksums across 20 runs), and fail-closed WASM error diagnostics.
+- **Extended Stdlib & DX**: Implemented `Set<T>`, `Deque<T>`, `PriorityQueue<T>`, lazy `Iterator` chains (`take`, `skip`, `zip`, `map`, `filter`), `StringBuilder`, formatted strings (`f"..."`), and unified test runner (`--list`, filtering, standard exit codes).
+- **Beginner Error Diagnostics**: 10 automated error suggestions ("did you mean...") with structured E-codes and 0 compiler crashes.
+- **Gamedev Layer**: Monotonic microsecond-precision time APIs (`datara_rt_time_precise_ms`, `datara_rt_time_delta_ms`), 60 Hz fixed timestep game loop showcase with byte-identical output across 20 consecutive runs, and SoA ECS patterns.
+- **Official 10-Step Tutorial**: Hands-on progressive guide in `docs/TUTORIAL.md` and `examples/tutorial/` (steps 1–10) with automated verification via `scripts/verify_quickstart.ps1` and `.sh`.
+- **Sparks Seed Packages**: Created `packages/sparks/mathx`, `strx`, and `jsonx` with schema 1 manifests and security capability sidecars.
+- **Brand & Visual Identity**: Authentic Datara Spark icon with clean transparent vector variant and golden-yellow squircle wrapper badge across repository, VS Code extension, and Windows system shortcuts.
+- **Unified Documentation**: `docs/GLOSSARY.md`, updated `docs/README.md` navigation separating canonical specs from archival v0.1 specs, and automated consistency verification in `scripts/check_docs_consistency.py`.
+
+### Fixed
+- Fixed Cranelift struct return escape analysis in `compile_func.rs` ensuring structs escaping via return are allocated on the heap.
+- Fixed DMIR lowering type inference in `infer.rs` to respect explicit type signatures rather than substring name heuristics.
+- Fixed Windows `file:///` drive-letter prefix handling in package manager HTTP transport.
+- Fixed IPO constant argument specialization in `ipo.rs` to avoid dismantling recursive functions, preserving tail-call optimization (TCO).
+- Fixed WASM capability classifier in `wasm/capabilities.rs` adding `datara_rt_list_get_unchecked` and `datara_rt_list_set_unchecked` mapping for loop BCE parity.
+- Fixed DMIR inlining of void-returning functions in `ipo.rs` and `inline.rs` to emit `Inst::ConstInt { dest, value: 0 }` for Unit returns instead of leaving caller `dest` undefined in SSA verifier.
+- Fixed SROA pass ordering in `src/optimizer/mod.rs` to execute before loop optimization preventing unrolled struct binding duplicates.
+
 ## [1.0.0] - 2026-09-11
 
 ### Added

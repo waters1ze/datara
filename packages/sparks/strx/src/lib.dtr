@@ -1,0 +1,70 @@
+// Sparks Seed Package: strx
+// Extended string routines for Datara.
+
+fn is_empty(s: String) -> Bool {
+    return str_len(s) == 0
+}
+
+fn repeat(s: String, count: Int) -> String {
+    if count <= 0 {
+        return ""
+    }
+    mut out_str = ""
+    mut i = 0
+    while i < count {
+        out_str = out_str + s
+        i = i + 1
+    }
+    return out_str
+}
+
+fn pad_left(s: String, total_len: Int, pad_ch: String) -> String {
+    let slen = str_len(s)
+    if slen >= total_len {
+        return s
+    }
+    let needed = total_len - slen
+    return repeat(pad_ch, needed) + s
+}
+
+fn pad_right(s: String, total_len: Int, pad_ch: String) -> String {
+    let slen = str_len(s)
+    if slen >= total_len {
+        return s
+    }
+    let needed = total_len - slen
+    return s + repeat(pad_ch, needed)
+}
+
+fn starts_with(s: String, prefix: String) -> Bool {
+    let slen = str_len(s)
+    let plen = str_len(prefix)
+    if plen > slen {
+        return false
+    }
+    mut i = 0
+    while i < plen {
+        if str_char_at(s, i) != str_char_at(prefix, i) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fn ends_with(s: String, suffix: String) -> Bool {
+    let slen = str_len(s)
+    let suflen = str_len(suffix)
+    if suflen > slen {
+        return false
+    }
+    let offset = slen - suflen
+    mut i = 0
+    while i < suflen {
+        if str_char_at(s, offset + i) != str_char_at(suffix, i) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}

@@ -8,10 +8,22 @@ fn datara_bin() -> std::path::PathBuf {
             return pb;
         }
     }
+    if let Ok(p) = std::env::var("CARGO_BIN_EXE_forgen") {
+        let pb = std::path::PathBuf::from(p);
+        if pb.exists() {
+            return pb;
+        }
+    }
     let ext = if cfg!(windows) { ".exe" } else { "" };
     let candidates = [
         format!("target/release/datara{}", ext),
         format!("target/debug/datara{}", ext),
+        format!("target/release/forgen{}", ext),
+        format!("target/debug/forgen{}", ext),
+        format!("target/aarch64-apple-darwin/release/datara{}", ext),
+        format!("target/aarch64-apple-darwin/debug/datara{}", ext),
+        format!("target/x86_64-apple-darwin/release/datara{}", ext),
+        format!("target/x86_64-apple-darwin/debug/datara{}", ext),
         format!("target/x86_64-unknown-linux-gnu/release/datara{}", ext),
         format!("target/x86_64-unknown-linux-gnu/debug/datara{}", ext),
     ];
@@ -19,6 +31,28 @@ fn datara_bin() -> std::path::PathBuf {
         let p = std::path::PathBuf::from(c);
         if p.exists() {
             return p;
+        }
+    }
+    if let Ok(current) = std::env::current_exe() {
+        if let Some(dir) = current.parent() {
+            let p1 = dir.join(format!("datara{}", ext));
+            if p1.exists() {
+                return p1;
+            }
+            let p2 = dir.join(format!("forgen{}", ext));
+            if p2.exists() {
+                return p2;
+            }
+            if let Some(parent) = dir.parent() {
+                let p3 = parent.join(format!("datara{}", ext));
+                if p3.exists() {
+                    return p3;
+                }
+                let p4 = parent.join(format!("forgen{}", ext));
+                if p4.exists() {
+                    return p4;
+                }
+            }
         }
     }
     std::path::PathBuf::from(format!("target/release/datara{}", ext))
@@ -140,6 +174,34 @@ fn test_gamma_panic() {
         "Panicking test must be captured as FAILED without crashing the runner: {}",
         stdout_panic
     );
+
+    // Case D: --list flag -> lists tests without executing, exit code 0
+    let out_list = Command::new(&bin)
+        .arg("test")
+        .arg(temp_dir.to_str().unwrap())
+        .arg("--list")
+        .output()
+        .expect("Run datara test --list");
+
+    let stdout_list = String::from_utf8_lossy(&out_list.stdout);
+    assert_eq!(
+        out_list.status.code().unwrap_or(-1),
+        0,
+        "datara test --list must exit with code 0"
+    );
+    assert!(
+        stdout_list.contains("test_alpha_pass: test"),
+        "Must list test_alpha_pass"
+    );
+    assert!(
+        stdout_list.contains("test_beta_fail: test"),
+        "Must list test_beta_fail"
+    );
+    assert!(
+        stdout_list.contains("test_gamma_panic: test"),
+        "Must list test_gamma_panic"
+    );
+    assert!(stdout_list.contains("3 tests"), "Must summarize 3 tests");
 
     let _ = fs::remove_dir_all(&temp_dir);
 }

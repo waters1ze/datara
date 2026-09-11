@@ -95,6 +95,16 @@ impl CompilationResult {
         program: Option<Program>,
         timings: CompilationTimings,
     ) -> Self {
+        Self::failure_with_diagnostics(error, diagnostics, Vec::new(), program, timings)
+    }
+
+    pub(super) fn failure_with_diagnostics(
+        error: String,
+        diagnostics: String,
+        diagnostic_records: Vec<crate::diagnostics::Diagnostic>,
+        program: Option<Program>,
+        timings: CompilationTimings,
+    ) -> Self {
         Self {
             success: false,
             exe_path: None,
@@ -105,7 +115,7 @@ impl CompilationResult {
             optimization_report: None,
             schedule_proof: None,
             diagnostics,
-            diagnostic_records: Vec::new(),
+            diagnostic_records,
             clif_source: None,
             llvm_source: None,
             timings,
@@ -627,7 +637,26 @@ pub(super) fn run_analysis_and_lower<R>(
     for spec_str in spec_strs {
         optimizer.report.generic_specializations.push(spec_str);
     }
-    optimizer.optimize_module(&mut dmir_module);
+    if let Err(diag) = optimizer.optimize_module(&mut dmir_module) {
+        let msg = diag.message.clone();
+        return Err(CompilationResult::failure_with_diagnostics(
+            msg.clone(),
+            msg,
+            vec![diag],
+            Some(program),
+            timings,
+        ));
+    }
+    if !optimizer.diagnostics.is_empty() {
+        let msg = optimizer.diagnostics[0].message.clone();
+        return Err(CompilationResult::failure_with_diagnostics(
+            msg.clone(),
+            msg,
+            optimizer.diagnostics,
+            Some(program),
+            timings,
+        ));
+    }
     if let Some(ref pgo_path) = compiler.pgo_profile
         && let Ok(profile) = crate::pgo::ProfileData::load_from_file(pgo_path)
     {
@@ -635,6 +664,22 @@ pub(super) fn run_analysis_and_lower<R>(
             &mut optimizer,
             &mut dmir_module,
             &profile,
+        );
+        if !optimizer.diagnostics.is_empty() {
+            let msg = optimizer.diagnostics[0].message.clone();
+            return Err(CompilationResult::failure_with_diagnostics(
+                msg.clone(),
+                msg,
+                optimizer.diagnostics,
+                Some(program),
+                timings,
+            ));
+        }
+    }
+    if let Some(ref pgo_gen) = compiler.profile_generate {
+        crate::pgo::ProfileInstrumenter::instrument_module(
+            &mut dmir_module,
+            Some(&pgo_gen.to_string_lossy()),
         );
     }
     timings.optimizer_ms = opt_start.elapsed().as_millis();

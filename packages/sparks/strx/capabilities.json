@@ -1,0 +1,7 @@
+{
+  "manifest_schema": 1,
+  "package": "strx",
+  "version": "0.1.0",
+  "required_capabilities": [],
+  "provided_capabilities": ["str:extended"]
+}

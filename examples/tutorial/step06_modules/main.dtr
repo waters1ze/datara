@@ -1,0 +1,9 @@
+// Step 6: Modules and File Imports
+// Demonstrates multi-file project organization.
+
+use helper.greeting
+
+fn main() {
+    let msg = greeting("Developer")
+    out msg
+}

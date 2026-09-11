@@ -32,6 +32,9 @@ jobs:
       - name: Clippy correctness check
         run: cargo clippy --all-targets -- -D clippy::correctness
 
+      - name: Check editor syntax sync
+        run: python scripts/gen_editor_syntax.py --check
+
       - name: Benchmark smoke test
         run: cargo bench --no-run
 

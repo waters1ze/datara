@@ -1,0 +1,8 @@
+// Step 9: System Runtime Interoperability
+// Demonstrates system environment and string conversion.
+
+fn main() {
+    let val_str = int_to_str(42)
+    let len = str_len(val_str)
+    out "Value: " + val_str + " (length: " + int_to_str(len) + ")"
+}

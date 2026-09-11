@@ -65,6 +65,14 @@ Datara is designed as a high-performance compiled systems and application progra
 ### Gate 13: ABI and Memory Layout
 - **Normative Rule:** All scalar types and struct fields adhere to the target host C ABI (x86_64 MSVC on Windows, System V on Linux). Struct fields are laid out in declaration order with natural alignment padding, guaranteeing direct C-interop capability without marshalling overhead.
 
+### Gate 14: Asynchronous Execution Semantics (1.1.0 Supplement - Frozen)
+- **Proof-Carrying Scheduler (PCS) Wavefront Model**: Asynchronous functions (`async fn`) and tasks (`async task`) lower into structured state-machine generator records coordinated by the Proof-Carrying Scheduler. Execution graphs are evaluated as topological Kahn wavefronts rather than heap-allocating poll state-machines on the hot path.
+- **Await Semantics**: The `await` operator acts as a DAG wavefront barrier join point. The awaiting task registers a dependency edge in the active region; execution suspends without thread blocking until the predecessor future transitions to resolved state.
+- **IO Multiplexer and Monotonic Timers**: Asynchronous IO and timers operate through the OS-level multiplexer (`IOCP` on Windows, `epoll` on Linux, `kqueue` on macOS) backed by a high-resolution monotonic timer priority queue (`datara_rt_timer_create`, `datara_rt_timer_wait`, `datara_rt_run_concurrent_timers`). Concurrent timer evaluation is strictly deterministic across consecutive runs.
+- **Structured Cancellation**: Cancellation propagates hierarchically throughout region trees (`datara_rt_schedule_cancel(region_id)`). Cancelling a region cancels all pending tasks and timers within that region in wave order.
+- **Foreign Effect Boundary**: Asynchronous external operations (such as asynchronous Rust bridge invocations) preserve `Effect::Foreign` across the call boundary and enforce standard panic safety barriers.
+- **Fail-Closed Backend Validation**: Target backends lacking asynchronous runtime multiplexing (such as WebAssembly) must reject `await` expressions at compile-time with structured diagnostic error code `[E0955]` (`ErrorCode::AsyncBackendUnsupported`), forbidding silent identity passes or unhandled panics.
+
 ---
 
 ## 3. Type System Summary

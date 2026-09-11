@@ -144,7 +144,7 @@ All `forgen` commands auto-discover the project context from the current working
 | :--- | :--- | :--- |
 | `forgen run [target] [args...]` | Run project or single file | Auto-discovers entry point + incremental caching |
 | `forgen build [target]` | Compile standalone native binary | Resolves all sources into `<binary_name>.exe` |
-| `forgen test [target]` | Run integration tests | Executes all tests in `tests/` and test modules |
+| `forgen test [target] [filter] [--list]` | Run integration tests | Executes all tests in `tests/` and test modules |
 | `forgen bench [target]` | Run benchmarks | Compiles & executes all benchmarks in `benches/` |
 | `forgen check [target]` | Fast static verification | Full semantic, type, effect & borrow checks without linking |
 | `forgen domain [target]` | Whole-program domain specialization | Monomorphizes generics, removes dead code, applies PGO |
@@ -152,6 +152,22 @@ All `forgen` commands auto-discover the project context from the current working
 | `forgen fmt [target]` | Canonical code formatting | Auto-formats all `.dtr` files in project |
 | `forgen why <symbol> [target]` | Optimization explainability | Details cost-model decisions and pass justifications |
 | `forgen context <symbol> [tgt]`| AI Semantic Context API | Emits machine-readable JSON for agentic IDE integration |
+
+### Testing with `datara test` / `forgen test`
+
+The test runner provides built-in discovery, filtering, and listing:
+- **Default Execution**: `datara test` runs all tests annotated with `@test` or files prefixed with `test_`.
+- **Name Filtering**: `datara test <filter>` (e.g. `datara test alpha`) executes only tests matching the substring.
+- **Dry-Run Test Listing**: `datara test --list` discovers and enumerates all available tests without running them:
+  ```text
+  test_alpha_pass: test
+  test_beta_fail: test
+  test_gamma_panic: test
+
+  3 tests
+  ```
+- **Exit Codes**: Returns exit code `0` when all matching tests pass, and non-zero `1` if any test fails or panics.
+- **Crash Isolation**: Panics within tests (such as arithmetic overflow traps) are isolated by the runner, reporting `FAILED` with stderr capture without terminating the runner process.
 
 ---
 

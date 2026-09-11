@@ -1,0 +1,6 @@
+[package]
+name = "game_loop"
+version = "1.0.0"
+entry = "main.dtr"
+authors = ["Datara Team"]
+description = "Deterministic 60 Hz fixed-timestep game loop with accumulator, delta-time, and ECS physics"

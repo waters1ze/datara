@@ -99,9 +99,10 @@ Pre-configured showcases are available under `examples/showcase/rust_bridge/`:
 
 ## 5. Architectural Limitations & Boundaries
 
-1. **Synchronous Execution Only (v1 Scope)**:
-   - Async Rust runtimes (`tokio`, `async-std`) cannot be polled directly across the Datara C ABI boundary without an internal blocking runtime runner (`tokio::runtime::Runtime::block_on`).
-   - Pure synchronous functions and compute tasks are recommended.
+1. **Asynchronous Execution & Effects**:
+   - Asynchronous functions across the bridge preserve `Effect::Foreign` in Datara's effect lattice and schedule proof.
+   - Calling asynchronous Rust operations from Datara `async fn` via `await` enforces Datara's panic barrier (`catch_unwind`) and registers a completion callback into Datara's Proof-Carrying Scheduler (PCS) IO multiplexer.
+   - Pure synchronous functions and compute tasks remain direct zero-overhead C ABI invocations.
 2. **Lifetime Safety**:
    - Pointers passed to Rust functions must remain valid for the duration of the call.
    - Returning Rust references (`&'a T`) across the ABI is prohibited; returned data must be converted to scalar types or owned C-compatible handles.

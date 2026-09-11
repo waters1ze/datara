@@ -1,0 +1,6 @@
+﻿[package]
+name = "cli_app"
+version = "1.0.0"
+entry = "main.dtr"
+authors = ["Datara Team"]
+description = "Showcase CLI application processing command line arguments, files, and JSON payloads"

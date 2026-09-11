@@ -4,7 +4,7 @@ use std::time::Instant;
 
 #[test]
 #[ignore = "intensive comparative benchmark"]
-fn test_comparative_benchmark_suite() {
+fn slow_test_comparative_benchmark_suite() {
     let benchmarks = [
         (
             "Integer Loop 1,000,000",

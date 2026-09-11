@@ -1,0 +1,75 @@
+//! Deque<T> — Standard Library Double-Ended Queue
+//! Supports push/pop at both front and back.
+
+class Deque<T> {
+    items: List<T>
+}
+
+behavior Deque {
+    push_back(item: T) {
+        this.items = this.items.push(item)
+    }
+
+    push_front(item: T) {
+        mut new_items = [item]
+        for existing in this.items {
+            new_items = new_items.push(existing)
+        }
+        this.items = new_items
+    }
+
+    pop_back() -> T {
+        let n = this.items.len()
+        if n == 0 {
+            let last = this.items.get(0)
+            return last
+        }
+        let last = this.items.get(n - 1)
+        mut new_items = []
+        mut i = 0
+        while i < n - 1 {
+            new_items = new_items.push(this.items.get(i))
+            i = i + 1
+        }
+        this.items = new_items
+        return last
+    }
+
+    pop_front() -> T {
+        let n = this.items.len()
+        let first = this.items.get(0)
+        mut new_items = []
+        mut i = 1
+        while i < n {
+            new_items = new_items.push(this.items.get(i))
+            i = i + 1
+        }
+        this.items = new_items
+        return first
+    }
+
+    peek_front() -> T {
+        return this.items.get(0)
+    }
+
+    peek_back() -> T {
+        let n = this.items.len()
+        return this.items.get(n - 1)
+    }
+
+    len() -> Int {
+        return this.items.len()
+    }
+
+    is_empty() -> Bool {
+        return this.items.len() == 0
+    }
+
+    to_list() -> List<T> {
+        return this.items
+    }
+}
+
+fn deque_new<T>() -> Deque<T> {
+    return Deque<T> { items: [] }
+}

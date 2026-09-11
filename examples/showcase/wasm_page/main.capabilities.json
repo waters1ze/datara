@@ -6,7 +6,7 @@
   "absent_capabilities": [
     "datara:fs@1.0",
     "datara:net@1.0",
-    "datara:sys@1.0",
-    "datara:rt/own"
+    "datara:rt/own",
+    "datara:sys@1.0"
   ]
 }

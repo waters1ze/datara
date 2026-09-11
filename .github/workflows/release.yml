@@ -80,8 +80,8 @@ jobs:
           if (Test-Path "scripts/install_build_tools.bat") { Copy-Item -Force "scripts/install_build_tools.bat" "dist/staging/scripts/install_build_tools.bat" }
           if (Test-Path "installer/install_build_tools.bat") { Copy-Item -Force "installer/install_build_tools.bat" "dist/staging/install_build_tools.bat" }
           Copy-Item -Force "install.ps1" "dist/staging/install.ps1"
-          Copy-Item -Force "setup_windows.bat" "dist/staging/setup_windows.bat"
-          Copy-Item -Force "README.md", "LICENSE-APACHE", "LICENSE-MIT" "dist/staging/"
+          if (Test-Path "setup_windows.bat") { Copy-Item -Force "setup_windows.bat" "dist/staging/setup_windows.bat" }
+          Copy-Item -Path "README.md", "LICENSE-APACHE", "LICENSE-MIT" -Destination "dist/staging/" -Force
           Compress-Archive -Path "dist/staging/*" -DestinationPath "dist/${{ matrix.archive_name }}" -Force
           Get-FileHash -Algorithm SHA256 "dist/${{ matrix.archive_name }}" | Out-File "dist/${{ matrix.archive_name }}.sha256"
           Copy-Item -Force "dist/${{ matrix.archive_name }}" "dist/forgen-$ver-windows-x64.zip"

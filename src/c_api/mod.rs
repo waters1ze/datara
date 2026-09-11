@@ -346,8 +346,8 @@ pub unsafe extern "C" fn forgen_call_fn(
                 )
             }
             _ => {
-                // SAFETY: arg_count was validated above to be <= 8
-                unreachable!("forgen_call_fn: arg_count was validated to be <= 8");
+                set_error("forgen_call_fn: [E0904] invalid argument count");
+                0
             }
         }
     }));

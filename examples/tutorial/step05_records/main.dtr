@@ -1,0 +1,27 @@
+// Step 5: Records and Structs
+// Demonstrates structured data types and field access.
+
+record Point {
+    x: Int,
+    y: Int,
+}
+
+record Rectangle {
+    top_left: Point,
+    width: Int,
+    height: Int,
+}
+
+fn area(r: Rectangle) -> Int {
+    return r.width * r.height
+}
+
+fn main() {
+    let origin = Point { x: 0, y: 0 }
+    let rect = Rectangle {
+        top_left: origin,
+        width: 20,
+        height: 10,
+    }
+    out "Rectangle area: " + int_to_str(area(rect))
+}

@@ -3,8 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 pub mod adaptive;
+pub mod const_fold;
 pub mod cost_model;
+pub mod dce;
 pub mod evidence;
+pub mod inline;
+pub mod ipo;
 pub mod loops;
 pub mod mem2reg;
 pub mod memory;
@@ -37,6 +41,9 @@ pub struct OptimizationReport {
     /// Records mechanically downgraded Applied -> Rejected because the pass
     /// left the IR unchanged. Always zero or more; never a silent event.
     pub evidence_downgrades: usize,
+    /// Bounds checks proven safe and eliminated into unchecked accesses.
+    #[serde(default)]
+    pub bce_proven: usize,
     pub runtime_modules_linked: Vec<String>,
     pub runtime_modules_stripped: Vec<String>,
     pub decision_trace: Vec<cost_model::DecisionRecord>,
@@ -54,6 +61,7 @@ pub struct Optimizer {
     pub trace: OptimizationDecisionTrace,
     pub sae: SemanticAdaptationEngine,
     pub function_effects: HashMap<String, crate::effects::EffectSet>,
+    pub diagnostics: Vec<crate::diagnostics::Diagnostic>,
 }
 
 impl Optimizer {
@@ -76,6 +84,7 @@ impl Optimizer {
                 allocations_eliminated: 0,
                 variables_promoted: 0,
                 evidence_downgrades: 0,
+                bce_proven: 0,
                 runtime_modules_linked: vec!["core".into()],
                 runtime_modules_stripped: vec![
                     "network".into(),
@@ -90,6 +99,7 @@ impl Optimizer {
             cost_model,
             trace: OptimizationDecisionTrace::new(),
             sae,
+            diagnostics: Vec::new(),
         }
     }
 
@@ -110,13 +120,21 @@ impl Optimizer {
         );
     }
 
-    pub fn optimize_module(&mut self, module: &mut Module) {
+    pub fn optimize_module(
+        &mut self,
+        module: &mut Module,
+    ) -> Result<(), crate::diagnostics::Diagnostic> {
         if let Err(error) = crate::dmir::verify_module(module) {
-            // INVARIANT: Input module to optimizer must be valid DMIR
-            panic!(
-                "[E0901] DMIR verification failed before optimization: {}",
-                error
+            let diag = crate::diagnostics::Diagnostic::error(
+                crate::diagnostics::ErrorCode::InternalVerification,
+                format!(
+                    "[E0901] DMIR verification failed before optimization: {}",
+                    error
+                ),
+                None,
             );
+            self.diagnostics.push(diag.clone());
+            return Err(diag);
         }
         self.report.symbols_analyzed = module.functions.len();
 
@@ -127,7 +145,7 @@ impl Optimizer {
         {
             // Debug, quick, start, and check modes preserve verbatim IR for debugging/fast turnaround
             self.report.reachable_symbols = module.functions.len();
-            return;
+            return Ok(());
         }
 
         // 0. Semantic Adaptation Engine (SAE) pass
@@ -147,7 +165,7 @@ impl Optimizer {
             if self.cost_model.inlining_threshold > 0 {
                 self.run_mutating_pass("inline", module, |opt, m| {
                     opt.inline_pure_functions(m);
-                });
+                })?;
             }
 
             // 1.5 Mem2Reg: promote named scalar variables into SSA values with
@@ -171,7 +189,7 @@ impl Optimizer {
                          every load dominated by a definition was proven before rewriting",
                     );
                 }
-            });
+            })?;
 
             // 2. Intra-procedural optimizations (SROA, Constant Folding, DCE, LoopFold)
             self.run_mutating_pass("intraproc", module, |opt, m| {
@@ -182,7 +200,14 @@ impl Optimizer {
                         opt.optimize_function(f);
                     }
                 }
-            });
+            })?;
+
+            // 2.2 Interprocedural Optimization (Phase 14: Specialization, Devirtualization, Cross-Module Pure Inlining)
+            if self.mode == "domain" || self.mode == "release" {
+                self.run_mutating_pass("ipo", module, |opt, m| {
+                    ipo::InterproceduralOptimizer::optimize_module(m, &mut opt.trace);
+                })?;
+            }
 
             // Tail recursion & sibling recursion elimination (domain and release mode)
             if self.mode == "domain" || self.mode == "release" {
@@ -217,7 +242,7 @@ impl Optimizer {
                             }
                         }
                     }
-                });
+                })?;
             }
 
             let fp_after = evidence::ir_fingerprint(module);
@@ -230,35 +255,42 @@ impl Optimizer {
         if self.mode == "domain" || self.mode == "release" {
             self.run_mutating_pass("dead_symbol_elimination", module, |opt, m| {
                 opt.dead_symbol_elimination(m);
-            });
+            })?;
         }
 
         if let Err(error) = crate::dmir::verify_module(module) {
-            // INVARIANT: Output of full optimization pipeline must be valid DMIR
-            panic!(
-                "[E0901] DMIR verification failed after optimization: {}",
-                error
+            let diag = crate::diagnostics::Diagnostic::error(
+                crate::diagnostics::ErrorCode::InternalVerification,
+                format!(
+                    "[E0901] DMIR verification failed after optimization: {}",
+                    error
+                ),
+                None,
             );
+            self.diagnostics.push(diag.clone());
+            return Err(diag);
         }
 
         // Finalize decision trace
         self.report.decision_trace = self.trace.records.clone();
+        Ok(())
     }
 
     /// Evidence gate around one mutating pass.
     ///
     /// 1. Fingerprint the IR before the pass.
     /// 2. Run the pass.
-    /// 3. Verify the IR (fail-closed): a pass that corrupts DMIR aborts the
-    ///    build instead of being tolerated.
+    /// 3. Verify the IR (fail-closed): a pass that corrupts DMIR records
+    ///    a diagnostic error instead of crashing the process.
     /// 4. Fingerprint the IR after the pass. If it is unchanged, every
     ///    `Applied` record the pass emitted during this invocation is
     ///    downgraded to `Rejected` and every counter movement is reverted.
-    ///
-    /// This is the mechanical enforcement of the project rule: "a line in the
-    /// trace does not prove an optimization". `Applied` now requires a
-    /// physical IR delta to survive the gate.
-    pub fn run_mutating_pass<F>(&mut self, label: &str, module: &mut Module, pass: F)
+    pub fn run_mutating_pass<F>(
+        &mut self,
+        label: &str,
+        module: &mut Module,
+        pass: F,
+    ) -> Result<(), crate::diagnostics::Diagnostic>
     where
         F: FnOnce(&mut Self, &mut Module),
     {
@@ -269,11 +301,16 @@ impl Optimizer {
         pass(self, module);
 
         if let Err(error) = crate::dmir::verify_module(module) {
-            // INVARIANT: Mutating pass must never produce invalid DMIR
-            panic!(
-                "[E0901] DMIR verification failed after optimizer pass '{}': {}",
-                label, error
+            let diag = crate::diagnostics::Diagnostic::error(
+                crate::diagnostics::ErrorCode::InternalVerification,
+                format!(
+                    "[E0901] DMIR verification failed after optimizer pass '{}': {}",
+                    label, error
+                ),
+                None,
             );
+            self.diagnostics.push(diag.clone());
+            return Err(diag);
         }
 
         let after = evidence::ir_fingerprint(module);
@@ -283,930 +320,7 @@ impl Optimizer {
             counters.restore(&mut self.report);
             self.report.evidence_downgrades += downgraded;
         }
-    }
-
-    fn max_value_id_in_function(&self, f: &Function) -> usize {
-        let mut max_id = 0;
-        for (_, _, p_val) in &f.params {
-            if p_val.0 > max_id {
-                max_id = p_val.0;
-            }
-        }
-        for b in &f.blocks {
-            // Block parameters and terminator operands are definitions/uses too.
-            // Ignoring them lets a freshly minted id collide with an existing one.
-            for param in &b.params {
-                if param.val.0 > max_id {
-                    max_id = param.val.0;
-                }
-            }
-            for inst in &b.instructions {
-                self.visit_inst_vids(inst, &mut |v| {
-                    if v.0 > max_id {
-                        max_id = v.0;
-                    }
-                });
-            }
-            let mut bump = |v: &ValueId| {
-                if v.0 > max_id {
-                    max_id = v.0;
-                }
-            };
-            match &b.terminator {
-                Terminator::Branch { args, .. } => {
-                    for a in args {
-                        bump(a);
-                    }
-                }
-                Terminator::CondBranch {
-                    cond,
-                    then_args,
-                    else_args,
-                    ..
-                } => {
-                    bump(cond);
-                    for a in then_args.iter().chain(else_args.iter()) {
-                        bump(a);
-                    }
-                }
-                Terminator::Return { value: Some(v) } => bump(v),
-                Terminator::Return { value: None } | Terminator::Unreachable => {}
-            }
-        }
-        max_id
-    }
-
-    fn visit_inst_vids<F: FnMut(&ValueId)>(&self, inst: &Inst, f: &mut F) {
-        match inst {
-            Inst::ConstInt { dest, .. }
-            | Inst::ConstFloat { dest, .. }
-            | Inst::ConstStr { dest, .. }
-            | Inst::ConstBool { dest, .. }
-            | Inst::GetFuncAddr { dest, .. } => f(dest),
-            Inst::LoadVar { dest, .. } => f(dest),
-            Inst::AssignVar { value, .. } => f(value),
-            Inst::BinOp {
-                dest, left, right, ..
-            } => {
-                f(dest);
-                f(left);
-                f(right);
-            }
-            Inst::UnOp { dest, operand, .. } => {
-                f(dest);
-                f(operand);
-            }
-            Inst::Call { dest, args, .. } => {
-                f(dest);
-                for a in args {
-                    f(a);
-                }
-            }
-            Inst::MethodCall {
-                dest, object, args, ..
-            } => {
-                f(dest);
-                f(object);
-                for a in args {
-                    f(a);
-                }
-            }
-            Inst::StructInit { dest, fields, .. } => {
-                f(dest);
-                for (_, v) in fields {
-                    f(v);
-                }
-            }
-            Inst::GetField { dest, object, .. } => {
-                f(dest);
-                f(object);
-            }
-            Inst::SetField { object, value, .. } => {
-                f(object);
-                f(value);
-            }
-            Inst::Out { value } | Inst::Err { value } => f(value),
-            Inst::FormatStr { dest, values, .. } => {
-                f(dest);
-                for v in values {
-                    f(v);
-                }
-            }
-            Inst::Decide {
-                dest,
-                arms,
-                else_val,
-                ..
-            } => {
-                f(dest);
-                for (c, v) in arms {
-                    f(c);
-                    f(v);
-                }
-                if let Some(ev) = else_val {
-                    f(ev);
-                }
-            }
-            Inst::Select {
-                dest,
-                cond,
-                then_val,
-                else_val,
-                ..
-            } => {
-                f(dest);
-                f(cond);
-                f(then_val);
-                f(else_val);
-            }
-            Inst::WhileLoop {
-                condition_insts,
-                cond_val,
-                body_insts,
-            } => {
-                for ci in condition_insts {
-                    self.visit_inst_vids(ci, f);
-                }
-                for bi in body_insts {
-                    self.visit_inst_vids(bi, f);
-                }
-                f(cond_val);
-            }
-            Inst::TryCatch {
-                try_insts,
-                catch_insts,
-                ..
-            } => {
-                for ti in try_insts {
-                    self.visit_inst_vids(ti, f);
-                }
-                for ci in catch_insts {
-                    self.visit_inst_vids(ci, f);
-                }
-            }
-            Inst::Return { value } => {
-                if let Some(v) = value {
-                    f(v);
-                }
-            }
-            Inst::InlineAsm {
-                outputs, inputs, ..
-            } => {
-                for (_, d) in outputs {
-                    f(d);
-                }
-                for (_, i) in inputs {
-                    f(i);
-                }
-            }
-        }
-    }
-
-    /// Rewrite every operand of `inst` through `subst`, leaving unknown ids alone.
-    ///
-    /// This must handle *every* `Inst` variant. Silently dropping a variant
-    /// would delete an instruction the verifier still expects to exist.
-    fn substitute_operands(inst: &mut Inst, subst: &HashMap<ValueId, ValueId>) {
-        if subst.is_empty() {
-            return;
-        }
-        let fix = |v: &mut ValueId| {
-            if let Some(new) = subst.get(v) {
-                *v = *new;
-            }
-        };
-        match inst {
-            Inst::ConstInt { dest, .. }
-            | Inst::ConstFloat { dest, .. }
-            | Inst::ConstStr { dest, .. }
-            | Inst::ConstBool { dest, .. }
-            | Inst::LoadVar { dest, .. }
-            | Inst::BinOp { dest, .. }
-            | Inst::UnOp { dest, .. }
-            | Inst::Call { dest, .. }
-            | Inst::MethodCall { dest, .. }
-            | Inst::StructInit { dest, .. }
-            | Inst::GetField { dest, .. }
-            | Inst::FormatStr { dest, .. }
-            | Inst::GetFuncAddr { dest, .. }
-            | Inst::Select { dest, .. }
-            | Inst::Decide { dest, .. } => fix(dest),
-            Inst::InlineAsm { outputs, .. } => {
-                for (_, d) in outputs {
-                    fix(d);
-                }
-            }
-            Inst::AssignVar { .. }
-            | Inst::SetField { .. }
-            | Inst::Out { .. }
-            | Inst::Err { .. }
-            | Inst::Return { .. }
-            | Inst::WhileLoop { .. }
-            | Inst::TryCatch { .. } => {}
-        }
-        match inst {
-            Inst::AssignVar { value, .. } | Inst::Out { value } | Inst::Err { value } => fix(value),
-            Inst::BinOp { left, right, .. } => {
-                fix(left);
-                fix(right);
-            }
-            Inst::UnOp { operand, .. } => fix(operand),
-            Inst::Select {
-                cond,
-                then_val,
-                else_val,
-                ..
-            } => {
-                fix(cond);
-                fix(then_val);
-                fix(else_val);
-            }
-            Inst::Call { args, .. } => {
-                for a in args {
-                    fix(a);
-                }
-            }
-            Inst::MethodCall { object, args, .. } => {
-                fix(object);
-                for a in args {
-                    fix(a);
-                }
-            }
-            Inst::StructInit { fields, .. } => {
-                for (_, v) in fields {
-                    fix(v);
-                }
-            }
-            Inst::GetField { object, .. } => fix(object),
-            Inst::SetField { object, value, .. } => {
-                fix(object);
-                fix(value);
-            }
-            Inst::FormatStr { values, .. } => {
-                for v in values {
-                    fix(v);
-                }
-            }
-            Inst::Decide { arms, else_val, .. } => {
-                for (c, v) in arms {
-                    fix(c);
-                    fix(v);
-                }
-                if let Some(ev) = else_val {
-                    fix(ev);
-                }
-            }
-            Inst::WhileLoop {
-                condition_insts,
-                cond_val,
-                body_insts,
-            } => {
-                for ci in condition_insts.iter_mut() {
-                    Self::substitute_operands(ci, subst);
-                }
-                for bi in body_insts.iter_mut() {
-                    Self::substitute_operands(bi, subst);
-                }
-                fix(cond_val);
-            }
-            Inst::TryCatch {
-                try_insts,
-                catch_insts,
-                ..
-            } => {
-                for ti in try_insts.iter_mut() {
-                    Self::substitute_operands(ti, subst);
-                }
-                for ci in catch_insts.iter_mut() {
-                    Self::substitute_operands(ci, subst);
-                }
-            }
-            Inst::Return { value: Some(v) } => fix(v),
-            Inst::InlineAsm { inputs, .. } => {
-                for (_, i) in inputs {
-                    fix(i);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn substitute_terminator(t: &mut Terminator, subst: &HashMap<ValueId, ValueId>) {
-        if subst.is_empty() {
-            return;
-        }
-        let fix = |v: &mut ValueId| {
-            if let Some(new) = subst.get(v) {
-                *v = *new;
-            }
-        };
-        match t {
-            Terminator::Branch { args, .. } => {
-                for a in args {
-                    fix(a);
-                }
-            }
-            Terminator::CondBranch {
-                cond,
-                then_args,
-                else_args,
-                ..
-            } => {
-                fix(cond);
-                for a in then_args.iter_mut().chain(else_args.iter_mut()) {
-                    fix(a);
-                }
-            }
-            Terminator::Return { value } => {
-                if let Some(v) = value {
-                    fix(v);
-                }
-            }
-            Terminator::Unreachable => {}
-        }
-    }
-
-    /// The value a single-block callee returns, mapped into the caller.
-    ///
-    /// The real lowering returns through `Terminator::Return`; the compound
-    /// `Inst::Return` is legacy and is only consulted as a fallback. Reading
-    /// `Inst::Return` alone is why inlining used to leave the call's `dest`
-    /// undefined whenever the result was used.
-    fn callee_return_value(
-        callee: &Function,
-        val_map: &HashMap<ValueId, ValueId>,
-    ) -> Option<ValueId> {
-        let raw = match &callee.blocks[0].terminator {
-            Terminator::Return { value: Some(v) } => Some(*v),
-            _ => callee.blocks[0]
-                .instructions
-                .iter()
-                .rev()
-                .find_map(|i| match i {
-                    Inst::Return { value: Some(v) } => Some(*v),
-                    _ => None,
-                }),
-        }?;
-        Some(val_map.get(&raw).copied().unwrap_or(raw))
-    }
-
-    /// Rewrite one callee instruction for splicing into the caller.
-    ///
-    /// Returns `None` for instructions that only express control flow and must
-    /// not be copied. `skip_names` holds callee parameter names: loading one is
-    /// replaced by a direct bind to the incoming argument, so no instruction is
-    /// emitted at all.
-    fn splice_callee_inst(
-        &self,
-        c_inst: &Inst,
-        val_map: &HashMap<ValueId, ValueId>,
-        param_names: &HashSet<String>,
-        local_prefix: &str,
-    ) -> Option<Inst> {
-        let lookup = |v: &ValueId| val_map.get(v).copied().unwrap_or(*v);
-        let rename = |n: &String| format!("{}{}", local_prefix, n);
-
-        match c_inst {
-            Inst::LoadVar { dest, name } => {
-                if param_names.contains(name) {
-                    // Bound straight to the argument; `val_map[dest]` already
-                    // carries it, so nothing needs to be emitted.
-                    None
-                } else {
-                    Some(Inst::LoadVar {
-                        dest: lookup(dest),
-                        name: rename(name),
-                    })
-                }
-            }
-            Inst::AssignVar { name, value } => Some(Inst::AssignVar {
-                name: rename(name),
-                value: lookup(value),
-            }),
-            Inst::ConstInt { dest, value } => Some(Inst::ConstInt {
-                dest: lookup(dest),
-                value: *value,
-            }),
-            Inst::ConstFloat { dest, value } => Some(Inst::ConstFloat {
-                dest: lookup(dest),
-                value: *value,
-            }),
-            Inst::ConstStr { dest, value } => Some(Inst::ConstStr {
-                dest: lookup(dest),
-                value: value.clone(),
-            }),
-            Inst::ConstBool { dest, value } => Some(Inst::ConstBool {
-                dest: lookup(dest),
-                value: *value,
-            }),
-            Inst::BinOp {
-                dest,
-                op,
-                left,
-                right,
-                ty,
-            } => Some(Inst::BinOp {
-                dest: lookup(dest),
-                op: op.clone(),
-                left: lookup(left),
-                right: lookup(right),
-                ty: ty.clone(),
-            }),
-            Inst::UnOp {
-                dest,
-                op,
-                operand,
-                ty,
-            } => Some(Inst::UnOp {
-                dest: lookup(dest),
-                op: op.clone(),
-                operand: lookup(operand),
-                ty: ty.clone(),
-            }),
-            Inst::GetField {
-                dest,
-                object,
-                field,
-                ty,
-            } => Some(Inst::GetField {
-                dest: lookup(dest),
-                object: lookup(object),
-                field: field.clone(),
-                ty: ty.clone(),
-            }),
-            Inst::Decide {
-                dest,
-                arms,
-                else_val,
-                ty,
-            } => Some(Inst::Decide {
-                dest: lookup(dest),
-                arms: arms.iter().map(|(c, v)| (lookup(c), lookup(v))).collect(),
-                else_val: else_val.as_ref().map(&lookup),
-                ty: ty.clone(),
-            }),
-            Inst::Select {
-                dest,
-                cond,
-                then_val,
-                else_val,
-                ty,
-            } => Some(Inst::Select {
-                dest: lookup(dest),
-                cond: lookup(cond),
-                then_val: lookup(then_val),
-                else_val: lookup(else_val),
-                ty: ty.clone(),
-            }),
-            Inst::Return { .. } => None,
-            // Anything else is not part of a "pure leaf" body. Refusing to copy
-            // it keeps inlining from silently deleting an effect.
-            _ => None,
-        }
-    }
-
-    pub fn set_function_effects(&mut self, effects: HashMap<String, crate::effects::EffectSet>) {
-        self.function_effects = effects;
-    }
-
-    pub fn inline_pure_functions(&mut self, module: &mut Module) {
-        let mut candidates: HashMap<String, Function> = HashMap::new();
-        let mut candidate_records: Vec<(String, String, String, String)> = Vec::new();
-
-        let mut fn_names: Vec<String> = module.functions.keys().cloned().collect();
-        fn_names.sort();
-
-        for name in &fn_names {
-            let f = &module.functions[name];
-            if name == "main" {
-                continue;
-            }
-            if f.blocks.len() == 1 {
-                let inst_count = f.blocks[0].instructions.len();
-                let is_inst_pure = f.blocks[0].instructions.iter().all(|i| {
-                    matches!(
-                        i,
-                        Inst::ConstInt { .. }
-                            | Inst::ConstFloat { .. }
-                            | Inst::ConstStr { .. }
-                            | Inst::ConstBool { .. }
-                            | Inst::LoadVar { .. }
-                            | Inst::AssignVar { .. }
-                            | Inst::BinOp { .. }
-                            | Inst::UnOp { .. }
-                            | Inst::GetField { .. }
-                            | Inst::Select { .. }
-                            | Inst::Decide { .. }
-                            | Inst::Return { .. }
-                    )
-                });
-
-                // Effect lattice inspection:
-                let lattice_pure = self
-                    .function_effects
-                    .get(name)
-                    .map(|s| s.is_pure())
-                    .unwrap_or(true);
-                let has_side_effects = self
-                    .function_effects
-                    .get(name)
-                    .map(|s| {
-                        s.effects.contains(&crate::effects::Effect::IO)
-                            || s.effects.contains(&crate::effects::Effect::Network)
-                            || s.effects.contains(&crate::effects::Effect::Database)
-                            || s.effects.contains(&crate::effects::Effect::Unsafe)
-                            || s.effects.contains(&crate::effects::Effect::Parallel)
-                            || s.effects.contains(&crate::effects::Effect::Foreign)
-                            || s.effects
-                                .contains(&crate::effects::Effect::Nondeterministic)
-                    })
-                    .unwrap_or(false);
-
-                let is_pure = !has_side_effects && is_inst_pure;
-                let multiplier = if is_pure && lattice_pure { 2 } else { 1 };
-
-                let is_recursive = f.blocks[0].instructions.iter().any(|i| match i {
-                    Inst::Call { func, .. } => func == name,
-                    _ => false,
-                });
-
-                let (should_inline, benefit, cost, reason) =
-                    self.cost_model.evaluate_inlining_effect_guided(
-                        name,
-                        inst_count,
-                        is_pure,
-                        is_recursive,
-                        multiplier,
-                    );
-                if should_inline {
-                    candidate_records.push((name.clone(), benefit, cost, reason));
-                    candidates.insert(name.clone(), f.clone());
-                } else {
-                    self.trace
-                        .record("Inlining", name, "Rejected", &benefit, &cost, &reason);
-                }
-            }
-        }
-
-        if candidates.is_empty() {
-            for (name, benefit, cost, _) in candidate_records {
-                self.trace.record(
-                    "Inlining",
-                    &name,
-                    "Rejected",
-                    &benefit,
-                    &cost,
-                    "Pure leaf function within budget, but no call sites were present in callers",
-                );
-            }
-            return;
-        }
-
-        let mut inlined_set: HashSet<String> = HashSet::new();
-
-        let mut caller_names: Vec<String> = module.functions.keys().cloned().collect();
-        caller_names.sort();
-
-        for caller_name in &caller_names {
-            if candidates.contains_key(caller_name) {
-                continue;
-            }
-            let caller_fn = module.functions.get_mut(caller_name).unwrap();
-
-            // ValueIds are module-wide, so freshly minted ids must start past
-            // every id already allocated in the caller and advance by the
-            // callee's own id span to keep successive inlines disjoint.
-            let mut fresh_base = self.max_value_id_in_function(caller_fn) + 1;
-            let mut val_to_class: HashMap<ValueId, String> = HashMap::new();
-            let mut var_to_class: HashMap<String, String> = HashMap::new();
-
-            for (p_name, p_ty, p_val) in &caller_fn.params {
-                if !p_ty.is_empty()
-                    && p_ty != "Int"
-                    && p_ty != "Float"
-                    && p_ty != "Bool"
-                    && p_ty != "String"
-                {
-                    val_to_class.insert(*p_val, p_ty.clone());
-                    var_to_class.insert(p_name.clone(), p_ty.clone());
-                }
-            }
-
-            let mut fn_subst: HashMap<ValueId, ValueId> = HashMap::new();
-
-            for block in caller_fn.blocks.iter_mut() {
-                // call `dest` -> value produced by the inlined body. Applied to
-                // every later instruction *and* to the block terminator, which
-                // is where the call result is usually consumed.
-                let mut new_insts: Vec<Inst> = Vec::with_capacity(block.instructions.len());
-
-                for mut inst in std::mem::take(&mut block.instructions) {
-                    Self::substitute_operands(&mut inst, &fn_subst);
-
-                    // Track classes for method dispatch
-                    match &inst {
-                        Inst::StructInit {
-                            dest, class_name, ..
-                        } => {
-                            val_to_class.insert(*dest, class_name.clone());
-                        }
-                        Inst::AssignVar { name, value } => {
-                            if let Some(c) = val_to_class.get(value) {
-                                var_to_class.insert(name.clone(), c.clone());
-                            }
-                        }
-                        Inst::LoadVar { dest, name } => {
-                            if let Some(c) = var_to_class.get(name) {
-                                val_to_class.insert(*dest, c.clone());
-                            }
-                        }
-                        Inst::UnOp {
-                            dest, op, operand, ..
-                        } if op == "copy" => {
-                            if let Some(c) = val_to_class.get(operand) {
-                                val_to_class.insert(*dest, c.clone());
-                            }
-                        }
-                        _ => {}
-                    }
-
-                    let inlined_candidate = match &inst {
-                        Inst::Call {
-                            dest, func, args, ..
-                        } => candidates
-                            .get(func)
-                            // An arity mismatch means this call resolves to
-                            // something else; splicing would bind wrong params.
-                            .filter(|c| c.params.len() == args.len())
-                            .map(|c| (*dest, c, args.clone())),
-                        Inst::MethodCall {
-                            dest,
-                            object,
-                            method,
-                            args,
-                            ..
-                        } => {
-                            let mut all_args = vec![*object];
-                            all_args.extend(args.iter().copied());
-
-                            // Without a known receiver class, do not guess:
-                            // a suffix match can pick a different class's
-                            // method, so only an exact Class_method candidate
-                            // (or a free function of the same name) qualifies.
-                            let direct_name = val_to_class
-                                .get(object)
-                                .map(|c| format!("{}_{}", c, method));
-                            let callee = direct_name
-                                .as_ref()
-                                .and_then(|name| candidates.get(name))
-                                .filter(|c| c.params.len() == all_args.len())
-                                .or_else(|| {
-                                    candidates
-                                        .get(method)
-                                        .filter(|c| c.params.len() == all_args.len())
-                                });
-                            callee.map(|c| (*dest, c, all_args))
-                        }
-                        _ => None,
-                    };
-
-                    if let Some((call_dest, callee, inlined_args)) = inlined_candidate {
-                        let callee_max = self.max_value_id_in_function(callee);
-                        let stride = callee_max + 1;
-                        let mut val_map: HashMap<ValueId, ValueId> = HashMap::new();
-                        for b in &callee.blocks {
-                            for ci in &b.instructions {
-                                self.visit_inst_vids(ci, &mut |v| {
-                                    if !val_map.contains_key(v) {
-                                        val_map.insert(*v, ValueId(fresh_base + v.0));
-                                    }
-                                });
-                            }
-                        }
-
-                        let param_names: HashSet<String> =
-                            callee.params.iter().map(|(n, _, _)| n.clone()).collect();
-                        let assigned_params: HashSet<String> = callee.blocks[0]
-                            .instructions
-                            .iter()
-                            .filter_map(|i| {
-                                if let Inst::AssignVar { name, .. } = i {
-                                    if param_names.contains(name) {
-                                        return Some(name.clone());
-                                    }
-                                }
-                                None
-                            })
-                            .collect();
-
-                        // Callee locals are renamed so they can never
-                        // capture a same-named variable in the caller.
-                        let local_prefix = format!("__il{}_", fresh_base);
-
-                        // If any parameters are assigned in callee, initialize their
-                        // local variables with the incoming argument values first.
-                        for (idx, (p_name, _, _)) in callee.params.iter().enumerate() {
-                            if assigned_params.contains(p_name) {
-                                if let Some(arg) = inlined_args.get(idx) {
-                                    new_insts.push(Inst::AssignVar {
-                                        name: format!("{}{}", local_prefix, p_name),
-                                        value: *arg,
-                                    });
-                                }
-                            }
-                        }
-
-                        let pure_param_names: HashSet<String> =
-                            param_names.difference(&assigned_params).cloned().collect();
-
-                        for (idx, (_, _, p_val)) in callee.params.iter().enumerate() {
-                            if idx < inlined_args.len() {
-                                val_map.insert(*p_val, inlined_args[idx]);
-                            }
-                        }
-
-                        for c_inst in &callee.blocks[0].instructions {
-                            if let Inst::LoadVar { dest, name } = c_inst
-                                && pure_param_names.contains(name)
-                                && !inlined_args.is_empty()
-                            {
-                                // Bind the load straight to the argument.
-                                let idx = callee.params.iter().position(|(n, _, _)| n == name);
-                                if let Some(i) = idx
-                                    && let Some(arg) = inlined_args.get(i)
-                                {
-                                    val_map.insert(*dest, *arg);
-                                }
-                            }
-                            if let Some(spliced) = self.splice_callee_inst(
-                                c_inst,
-                                &val_map,
-                                &pure_param_names,
-                                &local_prefix,
-                            ) {
-                                new_insts.push(spliced);
-                            }
-                        }
-
-                        if let Some(ret_v) = Self::callee_return_value(callee, &val_map) {
-                            let resolved_ret = fn_subst.get(&ret_v).copied().unwrap_or(ret_v);
-                            fn_subst.insert(call_dest, resolved_ret);
-                        }
-
-                        fresh_base += stride;
-                        inlined_set.insert(callee.name.clone());
-                        self.report.functions_inlined += 1;
-                        continue;
-                    }
-
-                    new_insts.push(inst);
-                }
-
-                Self::substitute_terminator(&mut block.terminator, &fn_subst);
-                block.instructions = new_insts;
-            }
-
-            if !fn_subst.is_empty() {
-                for block in caller_fn.blocks.iter_mut() {
-                    for inst in block.instructions.iter_mut() {
-                        Self::substitute_operands(inst, &fn_subst);
-                    }
-                    Self::substitute_terminator(&mut block.terminator, &fn_subst);
-                }
-            }
-        }
-
-        for (name, benefit, cost, reason) in candidate_records {
-            if inlined_set.contains(&name) {
-                self.trace
-                    .record("Inlining", &name, "Applied", &benefit, &cost, &reason);
-            } else {
-                self.trace.record(
-                    "Inlining",
-                    &name,
-                    "Rejected",
-                    &benefit,
-                    &cost,
-                    "Pure leaf function within budget, but no call sites were present in callers",
-                );
-            }
-        }
-    }
-
-    fn dead_symbol_elimination(&mut self, module: &mut Module) {
-        // Conservative guard: reachability is seeded from `main` only. For a
-        // module without a `main` (e.g. a library), every function is a
-        // potential entry point, so keep them all.
-        if !module.functions.contains_key("main") {
-            self.report.reachable_symbols = module.functions.len();
-            self.report.removed_symbols = 0;
-            return;
-        }
-
-        let mut reachable: HashSet<String> = HashSet::new();
-        let mut worklist: Vec<String> = Vec::new();
-
-        let mut method_map: HashMap<String, Vec<String>> = HashMap::new();
-        let mut all_fn_names: Vec<String> = module.functions.keys().cloned().collect();
-        all_fn_names.sort();
-        for f_name in &all_fn_names {
-            let mut start = 0;
-            while let Some(idx) = f_name[start..].find('_') {
-                let actual_idx = start + idx;
-                let suffix = &f_name[actual_idx + 1..];
-                method_map
-                    .entry(suffix.to_string())
-                    .or_default()
-                    .push(f_name.clone());
-                start = actual_idx + 1;
-            }
-        }
-
-        if module.functions.contains_key("main") {
-            reachable.insert("main".to_string());
-            worklist.push("main".to_string());
-        }
-
-        while let Some(current_fn) = worklist.pop() {
-            if let Some(f) = module.functions.get(&current_fn) {
-                for block in &f.blocks {
-                    self.collect_calls(
-                        &block.instructions,
-                        module,
-                        &method_map,
-                        &mut reachable,
-                        &mut worklist,
-                    );
-                }
-            }
-        }
-
-        self.report.reachable_symbols = reachable.len();
-        let initial_count = module.functions.len();
-
-        if !reachable.is_empty() {
-            module.functions.retain(|name, _| reachable.contains(name));
-            self.report.removed_symbols = initial_count - module.functions.len();
-        } else {
-            self.report.reachable_symbols = initial_count;
-        }
-    }
-
-    fn collect_calls(
-        &self,
-        instructions: &[Inst],
-        module: &Module,
-        method_map: &HashMap<String, Vec<String>>,
-        reachable: &mut HashSet<String>,
-        worklist: &mut Vec<String>,
-    ) {
-        for inst in instructions {
-            match inst {
-                Inst::Call { func, .. } => {
-                    if module.functions.contains_key(func) && !reachable.contains(func) {
-                        reachable.insert(func.clone());
-                        worklist.push(func.clone());
-                    }
-                }
-                Inst::GetFuncAddr { func_name, .. } => {
-                    if module.functions.contains_key(func_name) && !reachable.contains(func_name) {
-                        reachable.insert(func_name.clone());
-                        worklist.push(func_name.clone());
-                    }
-                }
-                Inst::MethodCall { method, .. } => {
-                    if module.functions.contains_key(method) && !reachable.contains(method) {
-                        reachable.insert(method.clone());
-                        worklist.push(method.clone());
-                    }
-                    if let Some(funcs) = method_map.get(method) {
-                        for f_name in funcs {
-                            if !reachable.contains(f_name) {
-                                reachable.insert(f_name.clone());
-                                worklist.push(f_name.clone());
-                            }
-                        }
-                    }
-                }
-                Inst::WhileLoop {
-                    condition_insts,
-                    body_insts,
-                    ..
-                } => {
-                    self.collect_calls(condition_insts, module, method_map, reachable, worklist);
-                    self.collect_calls(body_insts, module, method_map, reachable, worklist);
-                }
-                Inst::TryCatch {
-                    try_insts,
-                    catch_insts,
-                    ..
-                } => {
-                    self.collect_calls(try_insts, module, method_map, reachable, worklist);
-                    self.collect_calls(catch_insts, module, method_map, reachable, worklist);
-                }
-                _ => {}
-            }
-        }
+        Ok(())
     }
 
     pub fn optimize_function(&mut self, f: &mut Function) {
@@ -1235,16 +349,22 @@ impl Optimizer {
             if ScalarOptimizer::apply_strength_reduction(f, &self.cost_model, &mut self.trace) > 0 {
                 changed = true;
             }
-            if LoopOptimizer::optimize_loops(f, &self.cost_model, &mut self.trace) > 0 {
-                changed = true;
-            }
-            if PipelineFusionOptimizer::fuse_pipelines(f, &self.cost_model, &mut self.trace) > 0 {
-                changed = true;
-            }
             if MemoryOptimizer::scalarize_structures(f, &self.cost_model, &mut self.trace) > 0 {
                 changed = true;
             }
             if self.scalarize_structures(f) {
+                changed = true;
+            }
+            if LoopOptimizer::optimize_loops(
+                f,
+                &self.cost_model,
+                &mut self.trace,
+                &mut self.report.bce_proven,
+            ) > 0
+            {
+                changed = true;
+            }
+            if PipelineFusionOptimizer::fuse_pipelines(f, &self.cost_model, &mut self.trace) > 0 {
                 changed = true;
             }
             if self.constant_fold(f) {
@@ -1852,687 +972,6 @@ impl Optimizer {
                         new_instructions.push(inst.clone());
                     }
                 }
-            }
-            block.instructions = new_instructions;
-        }
-
-        changed
-    }
-
-    fn constant_fold(&mut self, f: &mut Function) -> bool {
-        let mut changed = false;
-        let mut int_constants: HashMap<ValueId, i64> = HashMap::new();
-        let mut str_constants: HashMap<ValueId, String> = HashMap::new();
-        let mut bool_constants: HashMap<ValueId, bool> = HashMap::new();
-
-        for block in &mut f.blocks {
-            let mut block_var_ints: HashMap<String, i64> = HashMap::new();
-            let mut block_var_strs: HashMap<String, String> = HashMap::new();
-            let mut block_var_bools: HashMap<String, bool> = HashMap::new();
-            let mut new_instructions = Vec::new();
-
-            for inst in &block.instructions {
-                match inst {
-                    Inst::ConstInt { dest, value } => {
-                        int_constants.insert(*dest, *value);
-                        new_instructions.push(inst.clone());
-                    }
-                    Inst::ConstStr { dest, value } => {
-                        str_constants.insert(*dest, value.clone());
-                        new_instructions.push(inst.clone());
-                    }
-                    Inst::ConstBool { dest, value } => {
-                        bool_constants.insert(*dest, *value);
-                        new_instructions.push(inst.clone());
-                    }
-                    Inst::AssignVar { name, value } => {
-                        if let Some(v) = int_constants.get(value) {
-                            block_var_ints.insert(name.clone(), *v);
-                        } else {
-                            block_var_ints.remove(name);
-                        }
-                        if let Some(v) = str_constants.get(value) {
-                            block_var_strs.insert(name.clone(), v.clone());
-                        } else {
-                            block_var_strs.remove(name);
-                        }
-                        if let Some(v) = bool_constants.get(value) {
-                            block_var_bools.insert(name.clone(), *v);
-                        } else {
-                            block_var_bools.remove(name);
-                        }
-                        new_instructions.push(inst.clone());
-                    }
-                    Inst::LoadVar { dest, name } => {
-                        if let Some(v) = block_var_ints.get(name) {
-                            int_constants.insert(*dest, *v);
-                        }
-                        if let Some(v) = block_var_strs.get(name) {
-                            str_constants.insert(*dest, v.clone());
-                        }
-                        if let Some(v) = block_var_bools.get(name) {
-                            bool_constants.insert(*dest, *v);
-                        }
-                        new_instructions.push(inst.clone());
-                    }
-                    Inst::UnOp {
-                        dest,
-                        op,
-                        operand,
-                        ty: _,
-                    } => {
-                        if op == "copy" {
-                            if let Some(i) = int_constants.get(operand).copied() {
-                                int_constants.insert(*dest, i);
-                                new_instructions.push(Inst::ConstInt {
-                                    dest: *dest,
-                                    value: i,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            } else if let Some(s) = str_constants.get(operand).cloned() {
-                                str_constants.insert(*dest, s.clone());
-                                new_instructions.push(Inst::ConstStr {
-                                    dest: *dest,
-                                    value: s,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            } else if let Some(b) = bool_constants.get(operand).copied() {
-                                bool_constants.insert(*dest, b);
-                                new_instructions.push(Inst::ConstBool {
-                                    dest: *dest,
-                                    value: b,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            }
-                        } else if op == "-" {
-                            if let Some(i) = int_constants.get(operand).copied() {
-                                let res = i.wrapping_neg();
-                                int_constants.insert(*dest, res);
-                                new_instructions.push(Inst::ConstInt {
-                                    dest: *dest,
-                                    value: res,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            }
-                        } else if op == "!" || op == "not" {
-                            if let Some(b) = bool_constants.get(operand).copied() {
-                                let res = !b;
-                                bool_constants.insert(*dest, res);
-                                new_instructions.push(Inst::ConstBool {
-                                    dest: *dest,
-                                    value: res,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            }
-                        }
-                        new_instructions.push(inst.clone());
-                    }
-                    Inst::BinOp {
-                        dest,
-                        op,
-                        left,
-                        right,
-                        ty: _,
-                    } => {
-                        if let (Some(l_val), Some(r_val)) =
-                            (int_constants.get(left), int_constants.get(right))
-                        {
-                            let folded = match op.as_str() {
-                                "+" => l_val.checked_add(*r_val),
-                                "-" => l_val.checked_sub(*r_val),
-                                "*" => l_val.checked_mul(*r_val),
-                                "wrapping_+" => Some(l_val.wrapping_add(*r_val)),
-                                "wrapping_-" => Some(l_val.wrapping_sub(*r_val)),
-                                "wrapping_*" => Some(l_val.wrapping_mul(*r_val)),
-                                "saturating_+" => Some(l_val.saturating_add(*r_val)),
-                                "saturating_-" => Some(l_val.saturating_sub(*r_val)),
-                                "saturating_*" => Some(l_val.saturating_mul(*r_val)),
-                                "/" if *r_val != 0 && !(*l_val == i64::MIN && *r_val == -1) => {
-                                    l_val.checked_div(*r_val)
-                                }
-                                "%" if *r_val != 0 && !(*l_val == i64::MIN && *r_val == -1) => {
-                                    l_val.checked_rem(*r_val)
-                                }
-                                _ => None,
-                            };
-                            if let Some(res) = folded {
-                                int_constants.insert(*dest, res);
-                                new_instructions.push(Inst::ConstInt {
-                                    dest: *dest,
-                                    value: res,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            }
-
-                            let bool_folded = match op.as_str() {
-                                "<" => Some(l_val < r_val),
-                                "<=" => Some(l_val <= r_val),
-                                ">" => Some(l_val > r_val),
-                                ">=" => Some(l_val >= r_val),
-                                "==" => Some(l_val == r_val),
-                                "!=" => Some(l_val != r_val),
-                                _ => None,
-                            };
-                            if let Some(res) = bool_folded {
-                                bool_constants.insert(*dest, res);
-                                new_instructions.push(Inst::ConstBool {
-                                    dest: *dest,
-                                    value: res,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            }
-                        }
-
-                        if let (Some(l_val), Some(r_val)) =
-                            (bool_constants.get(left), bool_constants.get(right))
-                        {
-                            let bool_folded = match op.as_str() {
-                                "==" => Some(l_val == r_val),
-                                "!=" => Some(l_val != r_val),
-                                "&&" | "and" => Some(*l_val && *r_val),
-                                "||" | "or" => Some(*l_val || *r_val),
-                                _ => None,
-                            };
-                            if let Some(res) = bool_folded {
-                                bool_constants.insert(*dest, res);
-                                new_instructions.push(Inst::ConstBool {
-                                    dest: *dest,
-                                    value: res,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            }
-                        }
-
-                        if let (Some(l_val), Some(r_val)) =
-                            (str_constants.get(left), str_constants.get(right))
-                        {
-                            let bool_folded = match op.as_str() {
-                                "==" => Some(l_val == r_val),
-                                "!=" => Some(l_val != r_val),
-                                _ => None,
-                            };
-                            if let Some(res) = bool_folded {
-                                bool_constants.insert(*dest, res);
-                                new_instructions.push(Inst::ConstBool {
-                                    dest: *dest,
-                                    value: res,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            }
-                        }
-                        new_instructions.push(inst.clone());
-                    }
-                    Inst::Decide {
-                        dest,
-                        arms,
-                        else_val,
-                        ty: _,
-                    } => {
-                        let mut resolved: Option<ValueId> = None;
-                        let mut can_resolve = true;
-                        for (cond, val) in arms {
-                            if let Some(b) = bool_constants.get(cond) {
-                                if *b {
-                                    resolved = Some(*val);
-                                    break;
-                                }
-                            } else if let Some(i) = int_constants.get(cond) {
-                                if *i != 0 {
-                                    resolved = Some(*val);
-                                    break;
-                                }
-                            } else {
-                                can_resolve = false;
-                                break;
-                            }
-                        }
-                        if resolved.is_none() && can_resolve {
-                            resolved = *else_val;
-                        }
-
-                        if let Some(res_vid) = resolved {
-                            if let Some(ival) = int_constants.get(&res_vid).copied() {
-                                int_constants.insert(*dest, ival);
-                                new_instructions.push(Inst::ConstInt {
-                                    dest: *dest,
-                                    value: ival,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            } else if let Some(sval) = str_constants.get(&res_vid).cloned() {
-                                str_constants.insert(*dest, sval.clone());
-                                new_instructions.push(Inst::ConstStr {
-                                    dest: *dest,
-                                    value: sval,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            } else if let Some(bval) = bool_constants.get(&res_vid).copied() {
-                                bool_constants.insert(*dest, bval);
-                                new_instructions.push(Inst::ConstBool {
-                                    dest: *dest,
-                                    value: bval,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            }
-                        }
-                        new_instructions.push(inst.clone());
-                    }
-                    Inst::Select {
-                        dest,
-                        cond,
-                        then_val,
-                        else_val,
-                        ty: _,
-                    } => {
-                        if let Some(b) = bool_constants.get(cond) {
-                            let chosen = if *b { *then_val } else { *else_val };
-                            if let Some(ival) = int_constants.get(&chosen).copied() {
-                                int_constants.insert(*dest, ival);
-                                new_instructions.push(Inst::ConstInt {
-                                    dest: *dest,
-                                    value: ival,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            } else if let Some(sval) = str_constants.get(&chosen).cloned() {
-                                str_constants.insert(*dest, sval.clone());
-                                new_instructions.push(Inst::ConstStr {
-                                    dest: *dest,
-                                    value: sval,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            } else if let Some(bval) = bool_constants.get(&chosen).copied() {
-                                bool_constants.insert(*dest, bval);
-                                new_instructions.push(Inst::ConstBool {
-                                    dest: *dest,
-                                    value: bval,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            }
-                        }
-                        new_instructions.push(inst.clone());
-                    }
-                    Inst::FormatStr {
-                        dest,
-                        parts,
-                        values,
-                    } => {
-                        let all_known = values.iter().all(|v| {
-                            int_constants.contains_key(v)
-                                || str_constants.contains_key(v)
-                                || bool_constants.contains_key(v)
-                        });
-                        if all_known {
-                            let mut res_str = String::new();
-                            for (i, p) in parts.iter().enumerate() {
-                                res_str.push_str(p);
-                                if i < values.len() {
-                                    let v_id = &values[i];
-                                    if let Some(c) = int_constants.get(v_id) {
-                                        res_str.push_str(&c.to_string());
-                                    } else if let Some(c) = str_constants.get(v_id) {
-                                        res_str.push_str(c);
-                                    } else if let Some(c) = bool_constants.get(v_id) {
-                                        res_str.push_str(if *c { "true" } else { "false" });
-                                    }
-                                }
-                            }
-                            str_constants.insert(*dest, res_str.clone());
-                            new_instructions.push(Inst::ConstStr {
-                                dest: *dest,
-                                value: res_str,
-                            });
-                            self.report.constants_folded += 1;
-                            changed = true;
-                            continue;
-                        }
-                        new_instructions.push(inst.clone());
-                    }
-                    Inst::Call {
-                        dest,
-                        func,
-                        args,
-                        ty: _,
-                    } => {
-                        let int_args: Vec<Option<i64>> =
-                            args.iter().map(|a| int_constants.get(a).copied()).collect();
-                        let all_int_consts =
-                            !int_args.is_empty() && int_args.iter().all(|a| a.is_some());
-
-                        if all_int_consts {
-                            let vals: Vec<i64> = int_args.into_iter().map(|a| a.unwrap()).collect();
-                            let folded: Option<i64> = match func.as_str() {
-                                "abs" | "math_abs" if vals.len() == 1 => vals[0].checked_abs(),
-                                "min" if vals.len() == 2 => Some(vals[0].min(vals[1])),
-                                "max" if vals.len() == 2 => Some(vals[0].max(vals[1])),
-                                _ => None,
-                            };
-
-                            if let Some(res) = folded {
-                                int_constants.insert(*dest, res);
-                                new_instructions.push(Inst::ConstInt {
-                                    dest: *dest,
-                                    value: res,
-                                });
-                                self.report.constants_folded += 1;
-                                changed = true;
-                                continue;
-                            }
-                        }
-                        new_instructions.push(inst.clone());
-                    }
-                    _ => {
-                        new_instructions.push(inst.clone());
-                    }
-                }
-            }
-
-            block.instructions = new_instructions;
-        }
-
-        changed
-    }
-
-    fn collect_used_values(
-        &self,
-        inst: &Inst,
-        used_values: &mut HashSet<ValueId>,
-        loaded_vars: &HashSet<String>,
-    ) {
-        match inst {
-            Inst::AssignVar { name, value } => {
-                if loaded_vars.contains(name) {
-                    used_values.insert(*value);
-                }
-            }
-            Inst::BinOp { left, right, .. } => {
-                used_values.insert(*left);
-                used_values.insert(*right);
-            }
-            Inst::UnOp { operand, .. } => {
-                used_values.insert(*operand);
-            }
-            Inst::Call { args, .. } => {
-                for a in args {
-                    used_values.insert(*a);
-                }
-            }
-            Inst::MethodCall { object, args, .. } => {
-                used_values.insert(*object);
-                for a in args {
-                    used_values.insert(*a);
-                }
-            }
-            Inst::StructInit { fields, .. } => {
-                for (_, fval) in fields {
-                    used_values.insert(*fval);
-                }
-            }
-            Inst::GetField { object, .. } => {
-                used_values.insert(*object);
-            }
-            Inst::SetField { object, value, .. } => {
-                used_values.insert(*object);
-                used_values.insert(*value);
-            }
-            Inst::Out { value } | Inst::Err { value } => {
-                used_values.insert(*value);
-            }
-            Inst::FormatStr { values, .. } => {
-                for v in values {
-                    used_values.insert(*v);
-                }
-            }
-            Inst::Decide { arms, else_val, .. } => {
-                for (c, v) in arms {
-                    used_values.insert(*c);
-                    used_values.insert(*v);
-                }
-                if let Some(ev) = else_val {
-                    used_values.insert(*ev);
-                }
-            }
-            Inst::Select {
-                cond,
-                then_val,
-                else_val,
-                ..
-            } => {
-                used_values.insert(*cond);
-                used_values.insert(*then_val);
-                used_values.insert(*else_val);
-            }
-            Inst::WhileLoop {
-                condition_insts,
-                cond_val,
-                body_insts,
-            } => {
-                used_values.insert(*cond_val);
-                for ci in condition_insts {
-                    self.collect_used_values(ci, used_values, loaded_vars);
-                }
-                for bi in body_insts {
-                    self.collect_used_values(bi, used_values, loaded_vars);
-                }
-            }
-            Inst::TryCatch {
-                try_insts,
-                catch_insts,
-                ..
-            } => {
-                for ti in try_insts {
-                    self.collect_used_values(ti, used_values, loaded_vars);
-                }
-                for ci in catch_insts {
-                    self.collect_used_values(ci, used_values, loaded_vars);
-                }
-            }
-            Inst::Return { value: Some(v) } => {
-                used_values.insert(*v);
-            }
-            _ => {}
-        }
-    }
-
-    /// Whether deleting this instruction could delete an observable fault.
-    ///
-    /// Integer `/` and `%` lower to `sdiv`/`srem`, which trap on a zero divisor
-    /// and on `MIN / -1`. Dropping a dead one removes a trap the program would
-    /// have raised, so it is not side-effect free. Float division produces
-    /// inf/NaN instead of faulting and stays removable.
-    fn may_trap(inst: &Inst) -> bool {
-        matches!(inst, Inst::BinOp { op, ty, .. } if (op == "/" || op == "%") && ty != "Float")
-    }
-
-    fn dead_code_elimination(&mut self, f: &mut Function) -> bool {
-        let mut changed = false;
-        let mut used_values: HashSet<ValueId> = HashSet::new();
-
-        let mut loaded_vars: HashSet<String> = HashSet::new();
-        fn scan_loads(inst: &Inst, loaded: &mut HashSet<String>) {
-            match inst {
-                Inst::LoadVar { name, .. } => {
-                    loaded.insert(name.clone());
-                }
-                Inst::WhileLoop {
-                    condition_insts,
-                    body_insts,
-                    ..
-                } => {
-                    for ci in condition_insts {
-                        scan_loads(ci, loaded);
-                    }
-                    for bi in body_insts {
-                        scan_loads(bi, loaded);
-                    }
-                }
-                Inst::TryCatch {
-                    try_insts,
-                    catch_insts,
-                    ..
-                } => {
-                    for ti in try_insts {
-                        scan_loads(ti, loaded);
-                    }
-                    for ci in catch_insts {
-                        scan_loads(ci, loaded);
-                    }
-                }
-                _ => {}
-            }
-        }
-        for block in &f.blocks {
-            for inst in &block.instructions {
-                scan_loads(inst, &mut loaded_vars);
-            }
-        }
-
-        for block in &f.blocks {
-            for inst in &block.instructions {
-                self.collect_used_values(inst, &mut used_values, &loaded_vars);
-            }
-            // Block parameters and terminator operands are uses too. After
-            // mem2reg, branch arguments reference live SSA definitions;
-            // ignoring them would let DCE delete a definition a branch still
-            // consumes, producing undefined uses the verifier rejects.
-            match &block.terminator {
-                Terminator::Branch { args, .. } => {
-                    for v in args {
-                        used_values.insert(*v);
-                    }
-                }
-                Terminator::CondBranch {
-                    cond,
-                    then_args,
-                    else_args,
-                    ..
-                } => {
-                    used_values.insert(*cond);
-                    for v in then_args.iter().chain(else_args) {
-                        used_values.insert(*v);
-                    }
-                }
-                Terminator::Return { value: Some(v) } => {
-                    used_values.insert(*v);
-                }
-                _ => {}
-            }
-        }
-
-        for block in &mut f.blocks {
-            let mut new_instructions = Vec::new();
-            for (inst_idx, inst) in block.instructions.iter().enumerate() {
-                if let Inst::AssignVar { name, .. } = inst
-                    && !loaded_vars.contains(name)
-                {
-                    self.report.dead_instructions_removed += 1;
-                    changed = true;
-                    continue;
-                }
-                let is_pure_call = match inst {
-                    Inst::Call { func, .. } => {
-                        func.starts_with("datara_rt_str_concat")
-                            || func == "datara_rt_format_str_i64_str_i64"
-                            || func == "datara_rt_int_to_str"
-                            || func == "datara_rt_float_to_str"
-                            || func == "datara_rt_len"
-                            || func == "abs"
-                            || func == "min"
-                            || func == "max"
-                    }
-                    _ => false,
-                };
-                // Hybrid-SSA variable reads have no side effects in this IR:
-                // a LoadVar only loads from the logical variable store, so a
-                // dead one is removable (its feeding store is removed by the
-                // AssignVar rule above).
-                let is_load_var = matches!(inst, Inst::LoadVar { .. });
-                // StructInit is a pure allocation: removing a dead one is
-                // allocation elision.
-                let is_struct_init = matches!(inst, Inst::StructInit { .. });
-                // FormatStr / Select / Decide are pure value computations.
-                let is_pure_value = matches!(
-                    inst,
-                    Inst::FormatStr { .. } | Inst::Select { .. } | Inst::Decide { .. }
-                );
-                let is_pure = is_pure_call
-                    || matches!(
-                        inst,
-                        Inst::ConstInt { .. }
-                            | Inst::ConstFloat { .. }
-                            | Inst::ConstStr { .. }
-                            | Inst::ConstBool { .. }
-                            | Inst::BinOp { .. }
-                            | Inst::UnOp { .. }
-                    )
-                    || is_load_var
-                    || is_struct_init
-                    || is_pure_value;
-                if is_pure && !Self::may_trap(inst) {
-                    let dest_id = match inst {
-                        Inst::ConstInt { dest, .. }
-                        | Inst::ConstFloat { dest, .. }
-                        | Inst::ConstStr { dest, .. }
-                        | Inst::ConstBool { dest, .. }
-                        | Inst::BinOp { dest, .. }
-                        | Inst::UnOp { dest, .. }
-                        | Inst::Call { dest, .. }
-                        | Inst::LoadVar { dest, .. }
-                        | Inst::StructInit { dest, .. }
-                        | Inst::FormatStr { dest, .. }
-                        | Inst::Select { dest, .. }
-                        | Inst::Decide { dest, .. } => dest,
-                        // INVARIANT: Outer matches! check ensures instruction is one of the variants with a dest ValueId
-                        _ => unreachable!("instruction variant guaranteed by outer matches! guard"),
-                    };
-                    if !used_values.contains(dest_id) {
-                        self.report.dead_instructions_removed += 1;
-                        changed = true;
-                        continue;
-                    }
-                }
-                // GetField can fault on a null object, so it is only removable
-                // when the object was produced by a StructInit earlier in the
-                // same block (known non-null, no cross-block uncertainty).
-                if let Inst::GetField { dest, object, .. } = inst
-                    && !used_values.contains(dest)
-                    && block.instructions[..inst_idx]
-                        .iter()
-                        .any(|prev| matches!(prev, Inst::StructInit { dest: d, .. } if d == object))
-                {
-                    self.report.dead_instructions_removed += 1;
-                    changed = true;
-                    continue;
-                }
-                new_instructions.push(inst.clone());
             }
             block.instructions = new_instructions;
         }

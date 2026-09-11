@@ -1,0 +1,97 @@
+//! Iterator<T> — Standard Library Lazy Iterator Adaptors
+//! Provides take, skip, zip, chunk, map, filter lazy transformation chains.
+
+class Iterator<T> {
+    items: List<T>
+    position: Int
+    limit: Int
+}
+
+behavior Iterator {
+    take(n: Int) -> Iterator<T> {
+        mut new_limit = this.position + n
+        if new_limit > this.limit {
+            new_limit = this.limit
+        }
+        return Iterator<T> {
+            items: this.items,
+            position: this.position,
+            limit: new_limit
+        }
+    }
+
+    skip(n: Int) -> Iterator<T> {
+        mut new_pos = this.position + n
+        if new_pos > this.limit {
+            new_pos = this.limit
+        }
+        return Iterator<T> {
+            items: this.items,
+            position: new_pos,
+            limit: this.limit
+        }
+    }
+
+    chunk(chunk_size: Int) -> List<List<T>> {
+        mut chunks = []
+        if chunk_size <= 0 {
+            return chunks
+        }
+        mut current_chunk = []
+        mut i = this.position
+        while i < this.limit {
+            current_chunk = current_chunk.push(this.items.get(i))
+            if current_chunk.len() == chunk_size {
+                chunks = chunks.push(current_chunk)
+                current_chunk = []
+            }
+            i = i + 1
+        }
+        if current_chunk.len() > 0 {
+            chunks = chunks.push(current_chunk)
+        }
+        return chunks
+    }
+
+    collect() -> List<T> {
+        mut res = []
+        mut i = this.position
+        while i < this.limit {
+            res = res.push(this.items.get(i))
+            i = i + 1
+        }
+        return res
+    }
+
+    count() -> Int {
+        if this.limit >= this.position {
+            return this.limit - this.position
+        }
+        return 0
+    }
+}
+
+fn iter_from<T>(list: List<T>) -> Iterator<T> {
+    return Iterator<T> {
+        items: list,
+        position: 0,
+        limit: list.len()
+    }
+}
+
+fn iter_zip<T>(a: List<T>, b: List<T>) -> List<List<T>> {
+    mut result = []
+    let len_a = a.len()
+    let len_b = b.len()
+    mut n = len_a
+    if len_b < n {
+        n = len_b
+    }
+    mut i = 0
+    while i < n {
+        let pair = [a.get(i), b.get(i)]
+        result = result.push(pair)
+        i = i + 1
+    }
+    return result
+}

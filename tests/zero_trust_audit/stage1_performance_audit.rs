@@ -49,14 +49,16 @@ fn main() {
 
     // 1. Check define internal fastcc on internal functions
     assert!(
-        ll.contains("define internal fastcc i64 @internal_worker("),
+        ll.contains("define internal fastcc i64 @internal_worker(")
+            || ll.contains("define internal fastcc i64 @internal_worker__spec_"),
         "LLVM IR must define internal_worker as 'define internal fastcc', found:\n{}",
         ll
     );
 
     // 2. Check call fastcc at call sites
     assert!(
-        ll.contains("call fastcc i64 @internal_worker("),
+        ll.contains("call fastcc i64 @internal_worker(")
+            || ll.contains("call fastcc i64 @internal_worker__spec_"),
         "LLVM IR call to internal_worker must use 'call fastcc'"
     );
 
@@ -217,19 +219,25 @@ fn main() {
 
     // Check DMIR structure: recursive call MUST be absent in optimized DMIR
     let compiler = ForgenCompiler::new("release");
-    let dmir = compiler
-        .compile_source_to_dmir(source_1m, "tco_check.dtr")
-        .expect("DMIR must compile");
+    let res = compiler.compile_source(source_1m, "tco_check.dtr", None);
+    assert!(res.success, "Compilation failed: {:?}", res.error);
+    let dmir = res.dmir_module.expect("optimized DMIR must exist");
     let sum_fn = dmir
         .functions
         .get("sum_tail")
+        .or_else(|| {
+            dmir.functions
+                .iter()
+                .find(|(k, _)| k.starts_with("sum_tail"))
+                .map(|(_, f)| f)
+        })
         .expect("sum_tail must exist in DMIR");
 
     let mut self_calls = 0;
     for b in &sum_fn.blocks {
         for inst in &b.instructions {
             if let forgen::dmir::Inst::Call { func, .. } = inst {
-                if func == "sum_tail" {
+                if func == "sum_tail" || func.starts_with("sum_tail") {
                     self_calls += 1;
                 }
             }
