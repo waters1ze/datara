@@ -2002,12 +2002,12 @@ pub fn run_dpm_cli_args(args: &[String]) {
             }
 
             if pkg_name.starts_with("sparks/") {
-                let default_reg = std::env::var("DATARA_SPARKS_REGISTRY")
-                    .unwrap_or_else(|_| "https://sparks.datara.dev".to_string());
-                let reg_url = if !registry.registry_url.is_empty() {
+                let has_explicit_reg = args.iter().any(|a| a == "--registry");
+                let reg_url = if has_explicit_reg {
                     registry.registry_url.clone()
                 } else {
-                    default_reg
+                    std::env::var("DATARA_SPARKS_REGISTRY")
+                        .unwrap_or_else(|_| "https://waters1ze.github.io/sparks".to_string())
                 };
                 println!(
                     ":: [SPARKS] Installing capability-verified package '{}' from '{}'...",
@@ -2153,12 +2153,12 @@ pub fn run_dpm_cli_args(args: &[String]) {
         "install" | "i" | "restore" => {
             if let Some(target) = args.get(2) {
                 if target.starts_with("sparks/") {
-                    let default_reg = std::env::var("DATARA_SPARKS_REGISTRY")
-                        .unwrap_or_else(|_| "https://sparks.datara.dev".to_string());
-                    let reg_url = if !registry.registry_url.is_empty() {
+                    let has_explicit_reg = args.iter().any(|a| a == "--registry");
+                    let reg_url = if has_explicit_reg {
                         registry.registry_url.clone()
                     } else {
-                        default_reg
+                        std::env::var("DATARA_SPARKS_REGISTRY")
+                            .unwrap_or_else(|_| "https://waters1ze.github.io/sparks".to_string())
                     };
                     println!(
                         ":: [SPARKS] Installing capability-verified package '{}' from '{}'...",
