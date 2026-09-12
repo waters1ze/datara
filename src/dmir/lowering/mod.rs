@@ -120,32 +120,44 @@ impl<'a> Lowering<'a> {
         for f in &[
             "math_sqrt",
             "datara_rt_math_sqrt",
+            "sqrt",
             "math_pow",
             "datara_rt_math_pow",
+            "pow",
             "math_abs",
             "datara_rt_math_abs",
+            "abs",
             "math_sin",
             "datara_rt_math_sin",
+            "sin",
             "math_cos",
             "datara_rt_math_cos",
+            "cos",
             "math_tan",
             "datara_rt_math_tan",
+            "tan",
             "math_floor",
             "datara_rt_math_floor",
+            "floor",
             "math_ceil",
             "datara_rt_math_ceil",
+            "ceil",
             "math_round",
             "datara_rt_math_round",
+            "round",
             "math_min",
             "datara_rt_math_min",
             "math_max",
             "datara_rt_math_max",
             "math_hypot",
             "datara_rt_math_hypot",
+            "hypot",
             "math_log",
             "datara_rt_math_log",
+            "log",
             "math_exp",
             "datara_rt_math_exp",
+            "exp",
             "math_clamp",
             "datara_rt_math_clamp",
             "clamp",
@@ -183,11 +195,106 @@ impl<'a> Lowering<'a> {
         ] {
             function_return_types.insert((*f).into(), "Int".into());
         }
-        for f in &["int4", "datara_rt_int4"] {
+        for f in &[
+            "int4",
+            "datara_rt_int4",
+            "i32x4",
+            "datara_rt_i32x4",
+            "i32x4_add",
+            "i32x4_sub",
+            "i32x4_mul",
+            "i32x4_div",
+            "i32x4_min",
+            "i32x4_max",
+        ] {
             function_return_types.insert((*f).into(), "Int4".into());
         }
-        for f in &["float4", "datara_rt_float4", "min4", "max4"] {
+        for f in &[
+            "i32x8",
+            "datara_rt_i32x8",
+            "i32x8_add",
+            "i32x8_sub",
+            "i32x8_mul",
+            "i32x8_div",
+            "i32x8_min",
+            "i32x8_max",
+        ] {
+            function_return_types.insert((*f).into(), "i32x8".into());
+        }
+        for f in &[
+            "float4",
+            "datara_rt_float4",
+            "f32x4",
+            "datara_rt_f32x4",
+            "min4",
+            "max4",
+            "f32x4_add",
+            "f32x4_sub",
+            "f32x4_mul",
+            "f32x4_div",
+            "f32x4_cross",
+            "f32x4_min",
+            "f32x4_max",
+            "f32x4_lerp",
+            "f32x4_normalize",
+        ] {
             function_return_types.insert((*f).into(), "Float4".into());
+        }
+        for f in &[
+            "f32x8",
+            "datara_rt_f32x8",
+            "f32x8_add",
+            "f32x8_sub",
+            "f32x8_mul",
+            "f32x8_div",
+            "f32x8_min",
+            "f32x8_max",
+            "f32x8_lerp",
+            "f32x8_normalize",
+        ] {
+            function_return_types.insert((*f).into(), "f32x8".into());
+        }
+        for f in &[
+            "f32x16",
+            "datara_rt_f32x16",
+            "f32x16_add",
+            "f32x16_sub",
+            "f32x16_mul",
+            "f32x16_div",
+            "f32x16_min",
+            "f32x16_max",
+            "f32x16_lerp",
+            "f32x16_normalize",
+        ] {
+            function_return_types.insert((*f).into(), "f32x16".into());
+        }
+        for f in &[
+            "f64x2",
+            "datara_rt_f64x2",
+            "f64x2_add",
+            "f64x2_sub",
+            "f64x2_mul",
+            "f64x2_div",
+            "f64x2_min",
+            "f64x2_max",
+            "f64x2_lerp",
+            "f64x2_normalize",
+        ] {
+            function_return_types.insert((*f).into(), "f64x2".into());
+        }
+        for f in &[
+            "f64x4",
+            "datara_rt_f64x4",
+            "f64x4_add",
+            "f64x4_sub",
+            "f64x4_mul",
+            "f64x4_div",
+            "f64x4_min",
+            "f64x4_max",
+            "f64x4_lerp",
+            "f64x4_normalize",
+        ] {
+            function_return_types.insert((*f).into(), "f64x4".into());
         }
         for f in &[
             "dot",
@@ -196,6 +303,31 @@ impl<'a> Lowering<'a> {
             "float4_y",
             "float4_z",
             "float4_w",
+            "f32x4_dot",
+            "f32x4_horizontal_add",
+            "f32x4_distance",
+            "f32x8_dot",
+            "f32x8_horizontal_add",
+            "f32x8_distance",
+            "f32x16_dot",
+            "f32x16_horizontal_add",
+            "f32x16_distance",
+            "f64x2_dot",
+            "f64x2_horizontal_add",
+            "f64x2_distance",
+            "f64x4_dot",
+            "f64x4_horizontal_add",
+            "f64x4_distance",
+            "dot_f32_array",
+            "datara_rt_dot_f32_array",
+            "ray_sphere_intersect_simd",
+            "ray_sphere_intersect_scalar",
+            "datara_rt_ray_sphere_intersect_simd",
+            "datara_rt_ray_sphere_intersect_scalar",
+            "fma",
+            "fmaf",
+            "datara_rt_fma",
+            "datara_rt_fmaf",
             "lane0",
             "lane1",
             "lane2",
@@ -203,7 +335,16 @@ impl<'a> Lowering<'a> {
         ] {
             function_return_types.insert((*f).into(), "Float".into());
         }
-        for f in &["int4_x", "int4_y", "int4_z", "int4_w"] {
+        for f in &[
+            "int4_x",
+            "int4_y",
+            "int4_z",
+            "int4_w",
+            "i32x4_dot",
+            "i32x4_horizontal_add",
+            "i32x8_dot",
+            "i32x8_horizontal_add",
+        ] {
             function_return_types.insert((*f).into(), "Int".into());
         }
 

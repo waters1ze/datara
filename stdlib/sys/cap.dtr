@@ -1,0 +1,33 @@
+﻿// Capability Lattice: Runtime & Hardware Capability Traps
+// Bitmask definitions and one-way privilege dropping primitives
+
+let CAP_FS_READ: Int = 1
+let CAP_FS_WRITE: Int = 2
+let CAP_NET_CLIENT: Int = 4
+let CAP_NET_SERVER: Int = 8
+let CAP_SYS_EXEC: Int = 16
+let CAP_SYS_ENV: Int = 32
+let CAP_RAW_MMIO: Int = 64
+let CAP_RAW_PORT: Int = 128
+let CAP_RING0_OS: Int = 256
+
+class CapabilityLattice {
+}
+
+behavior CapabilityLattice {
+    get_mask() -> Int {
+        return cap_get_mask()
+    }
+
+    set_mask(mask: Int) {
+        cap_set_mask(mask)
+    }
+
+    revoke(mask: Int) {
+        cap_revoke(mask)
+    }
+
+    require(required_bit: Int, op_name: Str) {
+        cap_require(required_bit, op_name)
+    }
+}

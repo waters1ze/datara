@@ -1,0 +1,303 @@
+﻿class f32x4 {
+    x: Float
+    y: Float
+    z: Float
+    w: Float
+}
+
+behavior f32x4 {
+    add(other: f32x4) -> f32x4 {
+        return f32x4_add(this, other)
+    }
+    sub(other: f32x4) -> f32x4 {
+        return f32x4_sub(this, other)
+    }
+    mul(other: f32x4) -> f32x4 {
+        return f32x4_mul(this, other)
+    }
+    div(other: f32x4) -> f32x4 {
+        return f32x4_div(this, other)
+    }
+    dot(other: f32x4) -> Float {
+        return f32x4_dot(this, other)
+    }
+    cross(other: f32x4) -> f32x4 {
+        return f32x4_cross(this, other)
+    }
+    horizontal_add() -> Float {
+        return f32x4_horizontal_add(this)
+    }
+    min(other: f32x4) -> f32x4 {
+        return f32x4_min(this, other)
+    }
+    max(other: f32x4) -> f32x4 {
+        return f32x4_max(this, other)
+    }
+    lerp(other: f32x4, t: Float) -> f32x4 {
+        return f32x4_lerp(this, other, t)
+    }
+    normalize() -> f32x4 {
+        return f32x4_normalize(this)
+    }
+    distance(other: f32x4) -> Float {
+        return f32x4_distance(this, other)
+    }
+}
+
+class f32x8 {
+    v0: Float
+    v1: Float
+    v2: Float
+    v3: Float
+    v4: Float
+    v5: Float
+    v6: Float
+    v7: Float
+}
+
+behavior f32x8 {
+    add(other: f32x8) -> f32x8 {
+        return f32x8_add(this, other)
+    }
+    sub(other: f32x8) -> f32x8 {
+        return f32x8_sub(this, other)
+    }
+    mul(other: f32x8) -> f32x8 {
+        return f32x8_mul(this, other)
+    }
+    div(other: f32x8) -> f32x8 {
+        return f32x8_div(this, other)
+    }
+    dot(other: f32x8) -> Float {
+        return f32x8_dot(this, other)
+    }
+    horizontal_add() -> Float {
+        return f32x8_horizontal_add(this)
+    }
+    min(other: f32x8) -> f32x8 {
+        return f32x8_min(this, other)
+    }
+    max(other: f32x8) -> f32x8 {
+        return f32x8_max(this, other)
+    }
+    lerp(other: f32x8, t: Float) -> f32x8 {
+        return f32x8_lerp(this, other, t)
+    }
+    normalize() -> f32x8 {
+        return f32x8_normalize(this)
+    }
+    distance(other: f32x8) -> Float {
+        return f32x8_distance(this, other)
+    }
+}
+
+class f32x16 {
+    v0: Float
+    v1: Float
+    v2: Float
+    v3: Float
+    v4: Float
+    v5: Float
+    v6: Float
+    v7: Float
+    v8: Float
+    v9: Float
+    v10: Float
+    v11: Float
+    v12: Float
+    v13: Float
+    v14: Float
+    v15: Float
+}
+
+behavior f32x16 {
+    add(other: f32x16) -> f32x16 {
+        return f32x16_add(this, other)
+    }
+    sub(other: f32x16) -> f32x16 {
+        return f32x16_sub(this, other)
+    }
+    mul(other: f32x16) -> f32x16 {
+        return f32x16_mul(this, other)
+    }
+    div(other: f32x16) -> f32x16 {
+        return f32x16_div(this, other)
+    }
+    dot(other: f32x16) -> Float {
+        return f32x16_dot(this, other)
+    }
+    horizontal_add() -> Float {
+        return f32x16_horizontal_add(this)
+    }
+    min(other: f32x16) -> f32x16 {
+        return f32x16_min(this, other)
+    }
+    max(other: f32x16) -> f32x16 {
+        return f32x16_max(this, other)
+    }
+    lerp(other: f32x16, t: Float) -> f32x16 {
+        return f32x16_lerp(this, other, t)
+    }
+    normalize() -> f32x16 {
+        return f32x16_normalize(this)
+    }
+    distance(other: f32x16) -> Float {
+        return f32x16_distance(this, other)
+    }
+}
+
+class i32x4 {
+    x: Int
+    y: Int
+    z: Int
+    w: Int
+}
+
+behavior i32x4 {
+    add(other: i32x4) -> i32x4 {
+        return i32x4_add(this, other)
+    }
+    sub(other: i32x4) -> i32x4 {
+        return i32x4_sub(this, other)
+    }
+    mul(other: i32x4) -> i32x4 {
+        return i32x4_mul(this, other)
+    }
+    div(other: i32x4) -> i32x4 {
+        return i32x4_div(this, other)
+    }
+    dot(other: i32x4) -> Int {
+        return i32x4_dot(this, other)
+    }
+    horizontal_add() -> Int {
+        return i32x4_horizontal_add(this)
+    }
+    min(other: i32x4) -> i32x4 {
+        return i32x4_min(this, other)
+    }
+    max(other: i32x4) -> i32x4 {
+        return i32x4_max(this, other)
+    }
+}
+
+class i32x8 {
+    v0: Int
+    v1: Int
+    v2: Int
+    v3: Int
+    v4: Int
+    v5: Int
+    v6: Int
+    v7: Int
+}
+
+behavior i32x8 {
+    add(other: i32x8) -> i32x8 {
+        return i32x8_add(this, other)
+    }
+    sub(other: i32x8) -> i32x8 {
+        return i32x8_sub(this, other)
+    }
+    mul(other: i32x8) -> i32x8 {
+        return i32x8_mul(this, other)
+    }
+    div(other: i32x8) -> i32x8 {
+        return i32x8_div(this, other)
+    }
+    dot(other: i32x8) -> Int {
+        return i32x8_dot(this, other)
+    }
+    horizontal_add() -> Int {
+        return i32x8_horizontal_add(this)
+    }
+    min(other: i32x8) -> i32x8 {
+        return i32x8_min(this, other)
+    }
+    max(other: i32x8) -> i32x8 {
+        return i32x8_max(this, other)
+    }
+}
+
+class f64x2 {
+    x: Float
+    y: Float
+}
+
+behavior f64x2 {
+    add(other: f64x2) -> f64x2 {
+        return f64x2_add(this, other)
+    }
+    sub(other: f64x2) -> f64x2 {
+        return f64x2_sub(this, other)
+    }
+    mul(other: f64x2) -> f64x2 {
+        return f64x2_mul(this, other)
+    }
+    div(other: f64x2) -> f64x2 {
+        return f64x2_div(this, other)
+    }
+    dot(other: f64x2) -> Float {
+        return f64x2_dot(this, other)
+    }
+    horizontal_add() -> Float {
+        return f64x2_horizontal_add(this)
+    }
+    min(other: f64x2) -> f64x2 {
+        return f64x2_min(this, other)
+    }
+    max(other: f64x2) -> f64x2 {
+        return f64x2_max(this, other)
+    }
+    lerp(other: f64x2, t: Float) -> f64x2 {
+        return f64x2_lerp(this, other, t)
+    }
+    normalize() -> f64x2 {
+        return f64x2_normalize(this)
+    }
+    distance(other: f64x2) -> Float {
+        return f64x2_distance(this, other)
+    }
+}
+
+class f64x4 {
+    x: Float
+    y: Float
+    z: Float
+    w: Float
+}
+
+behavior f64x4 {
+    add(other: f64x4) -> f64x4 {
+        return f64x4_add(this, other)
+    }
+    sub(other: f64x4) -> f64x4 {
+        return f64x4_sub(this, other)
+    }
+    mul(other: f64x4) -> f64x4 {
+        return f64x4_mul(this, other)
+    }
+    div(other: f64x4) -> f64x4 {
+        return f64x4_div(this, other)
+    }
+    dot(other: f64x4) -> Float {
+        return f64x4_dot(this, other)
+    }
+    horizontal_add() -> Float {
+        return f64x4_horizontal_add(this)
+    }
+    min(other: f64x4) -> f64x4 {
+        return f64x4_min(this, other)
+    }
+    max(other: f64x4) -> f64x4 {
+        return f64x4_max(this, other)
+    }
+    lerp(other: f64x4, t: Float) -> f64x4 {
+        return f64x4_lerp(this, other, t)
+    }
+    normalize() -> f64x4 {
+        return f64x4_normalize(this)
+    }
+    distance(other: f64x4) -> Float {
+        return f64x4_distance(this, other)
+    }
+}

@@ -603,7 +603,7 @@ impl<'a> Lowering<'a> {
                     return Some(dest);
                 }
             }
-            if member == "insert" && args.len() == 2 {
+            if member == "insert" && args.len() == 2 && self.is_expr_map(object) {
                 let k = self.lower_expr(&args[0], cur_block)?;
                 let v = self.lower_expr(&args[1], cur_block)?;
                 let dest = self.next_val();
@@ -614,6 +614,23 @@ impl<'a> Lowering<'a> {
                         func: "datara_rt_map_insert".into(),
                         args: vec![obj_val, k, v],
                         ty: "Map".into(),
+                    });
+                return Some(dest);
+            }
+            if ((member == "contains" && self.is_expr_map(object))
+                || member == "has_key"
+                || member == "contains_key")
+                && args.len() == 1
+            {
+                let k = self.lower_expr(&args[0], cur_block)?;
+                let dest = self.next_val();
+                self.get_block_mut(*cur_block)
+                    .instructions
+                    .push(Inst::Call {
+                        dest,
+                        func: "datara_rt_map_contains".into(),
+                        args: vec![obj_val, k],
+                        ty: "Bool".into(),
                     });
                 return Some(dest);
             }

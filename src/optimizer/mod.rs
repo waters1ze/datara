@@ -168,6 +168,22 @@ impl Optimizer {
                 })?;
             }
 
+            // 1.2 Loop Interchange: swaps nested loops (e.g. matmul) before mem2reg
+            // while induction variables and strides are in named variable form.
+            self.run_mutating_pass("loop_interchange", module, |opt, m| {
+                let mut fn_names: Vec<String> = m.functions.keys().cloned().collect();
+                fn_names.sort();
+                for name in fn_names {
+                    if let Some(f) = m.functions.get_mut(&name) {
+                        loops::engine_v2::LoopEngineV2::interchange_nested_loops(
+                            f,
+                            &opt.cost_model,
+                            &mut opt.trace,
+                        );
+                    }
+                }
+            })?;
+
             // 1.5 Mem2Reg: promote named scalar variables into SSA values with
             // block parameters. Running it after inlining means inlined bodies are
             // promoted too, and before every other pass so the whole pipeline
@@ -271,6 +287,18 @@ impl Optimizer {
             return Err(diag);
         }
 
+        if std::env::var("DATARA_DUMP_IR").is_ok() {
+            if let Some(main_fn) = module.functions.get("main") {
+                for b in &main_fn.blocks {
+                    eprintln!("BLOCK {} (params {:?}):", b.id.0, b.params);
+                    for inst in &b.instructions {
+                        eprintln!("  {:?}", inst);
+                    }
+                    eprintln!("  terminator: {:?}", b.terminator);
+                }
+            }
+        }
+
         // Finalize decision trace
         self.report.decision_trace = self.trace.records.clone();
         Ok(())
@@ -346,6 +374,10 @@ impl Optimizer {
             {
                 changed = true;
             }
+            let pure_set = HashSet::new();
+            if ScalarOptimizer::eliminate_redundant_calls(f, &pure_set, &mut self.trace) > 0 {
+                changed = true;
+            }
             if ScalarOptimizer::apply_strength_reduction(f, &self.cost_model, &mut self.trace) > 0 {
                 changed = true;
             }
@@ -380,6 +412,115 @@ impl Optimizer {
                 changed = true;
             }
         }
+
+        // Self::reorder_blocks_for_layout(f);
+    }
+
+    /// Trace-based CFG block placement:
+    /// Reorders basic blocks so the hot forward control-flow edges become zero-overhead
+    /// fallthroughs, eliminating redundant forward unconditional jumps and keeping loop bodies
+    /// contiguous in the instruction cache.
+    pub fn reorder_blocks_for_layout(f: &mut Function) -> bool {
+        if f.blocks.len() <= 2 {
+            return false;
+        }
+
+        let cfg = crate::dmir::cfg::ControlFlowGraph::build(f);
+        let mut block_map: HashMap<BasicBlockId, BasicBlock> = HashMap::new();
+        for b in f.blocks.drain(..) {
+            block_map.insert(b.id, b);
+        }
+
+        let mut ordered_blocks: Vec<BasicBlock> = Vec::with_capacity(block_map.len());
+        let mut visited: HashSet<BasicBlockId> = HashSet::new();
+
+        // Loop headers for prioritizing loop-body fallthrough
+        let mut loop_headers: HashSet<BasicBlockId> = HashSet::new();
+        for lp in &cfg.loops {
+            loop_headers.insert(lp.header);
+        }
+
+        // Trace-based placement starting at entry
+        let mut current_id = f.entry_block;
+
+        while visited.len() < block_map.len() + ordered_blocks.len() {
+            if !visited.contains(&current_id) {
+                if let Some(blk) = block_map.remove(&current_id) {
+                    visited.insert(current_id);
+
+                    // Find best successor to place next (hot edge fallthrough)
+                    let next_target = match &blk.terminator {
+                        Terminator::Branch { target, .. } => {
+                            if !visited.contains(target) && block_map.contains_key(target) {
+                                Some(*target)
+                            } else {
+                                None
+                            }
+                        }
+                        Terminator::CondBranch {
+                            then_block,
+                            else_block,
+                            ..
+                        } => {
+                            let then_unvisited =
+                                !visited.contains(then_block) && block_map.contains_key(then_block);
+                            let else_unvisited =
+                                !visited.contains(else_block) && block_map.contains_key(else_block);
+
+                            if then_unvisited && else_unvisited {
+                                // If loop header, prioritize entering loop body as fallthrough
+                                if loop_headers.contains(&current_id) {
+                                    Some(*then_block)
+                                } else {
+                                    Some(*then_block)
+                                }
+                            } else if then_unvisited {
+                                Some(*then_block)
+                            } else if else_unvisited {
+                                Some(*else_block)
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+
+                    ordered_blocks.push(blk);
+
+                    if let Some(next_id) = next_target {
+                        current_id = next_id;
+                        continue;
+                    }
+                }
+            }
+
+            // Current trace ended. Find next unvisited successor of already placed blocks
+            let mut found_next = None;
+            for placed in &ordered_blocks {
+                if let Some(succs) = cfg.successors.get(&placed.id) {
+                    for &s in succs {
+                        if !visited.contains(&s) && block_map.contains_key(&s) {
+                            found_next = Some(s);
+                            break;
+                        }
+                    }
+                }
+                if found_next.is_some() {
+                    break;
+                }
+            }
+
+            if let Some(next_id) = found_next {
+                current_id = next_id;
+            } else if let Some(&first_remaining) = block_map.keys().next() {
+                current_id = first_remaining;
+            } else {
+                break;
+            }
+        }
+
+        f.blocks = ordered_blocks;
+        true
     }
 
     fn merge_blocks(&mut self, f: &mut Function) -> bool {

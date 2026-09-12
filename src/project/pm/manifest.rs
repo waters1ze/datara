@@ -1,6 +1,6 @@
 use super::registry::HyperGridRegistry;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
 
@@ -70,14 +70,14 @@ pub struct LockedPackage {
 pub struct DataraLock {
     pub version: u32,
     #[serde(default)]
-    pub packages: HashMap<String, LockedPackage>,
+    pub packages: BTreeMap<String, LockedPackage>,
 }
 
 impl Default for DataraLock {
     fn default() -> Self {
         Self {
             version: 1,
-            packages: HashMap::new(),
+            packages: BTreeMap::new(),
         }
     }
 }

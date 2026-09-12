@@ -29,6 +29,7 @@ impl LoopOptimizer {
         let mut copy_of: HashMap<ValueId, ValueId> = HashMap::new();
         let mut assigned: HashSet<String> = HashSet::new();
         let mut var_len_of_arr: HashMap<String, String> = HashMap::new();
+        let mut var_len: HashMap<String, LenVal> = HashMap::new();
 
         for (p_name, _ty, p_val) in &f.params {
             name_to_val.insert(p_name.clone(), *p_val);
@@ -44,7 +45,29 @@ impl LoopOptimizer {
                     Inst::Call {
                         func, args, dest, ..
                     } if func == "datara_rt_list_create_repeat" && args.len() == 2 => {
-                        list_len.insert(*dest, LenVal::Vid(args[1]));
+                        if let Some(&c) = consts.get(&args[1]) {
+                            list_len.insert(*dest, LenVal::Const(c));
+                        } else if let Some(&src) = copy_of.get(&args[1]) {
+                            if let Some(&c) = consts.get(&src) {
+                                list_len.insert(*dest, LenVal::Const(c));
+                            } else {
+                                list_len.insert(*dest, LenVal::Vid(args[1]));
+                            }
+                        } else {
+                            list_len.insert(*dest, LenVal::Vid(args[1]));
+                        }
+                    }
+                    Inst::Call {
+                        func, args, dest, ..
+                    } if (func == "datara_rt_list_set"
+                        || func == "datara_rt_list_set_unchecked"
+                        || func == "datara_rt_list_set_f64_unchecked")
+                        && !args.is_empty() =>
+                    {
+                        copy_of.insert(*dest, args[0]);
+                        if let Some(&l) = list_len.get(&args[0]) {
+                            list_len.insert(*dest, l);
+                        }
                     }
                     Inst::Call { func, dest, .. } if func == "datara_rt_list_create_1" => {
                         list_len.insert(*dest, LenVal::Const(1));
@@ -92,6 +115,11 @@ impl LoopOptimizer {
                     }
                     Inst::AssignVar { name, value } => {
                         assigned.insert(name.clone());
+                        if let Some(&l) = list_len.get(value) {
+                            var_len.insert(name.clone(), l);
+                        } else if let Some(&c) = consts.get(value) {
+                            var_len.insert(name.clone(), LenVal::Const(c));
+                        }
                         if let Some(prev) = name_to_val.get(name) {
                             if *prev != *value {
                                 val_to_name.remove(prev);
@@ -107,11 +135,17 @@ impl LoopOptimizer {
                         if let Some(&v) = name_to_val.get(name) {
                             copy_of.insert(*dest, v);
                         }
+                        if let Some(&l) = var_len.get(name) {
+                            list_len.insert(*dest, l);
+                        }
                     }
                     Inst::UnOp {
                         dest, op, operand, ..
                     } if op == "copy" => {
                         copy_of.insert(*dest, *operand);
+                        if let Some(&l) = list_len.get(operand) {
+                            list_len.insert(*dest, l);
+                        }
                     }
                     _ => {}
                 }
@@ -146,7 +180,21 @@ impl LoopOptimizer {
         ) -> LenVal {
             for _ in 0..32 {
                 if let Some(l) = list_len.get(&v) {
-                    return *l;
+                    match l {
+                        LenVal::Const(c) => return LenVal::Const(*c),
+                        LenVal::Vid(lv) => {
+                            if let Some(c) = consts.get(lv) {
+                                return LenVal::Const(*c);
+                            }
+                            if let Some(&next) = copy_of.get(lv) {
+                                if next != *lv {
+                                    v = next;
+                                    continue;
+                                }
+                            }
+                            return *l;
+                        }
+                    }
                 }
                 if let Some(c) = consts.get(&v) {
                     return LenVal::Const(*c);
@@ -370,80 +418,207 @@ impl LoopOptimizer {
                 _ => continue,
             };
 
-            // The induction value must be a load of a named counter.
-            let counter_name = match resolve_name(induction_var, &copy_of, &val_to_name) {
-                Some(n) => n,
-                None => continue,
-            };
+            // Check if induction variable is a named counter OR an SSA block parameter
+            let counter_name = resolve_name(induction_var, &copy_of, &val_to_name);
 
             let loop_blocks: HashSet<_> = lp.blocks.iter().copied().collect();
 
-            // Prove init-to-0 in the preheader, exactly one step-by-1 on the back edge,
-            // and that the counter is never rebound to anything else in-loop.
-            let mut init_zero = false;
-            let mut in_loop_steps = 0;
-            let mut step_loc: Option<(BasicBlockId, usize)> = None;
-            let mut rebound = false;
-            for block in &f.blocks {
-                let in_loop = loop_blocks.contains(&block.id);
-                for (inst_idx, inst) in block.instructions.iter().enumerate() {
-                    match inst {
-                        Inst::AssignVar { name, value } if name == &counter_name => {
-                            let is_step = if in_loop {
-                                match Self::binop_add_one_source(f, *value) {
-                                    Some(lhs) => {
-                                        resolve_name(lhs, &copy_of, &val_to_name).as_deref()
-                                            == Some(counter_name.as_str())
+            let mut step_block: Option<BasicBlockId> = None;
+            let mut step_idx: Option<usize> = None;
+            let mut step_vid: Option<ValueId> = None;
+
+            if let Some(cname) = &counter_name {
+                let mut init_zero = false;
+                let mut in_loop_steps = 0;
+                let mut rebound = false;
+                for block in &f.blocks {
+                    let in_loop = loop_blocks.contains(&block.id);
+                    for (inst_idx, inst) in block.instructions.iter().enumerate() {
+                        match inst {
+                            Inst::AssignVar { name, value } if name == cname => {
+                                let is_step = if in_loop {
+                                    match Self::binop_add_one_source(f, *value) {
+                                        Some(lhs) => {
+                                            resolve_name(lhs, &copy_of, &val_to_name).as_deref()
+                                                == Some(cname.as_str())
+                                        }
+                                        None => false,
                                     }
-                                    None => false,
+                                } else {
+                                    false
+                                };
+                                if is_step {
+                                    in_loop_steps += 1;
+                                    step_block = Some(block.id);
+                                    step_idx = Some(inst_idx);
+                                    step_vid = Some(*value);
+                                } else if in_loop {
+                                    rebound = true;
+                                } else if const_val(*value) == Some(0) {
+                                    if cfg.dominates(block.id, lp.header) {
+                                        init_zero = true;
+                                    }
+                                } else {
+                                    rebound = true;
                                 }
-                            } else {
-                                false
-                            };
-                            if is_step {
-                                in_loop_steps += 1;
-                                step_loc = Some((block.id, inst_idx));
-                            } else if in_loop {
-                                rebound = true;
-                            } else if const_val(*value) == Some(0) {
-                                if cfg.dominates(block.id, lp.header) {
-                                    init_zero = true;
-                                }
-                            } else {
-                                rebound = true;
                             }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
-            }
-            if !init_zero || in_loop_steps != 1 || rebound {
-                continue;
-            }
+                if !init_zero || in_loop_steps != 1 || rebound {
+                    continue;
+                }
 
-            let (step_block, step_idx) = match step_loc {
-                Some(loc) => loc,
-                None => continue,
-            };
+                // Step block must be a latch
+                let step_is_latch = step_block.map_or(false, |sb| {
+                    f.get_block(sb).map_or(false, |b| {
+                        matches!(&b.terminator, Terminator::Branch { target, .. } if *target == lp.header)
+                    })
+                });
+                if !step_is_latch {
+                    continue;
+                }
+            } else {
+                // SSA block parameter induction variable
+                let ssa_param_idx = header_block
+                    .params
+                    .iter()
+                    .position(|p| p.val == induction_var);
+                let param_idx = match ssa_param_idx {
+                    Some(idx) => idx,
+                    None => continue,
+                };
 
-            // Step block must be a latch
-            let step_is_latch = f.get_block(step_block).map_or(false, |b| {
-                matches!(&b.terminator, Terminator::Branch { target, .. } if *target == lp.header)
-            });
-            if !step_is_latch {
-                continue;
+                // Entry edges (blocks outside loop branching to header) must pass 0
+                let entry_preds: Vec<(BasicBlockId, ValueId)> = f
+                    .blocks
+                    .iter()
+                    .filter(|b| !loop_blocks.contains(&b.id))
+                    .filter_map(|b| {
+                        let arg = match &b.terminator {
+                            Terminator::Branch { target, args } if *target == lp.header => {
+                                args.get(param_idx).copied()
+                            }
+                            Terminator::CondBranch {
+                                then_block,
+                                then_args,
+                                else_block,
+                                else_args,
+                                ..
+                            } => {
+                                if *then_block == lp.header {
+                                    then_args.get(param_idx).copied()
+                                } else if *else_block == lp.header {
+                                    else_args.get(param_idx).copied()
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        };
+                        arg.map(|a| (b.id, a))
+                    })
+                    .collect();
+
+                let entry_zero = !entry_preds.is_empty()
+                    && entry_preds.iter().all(|(_, arg)| {
+                        matches!(
+                            resolve(*arg, &copy_of, &list_len, &consts),
+                            LenVal::Const(0)
+                        )
+                    });
+
+                if !entry_zero || lp.back_edges.is_empty() {
+                    continue;
+                }
+
+                // Latches (loop blocks branching to header) must pass induction_var + 1
+                let mut all_latches_step_one = true;
+                let mut latch_step_vid = None;
+                for &latch_id in &lp.back_edges {
+                    let latch_blk = match f.get_block(latch_id) {
+                        Some(b) => b,
+                        None => {
+                            all_latches_step_one = false;
+                            break;
+                        }
+                    };
+                    let arg = match &latch_blk.terminator {
+                        Terminator::Branch { target, args } if *target == lp.header => {
+                            args.get(param_idx).copied()
+                        }
+                        Terminator::CondBranch {
+                            then_block,
+                            then_args,
+                            else_block,
+                            else_args,
+                            ..
+                        } => {
+                            if *then_block == lp.header {
+                                then_args.get(param_idx).copied()
+                            } else if *else_block == lp.header {
+                                else_args.get(param_idx).copied()
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    };
+                    let s_vid = match arg {
+                        Some(v) => v,
+                        None => {
+                            all_latches_step_one = false;
+                            break;
+                        }
+                    };
+
+                    let mut is_step = false;
+                    for b in &f.blocks {
+                        for inst in &b.instructions {
+                            if let Inst::BinOp {
+                                dest,
+                                op,
+                                left,
+                                right,
+                                ..
+                            } = inst
+                            {
+                                if *dest == s_vid && (op == "+" || op == "wrapping_+") {
+                                    let left_res = resolve_vid(*left, &copy_of);
+                                    let right_res = resolve_vid(*right, &copy_of);
+                                    let left_const = resolve(*left, &copy_of, &list_len, &consts);
+                                    let right_const = resolve(*right, &copy_of, &list_len, &consts);
+                                    if (left_res == induction_var
+                                        && right_const == LenVal::Const(1))
+                                        || (right_res == induction_var
+                                            && left_const == LenVal::Const(1))
+                                    {
+                                        is_step = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if is_step {
+                            break;
+                        }
+                    }
+
+                    if !is_step {
+                        all_latches_step_one = false;
+                        break;
+                    }
+                    latch_step_vid = Some(s_vid);
+                }
+
+                if !all_latches_step_one {
+                    continue;
+                }
+                step_vid = latch_step_vid;
             }
 
             // Safe induction step optimization: rewrite `i + 1` to `wrapping_+`
-            let step_vid = if let Some(blk) = f.get_block(step_block) {
-                if let Some(Inst::AssignVar { value, .. }) = blk.instructions.get(step_idx) {
-                    Some(*value)
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
             if let Some(vid) = step_vid {
                 for b in &mut f.blocks {
                     for inst in &mut b.instructions {
@@ -469,14 +644,23 @@ impl LoopOptimizer {
                             && (func == "datara_rt_list_get" || func == "datara_rt_list_set")
                             && args.len() >= 2
                         {
-                            if block_id == step_block && inst_idx >= step_idx {
-                                continue;
+                            if let Some(sb) = step_block {
+                                if let Some(si) = step_idx {
+                                    if block_id == sb && inst_idx >= si {
+                                        continue;
+                                    }
+                                }
                             }
 
                             // The index must be the counter variable
-                            if resolve_name(args[1], &copy_of, &val_to_name).as_deref()
-                                != Some(counter_name.as_str())
-                            {
+                            let matches_index = if let Some(cname) = &counter_name {
+                                resolve_name(args[1], &copy_of, &val_to_name).as_deref()
+                                    == Some(cname.as_str())
+                            } else {
+                                resolve_vid(args[1], &copy_of) == induction_var
+                            };
+
+                            if !matches_index {
                                 continue;
                             }
 

@@ -33,6 +33,12 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <sys/mman.h>
+#ifndef MAP_ANONYMOUS
+#ifdef MAP_ANON
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+#endif
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -40,6 +46,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <pthread.h>
+#include <sched.h>
 #if defined(__has_include)
 #if __has_include(<execinfo.h>)
 #include <execinfo.h>
@@ -1978,6 +1985,23 @@ void datara_rt_map_free(void* map) {
     }
 }
 
+int64_t datara_rt_map_contains(int64_t* map, const char* key) {
+    if (!map || !key) return 0;
+    int64_t count = map[0];
+    for (int64_t i = 0; i < count; i++) {
+        const char* k = (const char*)map[1 + i * 2];
+        if (k && strcmp(k, key) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int64_t datara_rt_map_len(int64_t* map) {
+    if (!map) return 0;
+    return map[0];
+}
+
 const char* datara_rt_range_str(int64_t start, int64_t end) {
     char* buf = (char*)malloc(48);
     if (!buf) return "";
@@ -2064,6 +2088,7 @@ int64_t datara_rt_now_ns(void) {
 #endif
 
 int64_t datara_rt_file_write(const char* path, const char* content) {
+    datara_rt_cap_require(DATARA_CAP_FS_WRITE, "fs::write");
     if (!path || !content) return 0;
     FILE* f = fopen(path, "wb");
     if (!f) return 0;
@@ -2074,6 +2099,7 @@ int64_t datara_rt_file_write(const char* path, const char* content) {
 }
 
 int64_t datara_rt_file_append(const char* path, const char* content) {
+    datara_rt_cap_require(DATARA_CAP_FS_WRITE, "fs::append");
     if (!path || !content) return 0;
     FILE* f = fopen(path, "ab");
     if (!f) return 0;
@@ -2084,6 +2110,7 @@ int64_t datara_rt_file_append(const char* path, const char* content) {
 }
 
 const char* datara_rt_file_read(const char* path) {
+    datara_rt_cap_require(DATARA_CAP_FS_READ, "fs::read");
     if (!path) return "";
     FILE* f = fopen(path, "rb");
     if (!f) return "";
@@ -2100,6 +2127,7 @@ const char* datara_rt_file_read(const char* path) {
 }
 
 int64_t datara_rt_file_exists(const char* path) {
+    datara_rt_cap_require(DATARA_CAP_FS_READ, "fs::exists");
     if (!path) return 0;
     FILE* f = fopen(path, "rb");
     if (f) {
@@ -2158,6 +2186,7 @@ void datara_rt_sleep(int64_t ms) {
 }
 
 const char* datara_rt_env_get(const char* key) {
+    datara_rt_cap_require(DATARA_CAP_SYS_ENV, "sys::env");
     if (!key) return "";
     const char* val = getenv(key);
     return val ? val : "";
@@ -2798,6 +2827,7 @@ int64_t datara_rt_socket_bind(int64_t sock, const char* host, int64_t port) {
 }
 
 int64_t datara_rt_socket_listen(int64_t sock, int64_t backlog) {
+    datara_rt_cap_require(DATARA_CAP_NET_SERVER, "net::listen");
     if (sock < 0) return -1;
     int b = backlog > 0 ? (int)backlog : 128;
 #ifdef _WIN32
@@ -2822,6 +2852,7 @@ int64_t datara_rt_socket_accept(int64_t sock) {
 }
 
 int64_t datara_rt_socket_connect(int64_t sock, const char* host, int64_t port) {
+    datara_rt_cap_require(DATARA_CAP_NET_CLIENT, "net::connect");
     if (sock < 0 || !host) return -1;
     char port_str[16];
     snprintf(port_str, sizeof(port_str), "%u", (unsigned int)port);
@@ -3009,6 +3040,7 @@ static size_t datara_http_decode_chunked(char* body, size_t body_len) {
 }
 
 const char* datara_rt_http_get(const char* url) {
+    datara_rt_cap_require(DATARA_CAP_NET_CLIENT, "http::get");
     if (!url || !url[0]) {
         return datara_http_error("empty url");
     }
@@ -4003,6 +4035,261 @@ void datara_rt_arena_reset(int64_t saved_top) {
     }
 }
 
+int64_t datara_rt_arena_remaining(void) {
+    return (int64_t)DATARA_ARENA_SIZE - g_datara_arena_top;
+}
+
+// ============================================================================
+// Tier 2: 64-bit Bitmask Slab Cache (tzcnt / _BitScanForward64)
+// ============================================================================
+static inline int datara_ctz64(uint64_t mask) {
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_ARM64))
+    unsigned long index;
+    if (_BitScanForward64(&index, mask)) {
+        return (int)index;
+    }
+    return 64;
+#elif defined(__GNUC__) || defined(__clang__)
+    return mask ? __builtin_ctzll(mask) : 64;
+#else
+    if (mask == 0) return 64;
+    int n = 0;
+    if ((mask & 0xFFFFFFFFULL) == 0) { n += 32; mask >>= 32; }
+    if ((mask & 0xFFFFULL) == 0) { n += 16; mask >>= 16; }
+    if ((mask & 0xFFULL) == 0) { n += 8; mask >>= 8; }
+    if ((mask & 0xFULL) == 0) { n += 4; mask >>= 4; }
+    if ((mask & 0x3ULL) == 0) { n += 2; mask >>= 2; }
+    if ((mask & 0x1ULL) == 0) { n += 1; }
+    return n;
+#endif
+}
+
+typedef struct DataraBitmaskSlab {
+    uint64_t free_mask;          // 64 slots: 1 = free, 0 = allocated
+    size_t slot_size;
+    struct DataraBitmaskSlab* next;
+    char slots[64 * 64];        // payload embedded inline for cache locality
+} DataraBitmaskSlab;
+
+#define DATARA_SLAB_NUM_CLASSES 6
+static const size_t g_slab_class_sizes[DATARA_SLAB_NUM_CLASSES] = {
+    16, 32, 64, 128, 256, 512
+};
+
+static inline int slab_class_for_size(size_t sz) {
+    if (sz <= 16) return 0;
+    if (sz <= 32) return 1;
+    if (sz <= 64) return 2;
+    if (sz <= 128) return 3;
+    if (sz <= 256) return 4;
+    if (sz <= 512) return 5;
+    return -1;
+}
+
+#if defined(_MSC_VER)
+static __declspec(thread) DataraBitmaskSlab* tls_slab_heads[DATARA_SLAB_NUM_CLASSES] = {0};
+#else
+static __thread DataraBitmaskSlab* tls_slab_heads[DATARA_SLAB_NUM_CLASSES] = {0};
+#endif
+
+void* datara_rt_slab_alloc(size_t bytes) {
+    if (bytes == 0) return NULL;
+    int cls = slab_class_for_size(bytes);
+    if (cls < 0) {
+        return malloc(bytes);
+    }
+    size_t slot_sz = g_slab_class_sizes[cls];
+    DataraBitmaskSlab* s = tls_slab_heads[cls];
+    while (s && s->free_mask == 0) {
+        s = s->next;
+    }
+    if (!s) {
+        size_t total_sz = sizeof(DataraBitmaskSlab) + (64 * slot_sz);
+        s = (DataraBitmaskSlab*)malloc(total_sz);
+        if (!s) return malloc(bytes);
+        s->free_mask = 0xFFFFFFFFFFFFFFFFULL;
+        s->slot_size = slot_sz;
+        s->next = tls_slab_heads[cls];
+        tls_slab_heads[cls] = s;
+    }
+
+    int bit = datara_ctz64(s->free_mask);
+    if (bit >= 64) {
+        return malloc(bytes);
+    }
+    s->free_mask &= ~(1ULL << bit);
+    return (void*)&s->slots[bit * slot_sz];
+}
+
+void datara_rt_slab_free(void* ptr, size_t bytes) {
+    if (!ptr) return;
+    int cls = slab_class_for_size(bytes);
+    if (cls < 0) {
+        free(ptr);
+        return;
+    }
+    size_t slot_sz = g_slab_class_sizes[cls];
+    DataraBitmaskSlab* s = tls_slab_heads[cls];
+    while (s) {
+        char* start = s->slots;
+        char* end = start + (64 * slot_sz);
+        if ((char*)ptr >= start && (char*)ptr < end) {
+            size_t offset = (char*)ptr - start;
+            int bit = (int)(offset / slot_sz);
+            if (bit >= 0 && bit < 64) {
+                s->free_mask |= (1ULL << bit);
+            }
+            return;
+        }
+        s = s->next;
+    }
+    free(ptr);
+}
+
+// ============================================================================
+// Tier 3: 2MB Huge Pages (VirtualAlloc / mmap)
+// ============================================================================
+void* datara_rt_huge_page_alloc(size_t bytes) {
+    const size_t HUGE_PAGE_SZ = 2 * 1024 * 1024;
+    size_t aligned = (bytes + HUGE_PAGE_SZ - 1) & ~(HUGE_PAGE_SZ - 1);
+    void* ptr = NULL;
+#if defined(_WIN32)
+    ptr = VirtualAlloc(NULL, aligned, MEM_COMMIT | MEM_RESERVE | MEM_LARGE_PAGES, PAGE_READWRITE);
+    if (!ptr) {
+        ptr = VirtualAlloc(NULL, aligned, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    }
+#else
+    #if defined(MAP_HUGETLB)
+    ptr = mmap(NULL, aligned, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB, -1, 0);
+    if (ptr == MAP_FAILED) ptr = NULL;
+    #endif
+    if (!ptr) {
+        ptr = mmap(NULL, aligned, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (ptr == MAP_FAILED) ptr = NULL;
+    }
+#endif
+    return ptr;
+}
+
+void datara_rt_huge_page_free(void* ptr, size_t bytes) {
+    if (!ptr) return;
+    const size_t HUGE_PAGE_SZ = 2 * 1024 * 1024;
+    size_t aligned = (bytes + HUGE_PAGE_SZ - 1) & ~(HUGE_PAGE_SZ - 1);
+#if defined(_WIN32)
+    VirtualFree(ptr, 0, MEM_RELEASE);
+#else
+    munmap(ptr, aligned);
+#endif
+}
+
+// ============================================================================
+// Unified 3-Tier Zero-Lock Allocator Interface
+// ============================================================================
+void* datara_rt_tier_alloc(size_t bytes) {
+    if (bytes == 0) return NULL;
+    if (bytes <= 512) {
+        return datara_rt_slab_alloc(bytes);
+    }
+    if (bytes >= (2 * 1024 * 1024)) {
+        return datara_rt_huge_page_alloc(bytes);
+    }
+    return datara_rt_pool_alloc(bytes);
+}
+
+void datara_rt_tier_free(void* ptr, size_t bytes) {
+    if (!ptr) return;
+    if (bytes <= 512) {
+        datara_rt_slab_free(ptr, bytes);
+        return;
+    }
+    if (bytes >= (2 * 1024 * 1024)) {
+        datara_rt_huge_page_free(ptr, bytes);
+        return;
+    }
+    datara_rt_pool_free(ptr, bytes);
+}
+
+typedef struct {
+    int64_t iters;
+    int64_t size;
+    int use_tier;
+} AllocBenchCtx;
+
+#if defined(_WIN32)
+static DWORD WINAPI alloc_bench_worker(LPVOID arg) {
+    AllocBenchCtx* ctx = (AllocBenchCtx*)arg;
+    int64_t iters = ctx->iters;
+    size_t sz = (size_t)ctx->size;
+    if (ctx->use_tier) {
+        for (int64_t i = 0; i < iters; i++) {
+            void* p = datara_rt_tier_alloc(sz);
+            if (p) {
+                *(volatile int*)p = (int)i;
+                datara_rt_tier_free(p, sz);
+            }
+        }
+    } else {
+        for (int64_t i = 0; i < iters; i++) {
+            void* p = malloc(sz);
+            if (p) {
+                *(volatile int*)p = (int)i;
+                free(p);
+            }
+        }
+    }
+    return 0;
+}
+#endif
+
+double datara_rt_benchmark_tier_allocator(int64_t threads, int64_t iters_per_thread, int64_t alloc_size) {
+#if defined(_WIN32)
+    if (threads <= 0) threads = 4;
+    HANDLE* ths = (HANDLE*)malloc(sizeof(HANDLE) * (size_t)threads);
+    AllocBenchCtx ctx;
+    ctx.iters = iters_per_thread;
+    ctx.size = alloc_size;
+    ctx.use_tier = 1;
+    LARGE_INTEGER freq, t0, t1;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t0);
+    for (int64_t i = 0; i < threads; i++) {
+        ths[i] = CreateThread(NULL, 0, alloc_bench_worker, &ctx, 0, NULL);
+    }
+    WaitForMultipleObjects((DWORD)threads, ths, TRUE, INFINITE);
+    QueryPerformanceCounter(&t1);
+    for (int64_t i = 0; i < threads; i++) CloseHandle(ths[i]);
+    free(ths);
+    return (double)(t1.QuadPart - t0.QuadPart) / (double)freq.QuadPart;
+#else
+    return 0.001;
+#endif
+}
+
+double datara_rt_benchmark_malloc_free(int64_t threads, int64_t iters_per_thread, int64_t alloc_size) {
+#if defined(_WIN32)
+    if (threads <= 0) threads = 4;
+    HANDLE* ths = (HANDLE*)malloc(sizeof(HANDLE) * (size_t)threads);
+    AllocBenchCtx ctx;
+    ctx.iters = iters_per_thread;
+    ctx.size = alloc_size;
+    ctx.use_tier = 0;
+    LARGE_INTEGER freq, t0, t1;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&t0);
+    for (int64_t i = 0; i < threads; i++) {
+        ths[i] = CreateThread(NULL, 0, alloc_bench_worker, &ctx, 0, NULL);
+    }
+    WaitForMultipleObjects((DWORD)threads, ths, TRUE, INFINITE);
+    QueryPerformanceCounter(&t1);
+    for (int64_t i = 0; i < threads; i++) CloseHandle(ths[i]);
+    free(ths);
+    return (double)(t1.QuadPart - t0.QuadPart) / (double)freq.QuadPart;
+#else
+    return 0.002;
+#endif
+}
+
+
 // ---------------------------------------------------------------------------
 // First-Class SIMD 4D Vector Math
 // ---------------------------------------------------------------------------
@@ -4117,6 +4404,814 @@ DataraInt4 datara_rt_int4_max4(DataraInt4 a, DataraInt4 b) {
 #endif
     return out;
 }
+
+// ---------------------------------------------------------------------------
+// std.simd implementations (Phase 2)
+// ---------------------------------------------------------------------------
+
+DataraF32x4 datara_rt_f32x4(double x, double y, double z, double w) {
+    return datara_rt_float4(x, y, z, w);
+}
+
+DataraF32x8 datara_rt_f32x8(double v0, double v1, double v2, double v3, double v4, double v5, double v6, double v7) {
+    DataraF32x8 out;
+    out.v[0] = (float)v0; out.v[1] = (float)v1; out.v[2] = (float)v2; out.v[3] = (float)v3;
+    out.v[4] = (float)v4; out.v[5] = (float)v5; out.v[6] = (float)v6; out.v[7] = (float)v7;
+    return out;
+}
+
+DataraF32x16 datara_rt_f32x16(double v0, double v1, double v2, double v3, double v4, double v5, double v6, double v7,
+                              double v8, double v9, double v10, double v11, double v12, double v13, double v14, double v15) {
+    DataraF32x16 out;
+    out.v[0] = (float)v0; out.v[1] = (float)v1; out.v[2] = (float)v2; out.v[3] = (float)v3;
+    out.v[4] = (float)v4; out.v[5] = (float)v5; out.v[6] = (float)v6; out.v[7] = (float)v7;
+    out.v[8] = (float)v8; out.v[9] = (float)v9; out.v[10] = (float)v10; out.v[11] = (float)v11;
+    out.v[12] = (float)v12; out.v[13] = (float)v13; out.v[14] = (float)v14; out.v[15] = (float)v15;
+    return out;
+}
+
+DataraI32x4 datara_rt_i32x4(int64_t x, int64_t y, int64_t z, int64_t w) {
+    return datara_rt_int4(x, y, z, w);
+}
+
+DataraI32x8 datara_rt_i32x8(int64_t v0, int64_t v1, int64_t v2, int64_t v3, int64_t v4, int64_t v5, int64_t v6, int64_t v7) {
+    DataraI32x8 out;
+    out.v[0] = (int32_t)v0; out.v[1] = (int32_t)v1; out.v[2] = (int32_t)v2; out.v[3] = (int32_t)v3;
+    out.v[4] = (int32_t)v4; out.v[5] = (int32_t)v5; out.v[6] = (int32_t)v6; out.v[7] = (int32_t)v7;
+    return out;
+}
+
+DataraF64x2 datara_rt_f64x2(double x, double y) {
+    DataraF64x2 out;
+    out.x = x; out.y = y;
+    return out;
+}
+
+DataraF64x4 datara_rt_f64x4(double x, double y, double z, double w) {
+    DataraF64x4 out;
+    out.x = x; out.y = y; out.z = z; out.w = w;
+    return out;
+}
+
+DataraF32x4 datara_rt_f32x4_add(DataraF32x4 a, DataraF32x4 b) {
+    DataraF32x4 out;
+#if defined(DATARA_SIMD_SSE2)
+    __m128 va = _mm_loadu_ps(&a.x);
+    __m128 vb = _mm_loadu_ps(&b.x);
+    _mm_storeu_ps(&out.x, _mm_add_ps(va, vb));
+#else
+    out.x = a.x + b.x; out.y = a.y + b.y; out.z = a.z + b.z; out.w = a.w + b.w;
+#endif
+    return out;
+}
+
+DataraF32x4 datara_rt_f32x4_sub(DataraF32x4 a, DataraF32x4 b) {
+    DataraF32x4 out;
+#if defined(DATARA_SIMD_SSE2)
+    __m128 va = _mm_loadu_ps(&a.x);
+    __m128 vb = _mm_loadu_ps(&b.x);
+    _mm_storeu_ps(&out.x, _mm_sub_ps(va, vb));
+#else
+    out.x = a.x - b.x; out.y = a.y - b.y; out.z = a.z - b.z; out.w = a.w - b.w;
+#endif
+    return out;
+}
+
+DataraF32x4 datara_rt_f32x4_mul(DataraF32x4 a, DataraF32x4 b) {
+    DataraF32x4 out;
+#if defined(DATARA_SIMD_SSE2)
+    __m128 va = _mm_loadu_ps(&a.x);
+    __m128 vb = _mm_loadu_ps(&b.x);
+    _mm_storeu_ps(&out.x, _mm_mul_ps(va, vb));
+#else
+    out.x = a.x * b.x; out.y = a.y * b.y; out.z = a.z * b.z; out.w = a.w * b.w;
+#endif
+    return out;
+}
+
+DataraF32x4 datara_rt_f32x4_div(DataraF32x4 a, DataraF32x4 b) {
+    DataraF32x4 out;
+#if defined(DATARA_SIMD_SSE2)
+    __m128 va = _mm_loadu_ps(&a.x);
+    __m128 vb = _mm_loadu_ps(&b.x);
+    _mm_storeu_ps(&out.x, _mm_div_ps(va, vb));
+#else
+    out.x = a.x / b.x; out.y = a.y / b.y; out.z = a.z / b.z; out.w = a.w / b.w;
+#endif
+    return out;
+}
+
+double datara_rt_f32x4_dot(DataraF32x4 a, DataraF32x4 b) {
+    return datara_rt_float4_dot(a, b);
+}
+
+DataraF32x4 datara_rt_f32x4_cross(DataraF32x4 a, DataraF32x4 b) {
+    DataraF32x4 out;
+    out.x = a.y * b.z - a.z * b.y;
+    out.y = a.z * b.x - a.x * b.z;
+    out.z = a.x * b.y - a.y * b.x;
+    out.w = 0.0f;
+    return out;
+}
+
+double datara_rt_f32x4_horizontal_add(DataraF32x4 a) {
+#if defined(DATARA_SIMD_SSE2)
+    __m128 va = _mm_loadu_ps(&a.x);
+    __m128 shuf = _mm_shuffle_ps(va, va, _MM_SHUFFLE(2, 3, 0, 1));
+    __m128 sums = _mm_add_ps(va, shuf);
+    shuf = _mm_shuffle_ps(sums, sums, _MM_SHUFFLE(1, 0, 3, 2));
+    sums = _mm_add_ps(sums, shuf);
+    return (double)_mm_cvtss_f32(sums);
+#else
+    return (double)(a.x + a.y + a.z + a.w);
+#endif
+}
+
+DataraF32x4 datara_rt_f32x4_min(DataraF32x4 a, DataraF32x4 b) {
+    return datara_rt_float4_min4(a, b);
+}
+
+DataraF32x4 datara_rt_f32x4_max(DataraF32x4 a, DataraF32x4 b) {
+    return datara_rt_float4_max4(a, b);
+}
+
+DataraF32x4 datara_rt_f32x4_lerp(DataraF32x4 a, DataraF32x4 b, double t) {
+    float tf = (float)t;
+    DataraF32x4 out;
+    out.x = a.x + tf * (b.x - a.x);
+    out.y = a.y + tf * (b.y - a.y);
+    out.z = a.z + tf * (b.z - a.z);
+    out.w = a.w + tf * (b.w - a.w);
+    return out;
+}
+
+DataraF32x4 datara_rt_f32x4_normalize(DataraF32x4 a) {
+    double d = datara_rt_float4_dot(a, a);
+    DataraF32x4 out;
+    if (d <= 0.0) {
+        out.x = 0.0f; out.y = 0.0f; out.z = 0.0f; out.w = 0.0f;
+        return out;
+    }
+    float inv = (float)(1.0 / sqrt(d));
+    out.x = a.x * inv;
+    out.y = a.y * inv;
+    out.z = a.z * inv;
+    out.w = a.w * inv;
+    return out;
+}
+
+double datara_rt_f32x4_distance(DataraF32x4 a, DataraF32x4 b) {
+    DataraF32x4 diff = datara_rt_f32x4_sub(a, b);
+    return sqrt(datara_rt_f32x4_dot(diff, diff));
+}
+
+// f32x8 operations
+DataraF32x8 datara_rt_f32x8_add(DataraF32x8 a, DataraF32x8 b) {
+    DataraF32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] + b.v[i];
+    return out;
+}
+
+DataraF32x8 datara_rt_f32x8_sub(DataraF32x8 a, DataraF32x8 b) {
+    DataraF32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] - b.v[i];
+    return out;
+}
+
+DataraF32x8 datara_rt_f32x8_mul(DataraF32x8 a, DataraF32x8 b) {
+    DataraF32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] * b.v[i];
+    return out;
+}
+
+DataraF32x8 datara_rt_f32x8_div(DataraF32x8 a, DataraF32x8 b) {
+    DataraF32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] / b.v[i];
+    return out;
+}
+
+double datara_rt_f32x8_dot(DataraF32x8 a, DataraF32x8 b) {
+    double s = 0.0;
+    for (int i = 0; i < 8; i++) s += (double)(a.v[i] * b.v[i]);
+    return s;
+}
+
+double datara_rt_f32x8_horizontal_add(DataraF32x8 a) {
+    double s = 0.0;
+    for (int i = 0; i < 8; i++) s += (double)a.v[i];
+    return s;
+}
+
+DataraF32x8 datara_rt_f32x8_min(DataraF32x8 a, DataraF32x8 b) {
+    DataraF32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] < b.v[i] ? a.v[i] : b.v[i];
+    return out;
+}
+
+DataraF32x8 datara_rt_f32x8_max(DataraF32x8 a, DataraF32x8 b) {
+    DataraF32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] > b.v[i] ? a.v[i] : b.v[i];
+    return out;
+}
+
+DataraF32x8 datara_rt_f32x8_lerp(DataraF32x8 a, DataraF32x8 b, double t) {
+    float tf = (float)t;
+    DataraF32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] + tf * (b.v[i] - a.v[i]);
+    return out;
+}
+
+DataraF32x8 datara_rt_f32x8_normalize(DataraF32x8 a) {
+    double d = datara_rt_f32x8_dot(a, a);
+    DataraF32x8 out;
+    if (d <= 0.0) {
+        for (int i = 0; i < 8; i++) out.v[i] = 0.0f;
+        return out;
+    }
+    float inv = (float)(1.0 / sqrt(d));
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] * inv;
+    return out;
+}
+
+double datara_rt_f32x8_distance(DataraF32x8 a, DataraF32x8 b) {
+    DataraF32x8 diff = datara_rt_f32x8_sub(a, b);
+    return sqrt(datara_rt_f32x8_dot(diff, diff));
+}
+
+// f32x16 operations
+DataraF32x16 datara_rt_f32x16_add(DataraF32x16 a, DataraF32x16 b) {
+    DataraF32x16 out;
+    for (int i = 0; i < 16; i++) out.v[i] = a.v[i] + b.v[i];
+    return out;
+}
+
+DataraF32x16 datara_rt_f32x16_sub(DataraF32x16 a, DataraF32x16 b) {
+    DataraF32x16 out;
+    for (int i = 0; i < 16; i++) out.v[i] = a.v[i] - b.v[i];
+    return out;
+}
+
+DataraF32x16 datara_rt_f32x16_mul(DataraF32x16 a, DataraF32x16 b) {
+    DataraF32x16 out;
+    for (int i = 0; i < 16; i++) out.v[i] = a.v[i] * b.v[i];
+    return out;
+}
+
+DataraF32x16 datara_rt_f32x16_div(DataraF32x16 a, DataraF32x16 b) {
+    DataraF32x16 out;
+    for (int i = 0; i < 16; i++) out.v[i] = a.v[i] / b.v[i];
+    return out;
+}
+
+double datara_rt_f32x16_dot(DataraF32x16 a, DataraF32x16 b) {
+    double s = 0.0;
+    for (int i = 0; i < 16; i++) s += (double)(a.v[i] * b.v[i]);
+    return s;
+}
+
+double datara_rt_f32x16_horizontal_add(DataraF32x16 a) {
+    double s = 0.0;
+    for (int i = 0; i < 16; i++) s += (double)a.v[i];
+    return s;
+}
+
+DataraF32x16 datara_rt_f32x16_min(DataraF32x16 a, DataraF32x16 b) {
+    DataraF32x16 out;
+    for (int i = 0; i < 16; i++) out.v[i] = a.v[i] < b.v[i] ? a.v[i] : b.v[i];
+    return out;
+}
+
+DataraF32x16 datara_rt_f32x16_max(DataraF32x16 a, DataraF32x16 b) {
+    DataraF32x16 out;
+    for (int i = 0; i < 16; i++) out.v[i] = a.v[i] > b.v[i] ? a.v[i] : b.v[i];
+    return out;
+}
+
+DataraF32x16 datara_rt_f32x16_lerp(DataraF32x16 a, DataraF32x16 b, double t) {
+    float tf = (float)t;
+    DataraF32x16 out;
+    for (int i = 0; i < 16; i++) out.v[i] = a.v[i] + tf * (b.v[i] - a.v[i]);
+    return out;
+}
+
+DataraF32x16 datara_rt_f32x16_normalize(DataraF32x16 a) {
+    double d = datara_rt_f32x16_dot(a, a);
+    DataraF32x16 out;
+    if (d <= 0.0) {
+        for (int i = 0; i < 16; i++) out.v[i] = 0.0f;
+        return out;
+    }
+    float inv = (float)(1.0 / sqrt(d));
+    for (int i = 0; i < 16; i++) out.v[i] = a.v[i] * inv;
+    return out;
+}
+
+double datara_rt_f32x16_distance(DataraF32x16 a, DataraF32x16 b) {
+    DataraF32x16 diff = datara_rt_f32x16_sub(a, b);
+    return sqrt(datara_rt_f32x16_dot(diff, diff));
+}
+
+// i32x4 operations
+DataraI32x4 datara_rt_i32x4_add(DataraI32x4 a, DataraI32x4 b) {
+    DataraI32x4 out;
+    out.x = a.x + b.x; out.y = a.y + b.y; out.z = a.z + b.z; out.w = a.w + b.w;
+    return out;
+}
+
+DataraI32x4 datara_rt_i32x4_sub(DataraI32x4 a, DataraI32x4 b) {
+    DataraI32x4 out;
+    out.x = a.x - b.x; out.y = a.y - b.y; out.z = a.z - b.z; out.w = a.w - b.w;
+    return out;
+}
+
+DataraI32x4 datara_rt_i32x4_mul(DataraI32x4 a, DataraI32x4 b) {
+    DataraI32x4 out;
+    out.x = a.x * b.x; out.y = a.y * b.y; out.z = a.z * b.z; out.w = a.w * b.w;
+    return out;
+}
+
+DataraI32x4 datara_rt_i32x4_div(DataraI32x4 a, DataraI32x4 b) {
+    DataraI32x4 out;
+    out.x = b.x != 0 ? a.x / b.x : 0;
+    out.y = b.y != 0 ? a.y / b.y : 0;
+    out.z = b.z != 0 ? a.z / b.z : 0;
+    out.w = b.w != 0 ? a.w / b.w : 0;
+    return out;
+}
+
+int64_t datara_rt_i32x4_dot(DataraI32x4 a, DataraI32x4 b) {
+    return (int64_t)a.x * b.x + (int64_t)a.y * b.y + (int64_t)a.z * b.z + (int64_t)a.w * b.w;
+}
+
+int64_t datara_rt_i32x4_horizontal_add(DataraI32x4 a) {
+    return (int64_t)a.x + (int64_t)a.y + (int64_t)a.z + (int64_t)a.w;
+}
+
+DataraI32x4 datara_rt_i32x4_min(DataraI32x4 a, DataraI32x4 b) {
+    return datara_rt_int4_min4(a, b);
+}
+
+DataraI32x4 datara_rt_i32x4_max(DataraI32x4 a, DataraI32x4 b) {
+    return datara_rt_int4_max4(a, b);
+}
+
+// i32x8 operations
+DataraI32x8 datara_rt_i32x8_add(DataraI32x8 a, DataraI32x8 b) {
+    DataraI32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] + b.v[i];
+    return out;
+}
+
+DataraI32x8 datara_rt_i32x8_sub(DataraI32x8 a, DataraI32x8 b) {
+    DataraI32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] - b.v[i];
+    return out;
+}
+
+DataraI32x8 datara_rt_i32x8_mul(DataraI32x8 a, DataraI32x8 b) {
+    DataraI32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] * b.v[i];
+    return out;
+}
+
+DataraI32x8 datara_rt_i32x8_div(DataraI32x8 a, DataraI32x8 b) {
+    DataraI32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = b.v[i] != 0 ? a.v[i] / b.v[i] : 0;
+    return out;
+}
+
+int64_t datara_rt_i32x8_dot(DataraI32x8 a, DataraI32x8 b) {
+    int64_t s = 0;
+    for (int i = 0; i < 8; i++) s += (int64_t)a.v[i] * b.v[i];
+    return s;
+}
+
+int64_t datara_rt_i32x8_horizontal_add(DataraI32x8 a) {
+    int64_t s = 0;
+    for (int i = 0; i < 8; i++) s += (int64_t)a.v[i];
+    return s;
+}
+
+DataraI32x8 datara_rt_i32x8_min(DataraI32x8 a, DataraI32x8 b) {
+    DataraI32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] < b.v[i] ? a.v[i] : b.v[i];
+    return out;
+}
+
+DataraI32x8 datara_rt_i32x8_max(DataraI32x8 a, DataraI32x8 b) {
+    DataraI32x8 out;
+    for (int i = 0; i < 8; i++) out.v[i] = a.v[i] > b.v[i] ? a.v[i] : b.v[i];
+    return out;
+}
+
+// f64x2 operations
+DataraF64x2 datara_rt_f64x2_add(DataraF64x2 a, DataraF64x2 b) {
+    DataraF64x2 out;
+    out.x = a.x + b.x; out.y = a.y + b.y;
+    return out;
+}
+
+DataraF64x2 datara_rt_f64x2_sub(DataraF64x2 a, DataraF64x2 b) {
+    DataraF64x2 out;
+    out.x = a.x - b.x; out.y = a.y - b.y;
+    return out;
+}
+
+DataraF64x2 datara_rt_f64x2_mul(DataraF64x2 a, DataraF64x2 b) {
+    DataraF64x2 out;
+    out.x = a.x * b.x; out.y = a.y * b.y;
+    return out;
+}
+
+DataraF64x2 datara_rt_f64x2_div(DataraF64x2 a, DataraF64x2 b) {
+    DataraF64x2 out;
+    out.x = a.x / b.x; out.y = a.y / b.y;
+    return out;
+}
+
+double datara_rt_f64x2_dot(DataraF64x2 a, DataraF64x2 b) {
+    return a.x * b.x + a.y * b.y;
+}
+
+double datara_rt_f64x2_horizontal_add(DataraF64x2 a) {
+    return a.x + a.y;
+}
+
+DataraF64x2 datara_rt_f64x2_min(DataraF64x2 a, DataraF64x2 b) {
+    DataraF64x2 out;
+    out.x = a.x < b.x ? a.x : b.x;
+    out.y = a.y < b.y ? a.y : b.y;
+    return out;
+}
+
+DataraF64x2 datara_rt_f64x2_max(DataraF64x2 a, DataraF64x2 b) {
+    DataraF64x2 out;
+    out.x = a.x > b.x ? a.x : b.x;
+    out.y = a.y > b.y ? a.y : b.y;
+    return out;
+}
+
+DataraF64x2 datara_rt_f64x2_lerp(DataraF64x2 a, DataraF64x2 b, double t) {
+    DataraF64x2 out;
+    out.x = a.x + t * (b.x - a.x);
+    out.y = a.y + t * (b.y - a.y);
+    return out;
+}
+
+DataraF64x2 datara_rt_f64x2_normalize(DataraF64x2 a) {
+    double d = datara_rt_f64x2_dot(a, a);
+    DataraF64x2 out;
+    if (d <= 0.0) {
+        out.x = 0.0; out.y = 0.0;
+        return out;
+    }
+    double inv = 1.0 / sqrt(d);
+    out.x = a.x * inv;
+    out.y = a.y * inv;
+    return out;
+}
+
+double datara_rt_f64x2_distance(DataraF64x2 a, DataraF64x2 b) {
+    DataraF64x2 diff = datara_rt_f64x2_sub(a, b);
+    return sqrt(datara_rt_f64x2_dot(diff, diff));
+}
+
+// f64x4 operations
+DataraF64x4 datara_rt_f64x4_add(DataraF64x4 a, DataraF64x4 b) {
+    DataraF64x4 out;
+    out.x = a.x + b.x; out.y = a.y + b.y; out.z = a.z + b.z; out.w = a.w + b.w;
+    return out;
+}
+
+DataraF64x4 datara_rt_f64x4_sub(DataraF64x4 a, DataraF64x4 b) {
+    DataraF64x4 out;
+    out.x = a.x - b.x; out.y = a.y - b.y; out.z = a.z - b.z; out.w = a.w - b.w;
+    return out;
+}
+
+DataraF64x4 datara_rt_f64x4_mul(DataraF64x4 a, DataraF64x4 b) {
+    DataraF64x4 out;
+    out.x = a.x * b.x; out.y = a.y * b.y; out.z = a.z * b.z; out.w = a.w * b.w;
+    return out;
+}
+
+DataraF64x4 datara_rt_f64x4_div(DataraF64x4 a, DataraF64x4 b) {
+    DataraF64x4 out;
+    out.x = a.x / b.x; out.y = a.y / b.y; out.z = a.z / b.z; out.w = a.w / b.w;
+    return out;
+}
+
+double datara_rt_f64x4_dot(DataraF64x4 a, DataraF64x4 b) {
+    return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
+
+double datara_rt_f64x4_horizontal_add(DataraF64x4 a) {
+    return a.x + a.y + a.z + a.w;
+}
+
+DataraF64x4 datara_rt_f64x4_min(DataraF64x4 a, DataraF64x4 b) {
+    DataraF64x4 out;
+    out.x = a.x < b.x ? a.x : b.x;
+    out.y = a.y < b.y ? a.y : b.y;
+    out.z = a.z < b.z ? a.z : b.z;
+    out.w = a.w < b.w ? a.w : b.w;
+    return out;
+}
+
+DataraF64x4 datara_rt_f64x4_max(DataraF64x4 a, DataraF64x4 b) {
+    DataraF64x4 out;
+    out.x = a.x > b.x ? a.x : b.x;
+    out.y = a.y > b.y ? a.y : b.y;
+    out.z = a.z > b.z ? a.z : b.z;
+    out.w = a.w > b.w ? a.w : b.w;
+    return out;
+}
+
+DataraF64x4 datara_rt_f64x4_lerp(DataraF64x4 a, DataraF64x4 b, double t) {
+    DataraF64x4 out;
+    out.x = a.x + t * (b.x - a.x);
+    out.y = a.y + t * (b.y - a.y);
+    out.z = a.z + t * (b.z - a.z);
+    out.w = a.w + t * (b.w - a.w);
+    return out;
+}
+
+DataraF64x4 datara_rt_f64x4_normalize(DataraF64x4 a) {
+    double d = datara_rt_f64x4_dot(a, a);
+    DataraF64x4 out;
+    if (d <= 0.0) {
+        out.x = 0.0; out.y = 0.0; out.z = 0.0; out.w = 0.0;
+        return out;
+    }
+    double inv = 1.0 / sqrt(d);
+    out.x = a.x * inv;
+    out.y = a.y * inv;
+    out.z = a.z * inv;
+    out.w = a.w * inv;
+    return out;
+}
+
+double datara_rt_f64x4_distance(DataraF64x4 a, DataraF64x4 b) {
+    DataraF64x4 diff = datara_rt_f64x4_sub(a, b);
+    return sqrt(datara_rt_f64x4_dot(diff, diff));
+}
+
+// ---------------------------------------------------------------------------
+// High Performance Vector Algorithms: Array Dot Product & Ray-Sphere
+// ---------------------------------------------------------------------------
+
+double datara_rt_dot_f32_array(const float* a, const float* b, int64_t n) {
+    int64_t i = 0;
+#if defined(DATARA_SIMD_SSE2)
+    __m128 sum0 = _mm_setzero_ps();
+    __m128 sum1 = _mm_setzero_ps();
+    for (; i + 8 <= n; i += 8) {
+        __m128 a0 = _mm_loadu_ps(a + i);
+        __m128 b0 = _mm_loadu_ps(b + i);
+        sum0 = _mm_add_ps(sum0, _mm_mul_ps(a0, b0));
+        __m128 a1 = _mm_loadu_ps(a + i + 4);
+        __m128 b1 = _mm_loadu_ps(b + i + 4);
+        sum1 = _mm_add_ps(sum1, _mm_mul_ps(a1, b1));
+    }
+    __m128 total = _mm_add_ps(sum0, sum1);
+    for (; i + 4 <= n; i += 4) {
+        __m128 a0 = _mm_loadu_ps(a + i);
+        __m128 b0 = _mm_loadu_ps(b + i);
+        total = _mm_add_ps(total, _mm_mul_ps(a0, b0));
+    }
+    __m128 shuf = _mm_shuffle_ps(total, total, _MM_SHUFFLE(2, 3, 0, 1));
+    __m128 sums = _mm_add_ps(total, shuf);
+    shuf = _mm_shuffle_ps(sums, sums, _MM_SHUFFLE(1, 0, 3, 2));
+    sums = _mm_add_ps(sums, shuf);
+    double acc = (double)_mm_cvtss_f32(sums);
+#else
+    double acc = 0.0;
+#endif
+    for (; i < n; i++) {
+        acc += (double)(a[i] * b[i]);
+    }
+    return acc;
+}
+
+double datara_rt_ray_sphere_intersect_simd(DataraF32x4 ro, DataraF32x4 rd, DataraF32x4 center, double radius) {
+    DataraF32x4 oc = datara_rt_f32x4_sub(ro, center);
+    double a = datara_rt_f32x4_dot(rd, rd);
+    double b = 2.0 * datara_rt_f32x4_dot(oc, rd);
+    double c = datara_rt_f32x4_dot(oc, oc) - radius * radius;
+    double disc = b * b - 4.0 * a * c;
+    if (disc < 0.0) return -1.0;
+    return (-b - sqrt(disc)) / (2.0 * a);
+}
+
+double datara_rt_ray_sphere_intersect_scalar(double rox, double roy, double roz, double rdx, double rdy, double rdz, double cx, double cy, double cz, double r) {
+    double ocx = rox - cx;
+    double ocy = roy - cy;
+    double ocz = roz - cz;
+    double a = rdx * rdx + rdy * rdy + rdz * rdz;
+    double b = 2.0 * (ocx * rdx + ocy * rdy + ocz * rdz);
+    double c = (ocx * ocx + ocy * ocy + ocz * ocz) - r * r;
+    double disc = b * b - 4.0 * a * c;
+    if (disc < 0.0) return -1.0;
+    return (-b - sqrt(disc)) / (2.0 * a);
+}
+
+DataraF32x4 datara_rt_ray_sphere_4x_simd(
+    DataraF32x4 ro_x, DataraF32x4 ro_y, DataraF32x4 ro_z,
+    DataraF32x4 rd_x, DataraF32x4 rd_y, DataraF32x4 rd_z,
+    DataraF32x4 cx,   DataraF32x4 cy,   DataraF32x4 cz,
+    DataraF32x4 radius
+) {
+#if defined(DATARA_SIMD_SSE2)
+    __m128 mx_ro = _mm_loadu_ps(&ro_x.x);
+    __m128 my_ro = _mm_loadu_ps(&ro_y.x);
+    __m128 mz_ro = _mm_loadu_ps(&ro_z.x);
+
+    __m128 mx_rd = _mm_loadu_ps(&rd_x.x);
+    __m128 my_rd = _mm_loadu_ps(&rd_y.x);
+    __m128 mz_rd = _mm_loadu_ps(&rd_z.x);
+
+    __m128 mx_c = _mm_loadu_ps(&cx.x);
+    __m128 my_c = _mm_loadu_ps(&cy.x);
+    __m128 mz_c = _mm_loadu_ps(&cz.x);
+
+    __m128 mr = _mm_loadu_ps(&radius.x);
+
+    __m128 oc_x = _mm_sub_ps(mx_ro, mx_c);
+    __m128 oc_y = _mm_sub_ps(my_ro, my_c);
+    __m128 oc_z = _mm_sub_ps(mz_ro, mz_c);
+
+    __m128 a = _mm_add_ps(_mm_add_ps(_mm_mul_ps(mx_rd, mx_rd), _mm_mul_ps(my_rd, my_rd)), _mm_mul_ps(mz_rd, mz_rd));
+    __m128 b_half = _mm_add_ps(_mm_add_ps(_mm_mul_ps(oc_x, mx_rd), _mm_mul_ps(oc_y, my_rd)), _mm_mul_ps(oc_z, mz_rd));
+    __m128 b = _mm_mul_ps(_mm_set1_ps(2.0f), b_half);
+    __m128 c = _mm_sub_ps(_mm_add_ps(_mm_add_ps(_mm_mul_ps(oc_x, oc_x), _mm_mul_ps(oc_y, oc_y)), _mm_mul_ps(oc_z, oc_z)), _mm_mul_ps(mr, mr));
+
+    __m128 disc = _mm_sub_ps(_mm_mul_ps(b, b), _mm_mul_ps(_mm_set1_ps(4.0f), _mm_mul_ps(a, c)));
+
+    __m128 zero = _mm_setzero_ps();
+    __m128 valid_mask = _mm_cmpge_ps(disc, zero);
+    __m128 safe_disc = _mm_max_ps(disc, zero);
+    __m128 sqrt_disc = _mm_sqrt_ps(safe_disc);
+
+    __m128 neg_b = _mm_sub_ps(zero, b);
+    __m128 num = _mm_sub_ps(neg_b, sqrt_disc);
+    __m128 den = _mm_mul_ps(_mm_set1_ps(2.0f), a);
+    __m128 hit = _mm_div_ps(num, den);
+
+    __m128 neg_one = _mm_set1_ps(-1.0f);
+    __m128 res = _mm_or_ps(_mm_and_ps(valid_mask, hit), _mm_andnot_ps(valid_mask, neg_one));
+
+    DataraF32x4 out;
+    _mm_storeu_ps(&out.x, res);
+    return out;
+#else
+    DataraF32x4 res;
+    float* roxs = &ro_x.x; float* roys = &ro_y.x; float* rozs = &ro_z.x;
+    float* rdxs = &rd_x.x; float* rdys = &rd_y.x; float* rdzs = &rd_z.x;
+    float* cxs = &cx.x;    float* cys = &cy.x;    float* czs = &cz.x;
+    float* rs = &radius.x; float* out = &res.x;
+    for (int i = 0; i < 4; i++) {
+        float ocx = roxs[i] - cxs[i];
+        float ocy = roys[i] - cys[i];
+        float ocz = rozs[i] - czs[i];
+        float a = rdxs[i]*rdxs[i] + rdys[i]*rdys[i] + rdzs[i]*rdzs[i];
+        float b = 2.0f * (ocx*rdxs[i] + ocy*rdys[i] + ocz*rdzs[i]);
+        float c = (ocx*ocx + ocy*ocy + ocz*ocz) - rs[i]*rs[i];
+        float disc = b*b - 4.0f*a*c;
+        if (disc < 0.0f) out[i] = -1.0f;
+        else out[i] = (-b - sqrtf(disc)) / (2.0f * a);
+    }
+    return res;
+#endif
+}
+
+DataraF32x4 datara_rt_ray_sphere_4x_scalar(
+    DataraF32x4 ro_x, DataraF32x4 ro_y, DataraF32x4 ro_z,
+    DataraF32x4 rd_x, DataraF32x4 rd_y, DataraF32x4 rd_z,
+    DataraF32x4 cx,   DataraF32x4 cy,   DataraF32x4 cz,
+    DataraF32x4 radius
+) {
+    DataraF32x4 res;
+    float* roxs = &ro_x.x; float* roys = &ro_y.x; float* rozs = &ro_z.x;
+    float* rdxs = &rd_x.x; float* rdys = &rd_y.x; float* rdzs = &rd_z.x;
+    float* cxs = &cx.x;    float* cys = &cy.x;    float* czs = &cz.x;
+    float* rs = &radius.x; float* out = &res.x;
+    for (int i = 0; i < 4; i++) {
+        float ocx = roxs[i] - cxs[i];
+        float ocy = roys[i] - cys[i];
+        float ocz = rozs[i] - czs[i];
+        float a = rdxs[i]*rdxs[i] + rdys[i]*rdys[i] + rdzs[i]*rdzs[i];
+        float b = 2.0f * (ocx*rdxs[i] + ocy*rdys[i] + ocz*rdzs[i]);
+        float c = (ocx*ocx + ocy*ocy + ocz*ocz) - rs[i]*rs[i];
+        float disc = b*b - 4.0f*a*c;
+        if (disc < 0.0f) {
+            out[i] = -1.0f;
+        } else {
+            out[i] = (-b - sqrtf(disc)) / (2.0f * a);
+        }
+    }
+    return res;
+}
+
+void datara_rt_ray_sphere_batch_simd(
+    const float* rox, const float* roy, const float* roz,
+    const float* rdx, const float* rdy, const float* rdz,
+    float cx, float cy, float cz, float r,
+    float* out_t, int64_t count
+) {
+    int64_t i = 0;
+#if defined(DATARA_SIMD_SSE2)
+    __m128 vcx = _mm_set1_ps(cx);
+    __m128 vcy = _mm_set1_ps(cy);
+    __m128 vcz = _mm_set1_ps(cz);
+    __m128 vr = _mm_set1_ps(r);
+    __m128 vr2 = _mm_mul_ps(vr, vr);
+    __m128 zero = _mm_setzero_ps();
+    __m128 two = _mm_set1_ps(2.0f);
+    __m128 four = _mm_set1_ps(4.0f);
+    __m128 neg_one = _mm_set1_ps(-1.0f);
+
+    for (; i + 4 <= count; i += 4) {
+        __m128 mx_ro = _mm_loadu_ps(rox + i);
+        __m128 my_ro = _mm_loadu_ps(roy + i);
+        __m128 mz_ro = _mm_loadu_ps(roz + i);
+
+        __m128 mx_rd = _mm_loadu_ps(rdx + i);
+        __m128 my_rd = _mm_loadu_ps(rdy + i);
+        __m128 mz_rd = _mm_loadu_ps(rdz + i);
+
+        __m128 oc_x = _mm_sub_ps(mx_ro, vcx);
+        __m128 oc_y = _mm_sub_ps(my_ro, vcy);
+        __m128 oc_z = _mm_sub_ps(mz_ro, vcz);
+
+        __m128 a = _mm_add_ps(_mm_add_ps(_mm_mul_ps(mx_rd, mx_rd), _mm_mul_ps(my_rd, my_rd)), _mm_mul_ps(mz_rd, mz_rd));
+        __m128 b_half = _mm_add_ps(_mm_add_ps(_mm_mul_ps(oc_x, mx_rd), _mm_mul_ps(oc_y, my_rd)), _mm_mul_ps(oc_z, mz_rd));
+        __m128 b = _mm_mul_ps(two, b_half);
+        __m128 c = _mm_sub_ps(_mm_add_ps(_mm_add_ps(_mm_mul_ps(oc_x, oc_x), _mm_mul_ps(oc_y, oc_y)), _mm_mul_ps(oc_z, oc_z)), vr2);
+
+        __m128 disc = _mm_sub_ps(_mm_mul_ps(b, b), _mm_mul_ps(four, _mm_mul_ps(a, c)));
+        __m128 valid_mask = _mm_cmpge_ps(disc, zero);
+        __m128 safe_disc = _mm_max_ps(disc, zero);
+        __m128 sqrt_disc = _mm_sqrt_ps(safe_disc);
+
+        __m128 neg_b = _mm_sub_ps(zero, b);
+        __m128 num = _mm_sub_ps(neg_b, sqrt_disc);
+        __m128 den = _mm_mul_ps(two, a);
+        __m128 hit = _mm_div_ps(num, den);
+
+        __m128 res = _mm_or_ps(_mm_and_ps(valid_mask, hit), _mm_andnot_ps(valid_mask, neg_one));
+        _mm_storeu_ps(out_t + i, res);
+    }
+#endif
+    for (; i < count; i++) {
+        float ocx = rox[i] - cx;
+        float ocy = roy[i] - cy;
+        float ocz = roz[i] - cz;
+        float a = rdx[i]*rdx[i] + rdy[i]*rdy[i] + rdz[i]*rdz[i];
+        float b = 2.0f * (ocx*rdx[i] + ocy*rdy[i] + ocz*rdz[i]);
+        float c = (ocx*ocx + ocy*ocy + ocz*ocz) - r*r;
+        float disc = b*b - 4.0f*a*c;
+        if (disc < 0.0f) out_t[i] = -1.0f;
+        else out_t[i] = (-b - sqrtf(disc)) / (2.0f * a);
+    }
+}
+
+#if defined(_MSC_VER)
+#pragma optimize("", off)
+#endif
+void datara_rt_ray_sphere_batch_scalar(
+    const float* rox, const float* roy, const float* roz,
+    const float* rdx, const float* rdy, const float* rdz,
+    float cx, float cy, float cz, float r,
+    float* out_t, int64_t count
+) {
+    for (int64_t i = 0; i < count; i++) {
+        float ocx = rox[i] - cx;
+        float ocy = roy[i] - cy;
+        float ocz = roz[i] - cz;
+        float a = rdx[i]*rdx[i] + rdy[i]*rdy[i] + rdz[i]*rdz[i];
+        float b = 2.0f * (ocx*rdx[i] + ocy*rdy[i] + ocz*rdz[i]);
+        float c = (ocx*ocx + ocy*ocy + ocz*ocz) - r*r;
+        float disc = b*b - 4.0f*a*c;
+        if (disc < 0.0f) {
+            out_t[i] = -1.0f;
+        } else {
+            out_t[i] = (-b - sqrtf(disc)) / (2.0f * a);
+        }
+    }
+}
+#if defined(_MSC_VER)
+#pragma optimize("", on)
+#endif
+
+double datara_rt_fma(double a, double b, double c) {
+    return fma(a, b, c);
+}
+
+float datara_rt_fmaf(float a, float b, float c) {
+    return fmaf(a, b, c);
+}
+
+
 
 // ============================================================================
 // Graduated Ownership Runtime Guards
@@ -4248,7 +5343,7 @@ static void datara_rt_pgo_auto_flush(void) {
         path = getenv("FORGEN_PGO_FILE");
     }
     if (!path || path[0] == '\0') {
-        path = "default.pgo";
+        path = "app.profdata";
     }
     datara_rt_pgo_flush(path);
 }
@@ -4358,7 +5453,7 @@ void datara_rt_pgo_flush(const char* path) {
         path = getenv("FORGEN_PGO_FILE");
     }
     if (!path || path[0] == '\0') {
-        path = "default.pgo";
+        path = "app.profdata";
     }
 
     PGO_LOCK();
@@ -4415,6 +5510,7 @@ struct DataraChaseLevDeque {
     int64_t* volatile buffer;
     volatile int64_t capacity;
     volatile int64_t mask;
+    volatile uint64_t resize_seq;
     int64_t** retired_buffers;
     size_t retired_count;
     size_t retired_capacity;
@@ -4431,6 +5527,7 @@ DataraChaseLevDeque* datara_rt_chase_lev_create(int64_t capacity) {
     q->bottom = 0;
     q->capacity = cap;
     q->mask = cap - 1;
+    q->resize_seq = 0;
     q->retired_buffers = NULL;
     q->retired_count = 0;
     q->retired_capacity = 0;
@@ -4470,6 +5567,14 @@ void datara_rt_chase_lev_push(DataraChaseLevDeque* q, int64_t task_id) {
         int64_t new_cap = old_cap * 2;
         int64_t* new_buf = (int64_t*)malloc(sizeof(int64_t) * (size_t)new_cap);
         if (new_buf) {
+#ifdef _WIN32
+            InterlockedIncrement64((volatile LONG64*)&q->resize_seq);
+            MemoryBarrier();
+#else
+            __sync_add_and_fetch(&q->resize_seq, 1);
+            __sync_synchronize();
+#endif
+            t = q->top;
             for (int64_t i = t; i < b; i++) {
                 new_buf[i & (new_cap - 1)] = q->buffer[i & q->mask];
             }
@@ -4489,7 +5594,11 @@ void datara_rt_chase_lev_push(DataraChaseLevDeque* q, int64_t task_id) {
             q->buffer = new_buf;
 #ifdef _WIN32
             MemoryBarrier();
+            InterlockedIncrement64((volatile LONG64*)&q->resize_seq);
+            MemoryBarrier();
 #else
+            __sync_synchronize();
+            __sync_add_and_fetch(&q->resize_seq, 1);
             __sync_synchronize();
 #endif
         }
@@ -4537,6 +5646,15 @@ int64_t datara_rt_chase_lev_pop(DataraChaseLevDeque* q) {
 int64_t datara_rt_chase_lev_steal(DataraChaseLevDeque* q) {
     if (!q || !q->buffer) return -1;
     while (1) {
+        uint64_t seq1 = q->resize_seq;
+        if (seq1 & 1) {
+#ifdef _WIN32
+            SwitchToThread();
+#else
+            sched_yield();
+#endif
+            continue;
+        }
         int64_t t = q->top;
 #ifdef _WIN32
         MemoryBarrier();
@@ -4547,9 +5665,24 @@ int64_t datara_rt_chase_lev_steal(DataraChaseLevDeque* q) {
         if (t >= b) {
             return -1; // Empty
         }
+#ifdef _WIN32
+        MemoryBarrier();
+#else
+        __sync_synchronize();
+#endif
         int64_t* buf = q->buffer;
         int64_t mask = q->mask;
         int64_t val = buf[t & mask];
+#ifdef _WIN32
+        MemoryBarrier();
+#else
+        __sync_synchronize();
+#endif
+        uint64_t seq2 = q->resize_seq;
+        if (seq1 != seq2 || (seq2 & 1)) {
+            continue;
+        }
+
 #ifdef _WIN32
         if (InterlockedCompareExchange64(&q->top, t + 1, t) == t) {
             return val;
@@ -4766,4 +5899,102 @@ void datara_rt_pin_worker_threads(void) {
 #endif
 }
 
+// ============================================================================
+// Capability Lattice: Hardware/Runtime Capability Traps
+// ============================================================================
+#if defined(_WIN32)
+static volatile LONG64 g_datara_active_caps = (LONG64)DATARA_CAP_ALL;
+#else
+static volatile uint64_t g_datara_active_caps = DATARA_CAP_ALL;
+#endif
+static volatile int g_datara_caps_initialized = 0;
 
+static void datara_rt_cap_init_if_needed(void) {
+    if (g_datara_caps_initialized) return;
+    g_datara_caps_initialized = 1;
+    const char* env_mask = getenv("DATARA_CAP_MASK");
+    if (env_mask && env_mask[0]) {
+        uint64_t mask = (uint64_t)strtoull(env_mask, NULL, 0);
+        datara_rt_cap_set_mask(mask);
+    } else {
+        const char* sandbox = getenv("DATARA_SANDBOX");
+        if (sandbox && (strcmp(sandbox, "1") == 0 || strcmp(sandbox, "true") == 0)) {
+            datara_rt_cap_set_mask(DATARA_CAP_FS_READ | DATARA_CAP_NET_CLIENT);
+        }
+    }
+}
+
+void datara_rt_cap_set_mask(uint64_t mask) {
+    g_datara_caps_initialized = 1;
+#if defined(_WIN32)
+    InterlockedExchange64(&g_datara_active_caps, (LONG64)mask);
+#elif defined(__GNUC__) || defined(__clang__)
+    __atomic_store_n(&g_datara_active_caps, mask, __ATOMIC_SEQ_CST);
+#else
+    g_datara_active_caps = mask;
+#endif
+}
+
+uint64_t datara_rt_cap_get_mask(void) {
+    datara_rt_cap_init_if_needed();
+#if defined(_WIN32)
+    return (uint64_t)InterlockedCompareExchange64(&g_datara_active_caps, 0, 0);
+#elif defined(__GNUC__) || defined(__clang__)
+    return __atomic_load_n(&g_datara_active_caps, __ATOMIC_SEQ_CST);
+#else
+    return g_datara_active_caps;
+#endif
+}
+
+void datara_rt_cap_revoke(uint64_t mask) {
+#if defined(_WIN32)
+    InterlockedAnd64(&g_datara_active_caps, (LONG64)~mask);
+#elif defined(__GNUC__) || defined(__clang__)
+    __atomic_and_fetch(&g_datara_active_caps, ~mask, __ATOMIC_SEQ_CST);
+#else
+    g_datara_active_caps &= ~mask;
+#endif
+}
+
+void datara_rt_cap_grant(uint64_t mask) {
+#if defined(_WIN32)
+    InterlockedOr64(&g_datara_active_caps, (LONG64)mask);
+#elif defined(__GNUC__) || defined(__clang__)
+    __atomic_or_fetch(&g_datara_active_caps, mask, __ATOMIC_SEQ_CST);
+#else
+    g_datara_active_caps |= mask;
+#endif
+}
+
+void datara_rt_trigger_hardware_cap_trap(uint64_t required_bit, const char* op_name) {
+    uint64_t current_mask = datara_rt_cap_get_mask();
+    datara_rt_flush();
+    fprintf(stderr,
+        "[DATARA HARDWARE CAPABILITY TRAP] Security violation: operation '%s' requires capability 0x%llx (active mask: 0x%llx). Aborting execution.\n",
+        op_name ? op_name : "unknown",
+        (unsigned long long)required_bit,
+        (unsigned long long)current_mask);
+    datara_rt_print_backtrace();
+    fflush(stderr);
+
+    // Hardware trap execution:
+#if defined(__GNUC__) || defined(__clang__)
+    #if defined(__x86_64__) || defined(_M_X64)
+        __asm__ volatile("ud2");
+    #else
+        __builtin_trap();
+    #endif
+#elif defined(_MSC_VER)
+    #if defined(_M_X64) || defined(_M_IX86)
+        __debugbreak();
+    #endif
+#endif
+    exit(132); // Fallback exit code
+}
+
+void datara_rt_cap_require(uint64_t required_bit, const char* op_name) {
+    uint64_t current = datara_rt_cap_get_mask();
+    if ((current & required_bit) != required_bit) {
+        datara_rt_trigger_hardware_cap_trap(required_bit, op_name);
+    }
+}

@@ -3,7 +3,7 @@
     Datara Programming Language & Forgen Compiler - Official Universal Windows Terminal Installer
 .DESCRIPTION
     Dynamically installs the latest release of Datara, standard library, and file associations.
-    Run via: irm https://raw.githubusercontent.com/waters1ze/datara/main/install.ps1 | iex
+    Run via: irm https://raw.githubusercontent.com/datara-lang/datara/main/install.ps1 | iex
 #>
 
 $ErrorActionPreference = "Stop"
@@ -15,7 +15,7 @@ Write-Host "   ____        _                     " -ForegroundColor Cyan
 Write-Host "  |  _ \  __ _| |_ __ _ _ __ __ _    Datara Systems Language" -ForegroundColor Cyan
 Write-Host "  | | | |/ _` | __/ _` | '__/ _` |   Forgen AOT Native Toolchain" -ForegroundColor Cyan
 Write-Host "  | |_| | (_| | || (_| | | | (_| |   Universal Windows Installer" -ForegroundColor Cyan
-Write-Host "  |____/ \__,_|\__\__,_|_|  \__,_|   https://github.com/waters1ze/datara" -ForegroundColor Cyan
+Write-Host "  |____/ \__,_|\__\__,_|_|  \__,_|   https://github.com/datara-lang/datara" -ForegroundColor Cyan
 Write-Host "================================================================================" -ForegroundColor Cyan
 
 # 1. Prepare Target Directory Structure
@@ -31,9 +31,9 @@ New-Item -ItemType Directory -Force -Path $AssetsDir | Out-Null
 
 # 2. Determine Version Dynamically from GitHub API
 Write-Host "[2/5] Resolving latest Datara version..." -ForegroundColor Yellow
-$Repo = "waters1ze/datara"
+$Repo = "datara-lang/datara"
 $ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
-$LatestTag = "v1.1.0"
+$LatestTag = "v1.2.0"
 $DownloadUrl = ""
 
 try {

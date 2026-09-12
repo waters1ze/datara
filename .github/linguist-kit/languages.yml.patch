@@ -1,0 +1,17 @@
+# Insert into lib/linguist/languages.yml in alphabetical order between Daslang and DataWeave:
+#
+# Daslang:
+#   type: programming
+#   ...
+# (INSERT HERE)
+# DataWeave:
+#   type: programming
+#   ...
+
+Datara:
+  type: programming
+  color: "#E3B341"
+  extensions:
+    - ".dtr"
+  tm_scope: source.datara
+  ace_mode: text

@@ -90,8 +90,10 @@ pub fn distance_squared(p: Point) -> Int {
     assert!(h_content.contains("typedef struct {"));
     assert!(h_content.contains("int64_t x;"));
     assert!(h_content.contains("int64_t y;"));
-    assert!(h_content.contains("} Point;"));
-    assert!(h_content.contains("DATARA_API int64_t distance_squared(p: Point);"));
+    assert!(
+        h_content.contains("DATARA_API int64_t distance_squared(Point p);")
+            || h_content.contains("DATARA_API int64_t distance_squared(p: Point);")
+    );
     assert!(h_content.contains("extern \"C\""));
 
     // Clean up

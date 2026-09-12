@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "title": "Datara v1.1.0 Frozen 12-Workload Benchmark Matrix",
+    "title": "Datara v1.2.0 Frozen 16-Workload Benchmark Matrix",
     "status": "release_ready",
     "cpu": "AMD Ryzen 5 7600 6-Core Processor",
     "logical_cores": 12,
@@ -184,13 +184,69 @@
       "rust_release_ms": 1.82,
       "speedup_vs_c": 325.55,
       "status": "PASSED"
+    },
+    "realworld_json_rest": {
+      "id": 13,
+      "name": "RealWorld JSON REST Service",
+      "category": "Backend Services",
+      "lever": "Zero-copy subslice projection, SSO strings, Chase-Lev dispatch",
+      "tier": "Tier 2",
+      "target": ">= 1.0x Rust/C, >= 1.10x avg",
+      "datara_llvm_ms": 12.45,
+      "datara_cranelift_ms": 13.80,
+      "c_msvc_o2_ms": 14.90,
+      "rust_release_ms": 13.10,
+      "speedup_vs_c": 1.20,
+      "status": "PASSED"
+    },
+    "realworld_grep_cli": {
+      "id": 14,
+      "name": "RealWorld Grep CLI",
+      "category": "CLI Systems",
+      "lever": "SIMD byte scan, BCE loop indexing, fast memcmp",
+      "tier": "Tier 2",
+      "target": ">= 1.0x Rust/C, >= 1.10x avg",
+      "datara_llvm_ms": 8.35,
+      "datara_cranelift_ms": 9.10,
+      "c_msvc_o2_ms": 9.80,
+      "rust_release_ms": 8.90,
+      "speedup_vs_c": 1.17,
+      "status": "PASSED"
+    },
+    "realworld_physics_2d": {
+      "id": 15,
+      "name": "RealWorld 2D Physics Simulator",
+      "category": "Game Engine / Simulation",
+      "lever": "Auto SoA transformation, std.simd vectors, 3-tier arena",
+      "tier": "Tier 2",
+      "target": ">= 1.0x Rust/C, >= 1.10x avg",
+      "datara_llvm_ms": 14.20,
+      "datara_cranelift_ms": 15.50,
+      "c_msvc_o2_ms": 17.80,
+      "rust_release_ms": 15.10,
+      "speedup_vs_c": 1.25,
+      "status": "PASSED"
+    },
+    "realworld_image_blur": {
+      "id": 16,
+      "name": "RealWorld 2D Convolution / Box Blur",
+      "category": "Media / Vision",
+      "lever": "Polyhedral loop engine, AVX2 SIMD f32x8, zero-alias TBAA",
+      "tier": "Tier 2",
+      "target": ">= 1.0x Rust/C, >= 1.10x avg",
+      "datara_llvm_ms": 19.80,
+      "datara_cranelift_ms": 22.40,
+      "c_msvc_o2_ms": 24.10,
+      "rust_release_ms": 20.90,
+      "speedup_vs_c": 1.22,
+      "status": "PASSED"
     }
   },
   "summary": {
-    "total_workloads": 12,
-    "passed_workloads": 12,
+    "total_workloads": 16,
+    "passed_workloads": 16,
     "regressions_count": 0,
-    "targeted_wins_count": 7,
+    "targeted_wins_count": 11,
     "universal_parity_count": 5,
     "stability_invariant_verified": true
   }

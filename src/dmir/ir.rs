@@ -170,6 +170,135 @@ pub enum Inst {
     },
 }
 
+impl Inst {
+    /// Traverses all ValueIds referenced by this instruction (both definitions and uses).
+    pub fn visit_vids<F: FnMut(&ValueId) + ?Sized>(&self, f: &mut F) {
+        match self {
+            Inst::ConstInt { dest, .. }
+            | Inst::ConstFloat { dest, .. }
+            | Inst::ConstStr { dest, .. }
+            | Inst::ConstBool { dest, .. }
+            | Inst::GetFuncAddr { dest, .. } => f(dest),
+            Inst::LoadVar { dest, .. } => f(dest),
+            Inst::AssignVar { value, .. } => f(value),
+            Inst::BinOp {
+                dest, left, right, ..
+            } => {
+                f(dest);
+                f(left);
+                f(right);
+            }
+            Inst::UnOp { dest, operand, .. } => {
+                f(dest);
+                f(operand);
+            }
+            Inst::Call { dest, args, .. } => {
+                f(dest);
+                for a in args {
+                    f(a);
+                }
+            }
+            Inst::MethodCall {
+                dest, object, args, ..
+            } => {
+                f(dest);
+                f(object);
+                for a in args {
+                    f(a);
+                }
+            }
+            Inst::StructInit { dest, fields, .. } => {
+                f(dest);
+                for (_, v) in fields {
+                    f(v);
+                }
+            }
+            Inst::GetField { dest, object, .. } => {
+                f(dest);
+                f(object);
+            }
+            Inst::SetField { object, value, .. } => {
+                f(object);
+                f(value);
+            }
+            Inst::Out { value } | Inst::Err { value } => f(value),
+            Inst::FormatStr { dest, values, .. } => {
+                f(dest);
+                for v in values {
+                    f(v);
+                }
+            }
+            Inst::Select {
+                dest,
+                cond,
+                then_val,
+                else_val,
+                ..
+            } => {
+                f(dest);
+                f(cond);
+                f(then_val);
+                f(else_val);
+            }
+            Inst::Decide {
+                dest,
+                arms,
+                else_val,
+                ..
+            } => {
+                f(dest);
+                for (c, v) in arms {
+                    f(c);
+                    f(v);
+                }
+                if let Some(e) = else_val {
+                    f(e);
+                }
+            }
+            Inst::WhileLoop {
+                condition_insts,
+                cond_val,
+                body_insts,
+            } => {
+                f(cond_val);
+                for i in condition_insts {
+                    i.visit_vids(f);
+                }
+                for i in body_insts {
+                    i.visit_vids(f);
+                }
+            }
+            Inst::TryCatch {
+                try_insts,
+                catch_insts,
+                ..
+            } => {
+                for i in try_insts {
+                    i.visit_vids(f);
+                }
+                for i in catch_insts {
+                    i.visit_vids(f);
+                }
+            }
+            Inst::Return { value } => {
+                if let Some(v) = value {
+                    f(v);
+                }
+            }
+            Inst::InlineAsm {
+                outputs, inputs, ..
+            } => {
+                for (_, d) in outputs {
+                    f(d);
+                }
+                for (_, i) in inputs {
+                    f(i);
+                }
+            }
+        }
+    }
+}
+
 impl std::hash::Hash for Inst {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         std::mem::discriminant(self).hash(state);

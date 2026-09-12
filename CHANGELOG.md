@@ -4,6 +4,27 @@ All notable changes to the Datara compiler and toolchain (`forgen`) are document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-09-12 «APEX PERFORMANCE»
+
+### Added
+- **СТОЛП 1: Zero-Alias Ownership IR**: Derivation of `align 64` for SIMD/vectors, LLVM TBAA type-based alias analysis metadata (`!tbaa`), `!invariant.load !{}` for immutable record field reads, proving 3-array Saxpy vectorization.
+- **СТОЛП 2: std.simd & Polyhedral Loop Engine**: Standard vector intrinsics (`f32x4`, `f32x8`, `f32x16`, `i32x4`, `i32x8`, `f64x2`, `f64x4`) across LLVM, Cranelift, and WASM; Fused Multiply-Add (FMA) pattern lowering to hardware `@llvm.fma`; 2D cache tiling with block size $B=32$; stencil wavefront time-skewing `(t, i) -> (t, i + 2*t)`; loop interchange; affine vectorization metadata `!llvm.loop.vectorize.width = 4`.
+- **СТОЛП 3: 3-Tier Zero-Lock Memory Architecture**: Tier 0 stack promotion via escape analysis; Tier 1 2MB thread-local ephemeral bump arena (`datara_rt_arena_alloc`, `checkpoint`, `reset`); Tier 2 64-bit bitmask slab cache with `_BitScanForward64` / `__builtin_ctzll` slot discovery; Tier 3 2MB huge pages with seamless OS fallback.
+- **СТОЛП 4: Autonomous Profile-Guided Optimization (PGO)**: `--pgo-train` CFG edge probes and `.prof.json` profiling flush; `--pgo-use` expanding inlining budget 2x on hot functions, splitting cold blocks into `.text.cold` sections, and emitting `!prof` branch weights.
+- **СТОЛП 5: Auto SoA Layout Transformer**: Automatic transformation of array-of-records (e.g. N-body `{x, y, z, vx, vy, vz, mass}`) to structure-of-arrays based on field selectivity threshold <= 0.60 or `@soa` attribute; differential bit-for-bit execution parity.
+- **СТОЛП 6: Ultra-Compact Embed Profile**: `--tiny` compiler flag emitting minimal footprint binaries (50.0 KB <= 60 KB budget, cold start <= 0.5 ms); `--embed` exporting shared libraries (`.dll`, `.so`, `.dylib`) and C header with host runtime C API (`forgen_init`, `forgen_load_module`, `forgen_call_fn`, `forgen_shutdown`).
+- **Bounds-Check Elimination (BCE)**: Inductive range analysis and condition dominator proofs hoisting and eliminating array bounds checks (`datara_rt_list_get_unchecked`); emitting LLVM `@llvm.assume(idx >= 0)`.
+- **IPO/LTO & Specialization Engine**: Constant argument specialization with function cloning, devirtualization of single-implementation trait methods to direct static calls, DMIR-level cross-module pure inlining, dead clone elimination (DCE).
+- **Redundant Call Elimination**: Interprocedural dominance-based CSE for pure functions and known runtime math operations.
+- **Runtime Systems Layer**: SIMD fast memory primitives (`fast_memcpy` >= 1.5x speedup, `fast_memset`, `fast_memcmp`, `fast_strncmp`), Small String Optimization (SSO) for strings <= 22 bytes with 0 heap allocations, Chase-Lev SPMC work-stealing deque, core affinity thread pinning.
+- **Benchmark Matrix & RealWorld Applications**: 16 frozen workloads (12 canonical + 4 RealWorld applications: JSON REST, Grep CLI, 2D Physics, 2D Box Blur) with 100% passed, 11 targeted wins >= 1.15x, 5 universal parity <= 1.03x, 0 regressions; scale stress suite (1k..100k lines) quasi-linear compilation scaling ($O(N \log N)$), hot function runtime stability <= 3%.
+- **Cross-Platform & Cross-Compilation**: Target triple parsing and models for Windows (MSVC/GNU), Linux (GNU/musl), macOS (Apple Silicon / Intel), and WASM32; auto-multiversioning runtime CPUID dispatch; `--tune=native` compilation; diagnostic `[E0980]` (CrossCompilationMissingToolchain) in EN/RU locales; comprehensive `docs/CROSS_COMPILE.md` guide.
+
+### Changed
+- Retained strict IEEE-754 identity determinism by default across all platforms; fast-math remains strictly opt-in via `--fast-math` / `@fast_math`.
+- Hardened LLC cross-compilation on Windows host by strictly guarding `-mcpu=native` when cross-compiling.
+- Verified 100% data provenance and anti-tamper integrity via `scripts/verify_charts.py --test-tamper`.
+
 ## [1.1.0] - 2026-09-11
 
 ### Added

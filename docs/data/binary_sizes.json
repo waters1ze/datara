@@ -37,6 +37,18 @@
       "size_kb": 0.43,
       "format": "WebAssembly"
     },
+    "Datara-Tiny": {
+      "size_bytes": 51200,
+      "size_kb": 50.0,
+      "format": "PE/COFF Executable",
+      "cold_start_ms": 0.38
+    },
+    "Datara-Embed-SharedLib": {
+      "size_bytes": 48128,
+      "size_kb": 47.0,
+      "format": "PE/COFF Dynamic Link Library",
+      "cold_start_ms": 0.22
+    },
     "Rust-Release": {
       "size_bytes": 130560,
       "size_kb": 127.5,

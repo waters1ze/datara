@@ -950,7 +950,20 @@ impl WasmEmitter {
         if pc_local.is_some() {
             wat_fn.push_str("    (local $pc i32)\n");
         }
-        wat_fn.push_str("    (local $scratch_v128 v128)\n");
+        // Initialize parameter variables ($var_<param_name>) from function parameters
+        for (pname, _, pval) in &func.params {
+            if let Some(&var_loc) = var_map.get(pname) {
+                let param_loc = local_map.get(pval).copied().unwrap_or(0);
+                body.push(0x20); // local.get param_loc
+                encode_u32_leb128(param_loc, &mut body);
+                body.push(0x21); // local.set var_loc
+                encode_u32_leb128(var_loc, &mut body);
+                wat_fn.push_str(&format!(
+                    "    (local.set $var_{} (local.get $v{}))\n",
+                    pname, pval.0
+                ));
+            }
+        }
 
         // Lower blocks and control flow
         if func.blocks.len() <= 1 {

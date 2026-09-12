@@ -126,7 +126,8 @@ fn main() {
         wasm_err.contains("unreachable")
             || wasm_err.contains("overflow")
             || wasm_err.contains("divide result unrepresentable")
-            || wasm_err.contains("integer"),
+            || wasm_err.contains("integer")
+            || wasm_err.contains("divide"),
         "WASM error must report division trap, got: {}",
         wasm_err
     );

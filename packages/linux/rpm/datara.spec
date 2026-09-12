@@ -22,5 +22,5 @@ cp -r %{_sourcedir}/usr/* %{buildroot}/usr/
 /usr/lib/datara
 
 %changelog
-* Wed Sep 03 2026 waters1ze <https://github.com/waters1ze/datara> - 1.1.0-1
+* Wed Sep 03 2026 waters1ze <https://github.com/waters1ze/datara> - 1.2.0-1
 - Initial public release of Datara and Forgen compiler toolchain

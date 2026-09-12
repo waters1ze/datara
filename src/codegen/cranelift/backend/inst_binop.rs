@@ -101,12 +101,98 @@ pub fn compile_binop<M: ClifModule>(
         (ilv, irv)
     };
 
+    let c_left = ctx
+        .const_float_map
+        .get(left)
+        .copied()
+        .or_else(|| ctx.const_int_map.get(left).map(|&v| v as f64));
+    let c_right = ctx
+        .const_float_map
+        .get(right)
+        .copied()
+        .or_else(|| ctx.const_int_map.get(right).map(|&v| v as f64));
+
     let res = if is_float {
+        if let (Some(l_val), Some(r_val)) = (c_left, c_right) {
+            let folded = match op {
+                "+" => Some(l_val + r_val),
+                "-" => Some(l_val - r_val),
+                "*" => Some(l_val * r_val),
+                "/" if r_val != 0.0 => Some(l_val / r_val),
+                _ => None,
+            };
+            if let Some(val) = folded {
+                ctx.const_float_map.insert(*dest, val);
+            }
+        }
+
         match op {
-            "+" => ctx.builder.ins().fadd(lv, rv),
-            "-" => ctx.builder.ins().fsub(lv, rv),
-            "*" => ctx.builder.ins().fmul(lv, rv),
-            "/" => ctx.builder.ins().fdiv(lv, rv),
+            "+" => {
+                if let Some(c) = c_right {
+                    if c == 0.0 {
+                        lv
+                    } else {
+                        ctx.builder.ins().fadd(lv, rv)
+                    }
+                } else if let Some(c) = c_left {
+                    if c == 0.0 {
+                        rv
+                    } else {
+                        ctx.builder.ins().fadd(lv, rv)
+                    }
+                } else {
+                    ctx.builder.ins().fadd(lv, rv)
+                }
+            }
+            "-" => {
+                if let Some(c) = c_right {
+                    if c == 0.0 {
+                        lv
+                    } else {
+                        ctx.builder.ins().fsub(lv, rv)
+                    }
+                } else if let Some(c) = c_left {
+                    if c == 0.0 {
+                        ctx.builder.ins().fneg(rv)
+                    } else {
+                        ctx.builder.ins().fsub(lv, rv)
+                    }
+                } else {
+                    ctx.builder.ins().fsub(lv, rv)
+                }
+            }
+            "*" => {
+                if let Some(c) = c_right {
+                    if c == 1.0 {
+                        lv
+                    } else if c == 2.0 {
+                        ctx.builder.ins().fadd(lv, lv)
+                    } else {
+                        ctx.builder.ins().fmul(lv, rv)
+                    }
+                } else if let Some(c) = c_left {
+                    if c == 1.0 {
+                        rv
+                    } else if c == 2.0 {
+                        ctx.builder.ins().fadd(rv, rv)
+                    } else {
+                        ctx.builder.ins().fmul(lv, rv)
+                    }
+                } else {
+                    ctx.builder.ins().fmul(lv, rv)
+                }
+            }
+            "/" => {
+                if let Some(c) = c_right {
+                    if c == 1.0 {
+                        lv
+                    } else {
+                        ctx.builder.ins().fdiv(lv, rv)
+                    }
+                } else {
+                    ctx.builder.ins().fdiv(lv, rv)
+                }
+            }
             "<" => {
                 let c = ctx.builder.ins().fcmp(
                     cranelift_codegen::ir::condcodes::FloatCC::LessThan,
@@ -491,7 +577,8 @@ pub fn compile_unop<M: ClifModule>(
     let v_ty = ctx.builder.func.dfg.value_type(raw_v);
     let res = if v_ty == clif_types::F64 {
         if op == "-" {
-            ctx.builder.ins().fneg(raw_v)
+            let zero = ctx.builder.ins().f64const(0.0);
+            ctx.builder.ins().fsub(zero, raw_v)
         } else {
             raw_v
         }

@@ -1,5 +1,7 @@
 pub(crate) mod attributes;
 pub(crate) mod emit_inst;
+pub(crate) mod simd;
+
 use crate::ast::Program;
 use crate::codegen::CodegenBackend;
 use crate::codegen::linker::{compile_with_clang, find_clang};
@@ -358,6 +360,20 @@ impl<'a> LlvmEmitter<'a> {
         ir.push_str("  store i64 %val, ptr %ptr, align 8\n");
         ir.push_str("  ret ptr %list\n");
         ir.push_str("}\n\n");
+        ir.push_str("define internal double @datara_rt_list_get_f64_unchecked(ptr %list, i64 %idx) alwaysinline {\n");
+        ir.push_str("entry:\n");
+        ir.push_str("  %off = add i64 %idx, 1\n");
+        ir.push_str("  %ptr = getelementptr inbounds double, ptr %list, i64 %off\n");
+        ir.push_str("  %val = load double, ptr %ptr, align 8\n");
+        ir.push_str("  ret double %val\n");
+        ir.push_str("}\n\n");
+        ir.push_str("define internal ptr @datara_rt_list_set_f64_unchecked(ptr %list, i64 %idx, double %val) alwaysinline {\n");
+        ir.push_str("entry:\n");
+        ir.push_str("  %off = add i64 %idx, 1\n");
+        ir.push_str("  %ptr = getelementptr inbounds double, ptr %list, i64 %off\n");
+        ir.push_str("  store double %val, ptr %ptr, align 8\n");
+        ir.push_str("  ret ptr %list\n");
+        ir.push_str("}\n\n");
         ir.push_str("declare i64 @datara_rt_own_acquire(i64)\n");
         ir.push_str("declare void @datara_rt_own_release(i64)\n");
         ir.push_str("declare void @datara_rt_out_int(i64)\n");
@@ -450,6 +466,9 @@ impl<'a> LlvmEmitter<'a> {
             "declare i64 @datara_rt_map_get(ptr, ptr)
 ",
         );
+        ir.push_str("declare i64 @datara_rt_map_contains(ptr, ptr)\n");
+        ir.push_str("declare i64 @datara_rt_map_len(ptr)\n");
+        ir.push_str("declare void @datara_rt_map_free(ptr)\n");
         ir.push_str("declare i64 @datara_rt_now_ms()\n");
         ir.push_str("declare i64 @datara_rt_now_ns()\n");
         ir.push_str("declare i64 @datara_rt_now_precise_ms()\n");
@@ -527,7 +546,14 @@ impl<'a> LlvmEmitter<'a> {
 
         ir.push_str("declare i32 @datara_rt_pin_thread(i64)\n");
         ir.push_str("declare i64 @datara_rt_get_current_core()\n");
-        ir.push_str("declare void @datara_rt_pin_worker_threads()\n\n");
+        ir.push_str("declare void @datara_rt_pin_worker_threads()\n");
+
+        ir.push_str("declare void @datara_rt_cap_set_mask(i64)\n");
+        ir.push_str("declare i64 @datara_rt_cap_get_mask()\n");
+        ir.push_str("declare void @datara_rt_cap_revoke(i64)\n");
+        ir.push_str("declare void @datara_rt_cap_grant(i64)\n");
+        ir.push_str("declare void @datara_rt_cap_require(i64, ptr)\n\n");
+        simd::emit_simd_declarations(&mut ir);
 
         // 2b. Declare user-declared extern "C" functions (FFI), mirroring the
         // Cranelift backend so FFI programs compile on both backends.
@@ -561,6 +587,8 @@ impl<'a> LlvmEmitter<'a> {
 
         let mut range_metadata_map: HashMap<(i64, i64), usize> = HashMap::new();
         let mut branch_weights_map: HashMap<(u32, u32), usize> = HashMap::new();
+        let mut entry_count_map: HashMap<usize, usize> = HashMap::new();
+        let mut loop_metadata_map: HashMap<usize, usize> = HashMap::new();
         branch_weights_map.insert((1, 1048576), 9);
         let mut next_meta_id = 10;
         for fname in &sorted_func_names {
@@ -572,10 +600,29 @@ impl<'a> LlvmEmitter<'a> {
                 .map(|e| e.is_pure())
                 .unwrap_or(false);
             let is_pure = is_pure_ast || is_pure_eff;
-            let is_cold = f.blocks.iter().any(|b| attributes::is_cold_block(f, b.id));
+            let (is_cold, is_hot, entry_count) = if *fname == "main" {
+                (false, false, None)
+            } else if let Some(ref prof) = self.profile {
+                if prof.is_runtime_measured() {
+                    let count = prof.hot_functions.get(*fname).copied().unwrap_or(0);
+                    let cold = count == 0;
+                    let hot = count > 50;
+                    (cold, hot, if count > 0 { Some(count) } else { None })
+                } else {
+                    let cold = !f.blocks.is_empty()
+                        && f.blocks.iter().all(|b| attributes::is_cold_block(f, b.id));
+                    (cold, false, None)
+                }
+            } else {
+                let cold = !f.blocks.is_empty()
+                    && f.blocks.iter().all(|b| attributes::is_cold_block(f, b.id));
+                (cold, false, None)
+            };
             let fn_ctx = attributes::FunctionAttrContext {
                 is_pure,
                 is_cold,
+                is_hot,
+                entry_count,
                 ast_params,
             };
             ir.push_str(&self.emit_function_with_details(
@@ -585,6 +632,8 @@ impl<'a> LlvmEmitter<'a> {
                 types,
                 &mut range_metadata_map,
                 &mut branch_weights_map,
+                &mut entry_count_map,
+                &mut loop_metadata_map,
                 &mut next_meta_id,
                 &address_taken,
                 Some(&fn_ctx),
@@ -594,12 +643,14 @@ impl<'a> LlvmEmitter<'a> {
 
         // 4. Emit Loop Vectorization & Unroll Metadata (Honest contract: only enabled when target supports it)
         let vec_enabled = attributes::is_vector_supported(self.target);
-        ir.push_str("!0 = distinct !{!0, !1, !3}\n");
+        ir.push_str("!0 = distinct !{!0, !1, !3, !4, !5}\n");
         ir.push_str(&format!(
             "!1 = !{{!\"llvm.loop.vectorize.enable\", i1 {}}}\n",
             if vec_enabled { 1 } else { 0 }
         ));
         ir.push_str("!3 = !{!\"llvm.loop.unroll.enable\", i1 1}\n");
+        ir.push_str("!4 = !{!\"llvm.loop.vectorize.width\", i32 4}\n");
+        ir.push_str("!5 = !{!\"llvm.loop.interleave.count\", i32 4}\n");
         ir.push_str("!9 = !{!\"branch_weights\", i32 1, i32 1048576}\n\n");
 
         // 5. Emit Profile-Guided and Custom Branch Weights Metadata Nodes
@@ -619,6 +670,38 @@ impl<'a> LlvmEmitter<'a> {
             ir.push('\n');
         }
 
+        // 5b. Emit Profile-Guided Function Entry Counts
+        if !entry_count_map.is_empty() {
+            ir.push_str("; --- Profile-Guided Function Entry Counts ---\n");
+            let mut sorted_entries: Vec<(usize, usize)> = entry_count_map.into_iter().collect();
+            sorted_entries.sort_by_key(|&(id, _)| id);
+            for (id, count) in sorted_entries {
+                ir.push_str(&format!(
+                    "!{} = !{{!\"function_entry_count\", i64 {}}}\n",
+                    id, count
+                ));
+            }
+            ir.push('\n');
+        }
+
+        // 5c. Emit Profile-Guided Loop Unroll Metadata
+        if !loop_metadata_map.is_empty() {
+            ir.push_str("; --- Profile-Guided Loop Unroll Metadata ---\n");
+            let mut sorted_loops: Vec<(usize, usize)> = loop_metadata_map.into_iter().collect();
+            sorted_loops.sort_by_key(|&(id, _)| id);
+            for (id, trip_count) in sorted_loops {
+                let unroll_id = next_meta_id;
+                next_meta_id += 1;
+                let count_id = next_meta_id;
+                next_meta_id += 1;
+                ir.push_str(&format!(
+                    "!{} = distinct !{{!{}, !{}, !{}}}\n!{} = !{{!\"llvm.loop.unroll.enable\", i1 1}}\n!{} = !{{!\"llvm.loop.unroll.count\", i32 {}}}\n",
+                    id, id, unroll_id, count_id, unroll_id, count_id, trip_count
+                ));
+            }
+            ir.push('\n');
+        }
+
         // 6. Emit Formal Value Range Propagation (FVRP) Metadata Nodes
         if !range_metadata_map.is_empty() {
             ir.push_str("; --- FVRP Range Metadata Nodes ---\n");
@@ -630,6 +713,9 @@ impl<'a> LlvmEmitter<'a> {
             }
             ir.push('\n');
         }
+
+        // 7. Emit Type-Based Alias Analysis (TBAA) Metadata Nodes
+        ir.push_str(&attributes::emit_tbaa_metadata());
 
         ir
     }
@@ -668,6 +754,8 @@ impl<'a> LlvmEmitter<'a> {
         address_taken: &HashSet<String>,
     ) -> String {
         let mut branch_weights = HashMap::new();
+        let mut entry_counts = HashMap::new();
+        let mut loop_meta = HashMap::new();
         self.emit_function_with_details(
             f,
             module,
@@ -675,6 +763,8 @@ impl<'a> LlvmEmitter<'a> {
             types,
             range_metadata,
             &mut branch_weights,
+            &mut entry_counts,
+            &mut loop_meta,
             next_meta_id,
             address_taken,
             None,
@@ -690,6 +780,8 @@ impl<'a> LlvmEmitter<'a> {
         types: &TypeChecker,
         range_metadata: &mut HashMap<(i64, i64), usize>,
         branch_weights_map: &mut HashMap<(u32, u32), usize>,
+        entry_count_map: &mut HashMap<usize, usize>,
+        loop_metadata_map: &mut HashMap<usize, usize>,
         next_meta_id: &mut usize,
         address_taken: &HashSet<String>,
         fn_ctx: Option<&attributes::FunctionAttrContext>,
@@ -738,29 +830,88 @@ impl<'a> LlvmEmitter<'a> {
         };
 
         let is_cold = fn_ctx.map(|c| c.is_cold).unwrap_or(false);
-        let fn_attrs = attributes::derive_fn_attributes(f, is_pure, is_cold);
+        let is_hot = fn_ctx.map(|c| c.is_hot).unwrap_or(false);
+        let fn_attrs = attributes::derive_fn_attributes(f, is_pure, is_cold, is_hot);
         let fn_attrs_str = if fn_attrs.is_empty() {
             "".to_string()
         } else {
             format!(" {}", fn_attrs.join(" "))
         };
+        let entry_meta = attributes::derive_fn_entry_count_metadata(
+            fn_ctx.and_then(|c| c.entry_count),
+            entry_count_map,
+            next_meta_id,
+        );
 
         out.push_str(&format!(
-            "{} {} @{}({}){} {{\n",
-            linkage_and_cc, ret_type, f.name, params_sig, fn_attrs_str
+            "{} {} @{}({}){}{} {{\n",
+            linkage_and_cc, ret_type, f.name, params_sig, fn_attrs_str, entry_meta
         ));
 
         // Track local variable types and allocas
         let mut local_vars: BTreeSet<String> = BTreeSet::new();
-        let mut struct_inits: Vec<(ValueId, usize)> = Vec::new();
+        let mut all_struct_inits: Vec<(ValueId, usize)> = Vec::new();
+        let mut escaping_structs: HashSet<ValueId> = HashSet::new();
+
         for b in &f.blocks {
             for inst in &b.instructions {
                 if let Inst::AssignVar { name, .. } = inst {
                     local_vars.insert(name.clone());
                 } else if let Inst::StructInit { dest, fields, .. } = inst {
                     let byte_size = fields.len().saturating_mul(8).max(8);
-                    struct_inits.push((*dest, byte_size));
+                    all_struct_inits.push((*dest, byte_size));
                 }
+            }
+        }
+
+        for b in &f.blocks {
+            if let Terminator::Return { value: Some(v) } = &b.terminator {
+                escaping_structs.insert(*v);
+            }
+            for inst in &b.instructions {
+                match inst {
+                    Inst::Call { args, .. } => {
+                        for a in args {
+                            escaping_structs.insert(*a);
+                        }
+                    }
+                    Inst::MethodCall { object, args, .. } => {
+                        escaping_structs.insert(*object);
+                        for a in args {
+                            escaping_structs.insert(*a);
+                        }
+                    }
+                    Inst::SetField { value, .. } => {
+                        escaping_structs.insert(*value);
+                    }
+                    Inst::StructInit { fields, .. } => {
+                        for (_, fv) in fields {
+                            escaping_structs.insert(*fv);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        if f.blocks.len() > 1 {
+            for b in &f.blocks {
+                if b.id != f.entry_block {
+                    for inst in &b.instructions {
+                        if let Inst::StructInit { dest, .. } = inst {
+                            escaping_structs.insert(*dest);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut stack_structs: HashSet<ValueId> = HashSet::new();
+        let mut struct_inits: Vec<(ValueId, usize)> = Vec::new();
+        for (s_id, s_size) in all_struct_inits {
+            if !escaping_structs.contains(&s_id) {
+                stack_structs.insert(s_id);
+                struct_inits.push((s_id, s_size));
             }
         }
 
@@ -932,6 +1083,7 @@ impl<'a> LlvmEmitter<'a> {
                     range_metadata,
                     next_meta_id,
                     &address_taken,
+                    &stack_structs,
                 );
             }
 
@@ -939,7 +1091,14 @@ impl<'a> LlvmEmitter<'a> {
             match &block.terminator {
                 Terminator::Branch { target, .. } => {
                     if target.0 <= block.id.0 {
-                        out.push_str(&format!("  br label %bb{}, !llvm.loop !0\n", target.0));
+                        let loop_meta = attributes::derive_loop_metadata(
+                            &f.name,
+                            block.id,
+                            self.profile,
+                            loop_metadata_map,
+                            next_meta_id,
+                        );
+                        out.push_str(&format!("  br label %bb{}{}\n", target.0, loop_meta));
                     } else {
                         out.push_str(&format!("  br label %bb{}\n", target.0));
                     }
@@ -963,9 +1122,16 @@ impl<'a> LlvmEmitter<'a> {
                         next_meta_id,
                     );
                     if then_block.0 <= block.id.0 || else_block.0 <= block.id.0 {
+                        let loop_meta = attributes::derive_loop_metadata(
+                            &f.name,
+                            block.id,
+                            self.profile,
+                            loop_metadata_map,
+                            next_meta_id,
+                        );
                         out.push_str(&format!(
-                            "  br i1 {}, label %bb{}, label %bb{}{}, !llvm.loop !0\n",
-                            cmp_reg, then_block.0, else_block.0, branch_meta
+                            "  br i1 {}, label %bb{}, label %bb{}{}{}\n",
+                            cmp_reg, then_block.0, else_block.0, branch_meta, loop_meta
                         ));
                     } else {
                         out.push_str(&format!(

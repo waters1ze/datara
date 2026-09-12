@@ -44,8 +44,12 @@ pub fn compile_all_functions<M: ClifModule>(
     // 3. Compile functions
     let mut fn_builder_ctx = FunctionBuilderContext::new();
     for name in sorted_func_names {
-        let f = &dmir_module.functions[name];
-        let &(func_id, ref sig) = func_ids
+        let f = dmir_module
+            .functions
+            .get(name)
+            .ok_or_else(|| format!("Code generation failed: function '{}' not found", name))?;
+
+        let (func_id, sig) = func_ids
             .get(name)
             .ok_or_else(|| format!("Code generation failed: function '{}' not declared", name))?;
         let mut clif_fn = ClifFunction::with_name_signature(
@@ -57,6 +61,7 @@ pub fn compile_all_functions<M: ClifModule>(
 
         let mut val_map: HashMap<ValueId, ClifValue> = HashMap::new();
         let mut const_int_map: HashMap<ValueId, i64> = HashMap::new();
+        let mut const_float_map: HashMap<ValueId, f64> = HashMap::new();
         // Values known to be Bool (0/1). Unlike strings, Bools share the
         // I64 representation, so this set is the only thing separating
         // `print(is_adult)` from `print(1)`.
@@ -178,6 +183,7 @@ pub fn compile_all_functions<M: ClifModule>(
                     Inst::ConstFloat { dest, value } => {
                         let v = builder.ins().f64const(*value);
                         val_map.insert(*dest, v);
+                        const_float_map.insert(*dest, *value);
                     }
                     Inst::ConstBool { dest, value } => {
                         let v = builder
@@ -283,6 +289,7 @@ pub fn compile_all_functions<M: ClifModule>(
                             runtime,
                             val_map: &mut val_map,
                             const_int_map: &mut const_int_map,
+                            const_float_map: &mut const_float_map,
                             string_vids: &mut string_vids,
                             bool_vids: &mut bool_vids,
                             list_vids: &mut list_vids,
@@ -318,6 +325,7 @@ pub fn compile_all_functions<M: ClifModule>(
                             runtime,
                             val_map: &mut val_map,
                             const_int_map: &mut const_int_map,
+                            const_float_map: &mut const_float_map,
                             string_vids: &mut string_vids,
                             bool_vids: &mut bool_vids,
                             list_vids: &mut list_vids,
@@ -352,6 +360,7 @@ pub fn compile_all_functions<M: ClifModule>(
                             runtime,
                             val_map: &mut val_map,
                             const_int_map: &mut const_int_map,
+                            const_float_map: &mut const_float_map,
                             string_vids: &mut string_vids,
                             bool_vids: &mut bool_vids,
                             list_vids: &mut list_vids,
@@ -387,6 +396,7 @@ pub fn compile_all_functions<M: ClifModule>(
                             runtime,
                             val_map: &mut val_map,
                             const_int_map: &mut const_int_map,
+                            const_float_map: &mut const_float_map,
                             string_vids: &mut string_vids,
                             bool_vids: &mut bool_vids,
                             list_vids: &mut list_vids,
@@ -872,13 +882,10 @@ pub fn compile_all_functions<M: ClifModule>(
                     Inst::WhileLoop { .. } | Inst::TryCatch { .. } | Inst::Return { .. } => {}
                 }
             }
-
             // Handle terminator
             match &b.terminator {
                 Terminator::Branch { target, args } => {
                     if let Some(&target_block) = block_map.get(target) {
-                        // SSA block arguments: every branch edge must
-                        // supply one value per target block parameter.
                         let arg_vals: Vec<BlockArg> =
                             args.iter()
                                 .map(|a| {
@@ -997,7 +1004,10 @@ pub fn compile_all_functions<M: ClifModule>(
         builder.finalize(frontend_config);
 
         let mut ctx = cranelift_codegen::Context::for_function(clif_fn.clone());
-        if let Err(e) = module.define_function(func_id, &mut ctx) {
+        if std::env::var("FORGEN_DUMP_CLIF").is_ok() {
+            eprintln!("=== CLIF IR FOR {} ===\n{}", name, clif_fn.display());
+        }
+        if let Err(e) = module.define_function(*func_id, &mut ctx) {
             return Err(format!(
                 "Error in {}:\nCLIF:\n{}\nError:\n{}",
                 name,

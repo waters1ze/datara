@@ -228,6 +228,31 @@ pub fn declare_runtime_core<M: ClifModule>(
         .declare_function("datara_rt_map_get", Linkage::Import, &rt_map_get_sig)
         .map_err(|e| e.to_string())?;
 
+    let mut rt_map_contains_sig = Signature::new(call_conv);
+    rt_map_contains_sig
+        .params
+        .push(AbiParam::new(clif_types::I64));
+    rt_map_contains_sig
+        .params
+        .push(AbiParam::new(clif_types::I64));
+    rt_map_contains_sig
+        .returns
+        .push(AbiParam::new(clif_types::I64));
+    let rt_map_contains_id = module
+        .declare_function(
+            "datara_rt_map_contains",
+            Linkage::Import,
+            &rt_map_contains_sig,
+        )
+        .map_err(|e| e.to_string())?;
+
+    let mut rt_map_len_sig = Signature::new(call_conv);
+    rt_map_len_sig.params.push(AbiParam::new(clif_types::I64));
+    rt_map_len_sig.returns.push(AbiParam::new(clif_types::I64));
+    let rt_map_len_id = module
+        .declare_function("datara_rt_map_len", Linkage::Import, &rt_map_len_sig)
+        .map_err(|e| e.to_string())?;
+
     let mut rt_map_insert_sig = Signature::new(call_conv);
     rt_map_insert_sig
         .params
@@ -347,6 +372,11 @@ pub fn declare_runtime_core<M: ClifModule>(
         func_ids.insert(name, (id, sig));
     }
     func_ids.insert("datara_rt_map_get".into(), (rt_map_get_id, rt_map_get_sig));
+    func_ids.insert(
+        "datara_rt_map_contains".into(),
+        (rt_map_contains_id, rt_map_contains_sig),
+    );
+    func_ids.insert("datara_rt_map_len".into(), (rt_map_len_id, rt_map_len_sig));
     func_ids.insert(
         "datara_rt_map_insert".into(),
         (rt_map_insert_id, rt_map_insert_sig),

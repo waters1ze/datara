@@ -23,7 +23,12 @@ impl WasmEmitter {
         // -------------------------------------------------------------------
         // Hardware SIMD Lowering (v128)
         // -------------------------------------------------------------------
-        if (func == "float4" || func == "datara_rt_float4") && args.len() == 4 {
+        if (func == "float4"
+            || func == "datara_rt_float4"
+            || func == "f32x4"
+            || func == "datara_rt_f32x4")
+            && args.len() == 4
+        {
             // v128.const (opcode 12 = 0x0C), then replace_lane 0..3 with f32.demote_f64
             body.push(0xFD); // SIMD prefix
             encode_u32_leb128(12, body); // v128.const (opcode 12)
@@ -57,7 +62,12 @@ impl WasmEmitter {
             return Ok(());
         }
 
-        if (func == "int4" || func == "datara_rt_int4") && args.len() == 4 {
+        if (func == "int4"
+            || func == "datara_rt_int4"
+            || func == "i32x4"
+            || func == "datara_rt_i32x4")
+            && args.len() == 4
+        {
             // v128.const (opcode 12 = 0x0C), then replace_lane 0..3 with i32.wrap_i64
             body.push(0xFD); // SIMD prefix
             encode_u32_leb128(12, body); // v128.const (opcode 12)
@@ -85,6 +95,8 @@ impl WasmEmitter {
 
         if (func == "min4"
             || func == "max4"
+            || func == "f32x4_min"
+            || func == "f32x4_max"
             || func == "datara_rt_float4_min4"
             || func == "datara_rt_float4_max4")
             && args.len() == 2
@@ -121,7 +133,10 @@ impl WasmEmitter {
             return Ok(());
         }
 
-        if (func == "vec4_add" || func == "add4" || func == "datara_rt_float4_add")
+        if (func == "vec4_add"
+            || func == "add4"
+            || func == "f32x4_add"
+            || func == "datara_rt_float4_add")
             && args.len() == 2
         {
             let a_loc = local_map.get(&args[0]).copied().unwrap_or(0);
@@ -141,7 +156,10 @@ impl WasmEmitter {
             return Ok(());
         }
 
-        if (func == "vec4_sub" || func == "sub4" || func == "datara_rt_float4_sub")
+        if (func == "vec4_sub"
+            || func == "sub4"
+            || func == "f32x4_sub"
+            || func == "datara_rt_float4_sub")
             && args.len() == 2
         {
             let a_loc = local_map.get(&args[0]).copied().unwrap_or(0);
@@ -161,7 +179,10 @@ impl WasmEmitter {
             return Ok(());
         }
 
-        if (func == "vec4_mul" || func == "mul4" || func == "datara_rt_float4_mul")
+        if (func == "vec4_mul"
+            || func == "mul4"
+            || func == "f32x4_mul"
+            || func == "datara_rt_float4_mul")
             && args.len() == 2
         {
             let a_loc = local_map.get(&args[0]).copied().unwrap_or(0);
@@ -176,6 +197,29 @@ impl WasmEmitter {
             encode_u32_leb128(dest_loc, body);
             wat.push_str(&format!(
                 "    (local.set $v{} (f32x4.mul (local.get $v{}) (local.get $v{})))\n",
+                dest.0, args[0].0, args[1].0
+            ));
+            return Ok(());
+        }
+
+        if (func == "vec4_div"
+            || func == "div4"
+            || func == "f32x4_div"
+            || func == "datara_rt_float4_div")
+            && args.len() == 2
+        {
+            let a_loc = local_map.get(&args[0]).copied().unwrap_or(0);
+            let b_loc = local_map.get(&args[1]).copied().unwrap_or(0);
+            body.push(0x20);
+            encode_u32_leb128(a_loc, body);
+            body.push(0x20);
+            encode_u32_leb128(b_loc, body);
+            body.push(0xFD);
+            encode_u32_leb128(231, body); // f32x4.div
+            body.push(0x21);
+            encode_u32_leb128(dest_loc, body);
+            wat.push_str(&format!(
+                "    (local.set $v{} (f32x4.div (local.get $v{}) (local.get $v{})))\n",
                 dest.0, args[0].0, args[1].0
             ));
             return Ok(());

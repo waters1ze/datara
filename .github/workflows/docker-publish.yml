@@ -35,10 +35,11 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/waters1ze/datara
+          images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest
-            type=raw,value=v0.1.0
+            type=raw,value=v1.2.0
+            type=raw,value=1.2.0
             type=sha
 
       - name: Build and push Docker image
@@ -63,7 +64,7 @@ jobs:
         with:
           node-version: 20
           registry-url: 'https://npm.pkg.github.com'
-          scope: '@waters1ze'
+          scope: '@datara-lang'
 
       - name: Publish NPM package to GitHub Packages
         run: |

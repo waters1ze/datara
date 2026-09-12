@@ -1,5 +1,7 @@
 use crate::dmir::ValueId;
-use cranelift_codegen::ir::{InstBuilder, StackSlotData, StackSlotKind, types as clif_types};
+use cranelift_codegen::ir::{
+    BlockArg, InstBuilder, StackSlotData, StackSlotKind, types as clif_types,
+};
 use cranelift_module::Module as ClifModule;
 
 use super::types::FunctionCompileCtx;
@@ -17,7 +19,12 @@ pub fn compile_call<M: ClifModule>(
         return Ok(());
     }
     // First-Class Hardware SIMD Lowering (float4, int4, dot, min4, max4)
-    if (func == "float4" || func == "datara_rt_float4") && args.len() == 4 {
+    if (func == "float4"
+        || func == "datara_rt_float4"
+        || func == "f32x4"
+        || func == "datara_rt_f32x4")
+        && args.len() == 4
+    {
         let slot_data = StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 4);
         let slot = ctx.builder.create_sized_stack_slot(slot_data);
         let slot_addr = ctx.builder.ins().stack_addr(clif_types::I64, slot, 0);
@@ -47,7 +54,9 @@ pub fn compile_call<M: ClifModule>(
         return Ok(());
     }
 
-    if (func == "int4" || func == "datara_rt_int4") && args.len() == 4 {
+    if (func == "int4" || func == "datara_rt_int4" || func == "i32x4" || func == "datara_rt_i32x4")
+        && args.len() == 4
+    {
         let slot_data = StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 4);
         let slot = ctx.builder.create_sized_stack_slot(slot_data);
         let slot_addr = ctx.builder.ins().stack_addr(clif_types::I64, slot, 0);
@@ -77,7 +86,9 @@ pub fn compile_call<M: ClifModule>(
         return Ok(());
     }
 
-    if (func == "min4" || func == "max4") && args.len() == 2 {
+    if (func == "min4" || func == "max4" || func == "f32x4_min" || func == "f32x4_max")
+        && args.len() == 2
+    {
         let v1 = ctx
             .val_map
             .get(&args[0])
@@ -98,7 +109,7 @@ pub fn compile_call<M: ClifModule>(
             let offset = i * 4;
             let l1 = ctx.builder.ins().load(clif_types::F32, flags, v1, offset);
             let l2 = ctx.builder.ins().load(clif_types::F32, flags, v2, offset);
-            let r = if func == "min4" {
+            let r = if func.contains("min") {
                 ctx.builder.ins().fmin(l1, l2)
             } else {
                 ctx.builder.ins().fmax(l1, l2)
@@ -109,7 +120,64 @@ pub fn compile_call<M: ClifModule>(
         return Ok(());
     }
 
-    if (func == "dot" || func == "datara_rt_float4_dot") && args.len() == 2 {
+    if (func == "f32x4_add"
+        || func == "f32x4_sub"
+        || func == "f32x4_mul"
+        || func == "f32x4_div"
+        || func == "vec4_add"
+        || func == "add4")
+        && args.len() == 2
+    {
+        let v1 = ctx
+            .val_map
+            .get(&args[0])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().iconst(clif_types::I64, 0));
+        let v2 = ctx
+            .val_map
+            .get(&args[1])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().iconst(clif_types::I64, 0));
+        let slot_data = StackSlotData::new(StackSlotKind::ExplicitSlot, 16, 4);
+        let slot = ctx.builder.create_sized_stack_slot(slot_data);
+        let slot_addr = ctx.builder.ins().stack_addr(clif_types::I64, slot, 0);
+        let flags = cranelift_codegen::ir::MachMemFlags::new();
+        for i in 0..4i32 {
+            let offset = i * 4;
+            let l1 = ctx.builder.ins().load(clif_types::F32, flags, v1, offset);
+            let l2 = ctx.builder.ins().load(clif_types::F32, flags, v2, offset);
+            let r = match func {
+                "f32x4_sub" => ctx.builder.ins().fsub(l1, l2),
+                "f32x4_mul" => ctx.builder.ins().fmul(l1, l2),
+                "f32x4_div" => ctx.builder.ins().fdiv(l1, l2),
+                _ => ctx.builder.ins().fadd(l1, l2),
+            };
+            ctx.builder.ins().store(flags, r, slot_addr, offset);
+        }
+        ctx.val_map.insert(*dest, slot_addr);
+        return Ok(());
+    }
+
+    if (func == "f32x4_horizontal_add" || func == "horizontal_add") && args.len() == 1 {
+        let v = ctx
+            .val_map
+            .get(&args[0])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().iconst(clif_types::I64, 0));
+        let flags = cranelift_codegen::ir::MachMemFlags::new();
+        let l0 = ctx.builder.ins().load(clif_types::F32, flags, v, 0);
+        let l1 = ctx.builder.ins().load(clif_types::F32, flags, v, 4);
+        let l2 = ctx.builder.ins().load(clif_types::F32, flags, v, 8);
+        let l3 = ctx.builder.ins().load(clif_types::F32, flags, v, 12);
+        let s0 = ctx.builder.ins().fadd(l0, l1);
+        let s1 = ctx.builder.ins().fadd(l2, l3);
+        let sum = ctx.builder.ins().fadd(s0, s1);
+        let res_f64 = ctx.builder.ins().fpromote(clif_types::F64, sum);
+        ctx.val_map.insert(*dest, res_f64);
+        return Ok(());
+    }
+
+    if (func == "dot" || func == "datara_rt_float4_dot" || func == "f32x4_dot") && args.len() == 2 {
         let v1 = ctx
             .val_map
             .get(&args[0])
@@ -145,6 +213,35 @@ pub fn compile_call<M: ClifModule>(
         ctx.val_map.insert(*dest, res_f64);
         return Ok(());
     }
+
+    if (func == "fma" || func == "datara_rt_fma") && args.len() == 3 {
+        let mut f_operands = Vec::with_capacity(3);
+        for arg in &args[0..3] {
+            let val = ctx
+                .val_map
+                .get(arg)
+                .copied()
+                .unwrap_or_else(|| ctx.builder.ins().f64const(0.0));
+            let ty = ctx.builder.func.dfg.value_type(val);
+            let fval = if ty == clif_types::I64
+                || ty == clif_types::I32
+                || ty == clif_types::I16
+                || ty == clif_types::I8
+            {
+                ctx.builder.ins().fcvt_from_sint(clif_types::F64, val)
+            } else if ty == clif_types::F32 {
+                ctx.builder.ins().fpromote(clif_types::F64, val)
+            } else {
+                val
+            };
+            f_operands.push(fval);
+        }
+        let prod = ctx.builder.ins().fmul(f_operands[0], f_operands[1]);
+        let res = ctx.builder.ins().fadd(prod, f_operands[2]);
+        ctx.val_map.insert(*dest, res);
+        return Ok(());
+    }
+
     // List literals: the lowering emits
     // datara_rt_list_create_N for the exact literal
     // length, so a fixed set of runtime symbols can
@@ -216,11 +313,157 @@ pub fn compile_call<M: ClifModule>(
         ctx.val_map.insert(*dest, slot_addr);
         return Ok(());
     }
-    // Only the _unchecked variants (emitted exclusively by the
+    // Direct Hardware Math Intrinsics (sqrt, abs)
+    if (func == "math_sqrt" || func == "sqrt" || func == "datara_rt_math_sqrt") && args.len() == 1 {
+        let arg = ctx
+            .val_map
+            .get(&args[0])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().f64const(0.0));
+        let arg_ty = ctx.builder.func.dfg.value_type(arg);
+        let f64_val = if arg_ty == clif_types::F64 {
+            arg
+        } else if arg_ty == clif_types::I64 {
+            ctx.builder.ins().fcvt_from_sint(clif_types::F64, arg)
+        } else if arg_ty == clif_types::F32 {
+            ctx.builder.ins().fpromote(clif_types::F64, arg)
+        } else {
+            arg
+        };
+        let res = ctx.builder.ins().sqrt(f64_val);
+        ctx.val_map.insert(*dest, res);
+        return Ok(());
+    }
+
+    if (func == "math_abs" || func == "abs" || func == "datara_rt_math_abs") && args.len() == 1 {
+        let arg = ctx
+            .val_map
+            .get(&args[0])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().f64const(0.0));
+        let arg_ty = ctx.builder.func.dfg.value_type(arg);
+        if arg_ty == clif_types::F64 {
+            let res = ctx.builder.ins().fabs(arg);
+            ctx.val_map.insert(*dest, res);
+            return Ok(());
+        }
+    }
+
+    if (func == "math_floor" || func == "floor" || func == "datara_rt_math_floor")
+        && args.len() == 1
+    {
+        let arg = ctx
+            .val_map
+            .get(&args[0])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().f64const(0.0));
+        let arg_ty = ctx.builder.func.dfg.value_type(arg);
+        let f64_val = if arg_ty == clif_types::F64 {
+            arg
+        } else if arg_ty == clif_types::I64 {
+            ctx.builder.ins().fcvt_from_sint(clif_types::F64, arg)
+        } else if arg_ty == clif_types::F32 {
+            ctx.builder.ins().fpromote(clif_types::F64, arg)
+        } else {
+            arg
+        };
+        let res = ctx.builder.ins().floor(f64_val);
+        ctx.val_map.insert(*dest, res);
+        return Ok(());
+    }
+
+    if (func == "math_ceil" || func == "ceil" || func == "datara_rt_math_ceil") && args.len() == 1 {
+        let arg = ctx
+            .val_map
+            .get(&args[0])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().f64const(0.0));
+        let arg_ty = ctx.builder.func.dfg.value_type(arg);
+        let f64_val = if arg_ty == clif_types::F64 {
+            arg
+        } else if arg_ty == clif_types::I64 {
+            ctx.builder.ins().fcvt_from_sint(clif_types::F64, arg)
+        } else if arg_ty == clif_types::F32 {
+            ctx.builder.ins().fpromote(clif_types::F64, arg)
+        } else {
+            arg
+        };
+        let res = ctx.builder.ins().ceil(f64_val);
+        ctx.val_map.insert(*dest, res);
+        return Ok(());
+    }
+
+    if (func == "math_round" || func == "round" || func == "datara_rt_math_round")
+        && args.len() == 1
+    {
+        let arg = ctx
+            .val_map
+            .get(&args[0])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().f64const(0.0));
+        let arg_ty = ctx.builder.func.dfg.value_type(arg);
+        let f64_val = if arg_ty == clif_types::F64 {
+            arg
+        } else if arg_ty == clif_types::I64 {
+            ctx.builder.ins().fcvt_from_sint(clif_types::F64, arg)
+        } else if arg_ty == clif_types::F32 {
+            ctx.builder.ins().fpromote(clif_types::F64, arg)
+        } else {
+            arg
+        };
+        let res = ctx.builder.ins().nearest(f64_val);
+        ctx.val_map.insert(*dest, res);
+        return Ok(());
+    }
+
+    if (func == "math_min" || func == "min" || func == "datara_rt_math_min") && args.len() == 2 {
+        let a = ctx
+            .val_map
+            .get(&args[0])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().f64const(0.0));
+        let b = ctx
+            .val_map
+            .get(&args[1])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().f64const(0.0));
+        let a_ty = ctx.builder.func.dfg.value_type(a);
+        let b_ty = ctx.builder.func.dfg.value_type(b);
+        if a_ty == clif_types::F64 && b_ty == clif_types::F64 {
+            let res = ctx.builder.ins().fmin(a, b);
+            ctx.val_map.insert(*dest, res);
+            return Ok(());
+        }
+    }
+
+    if (func == "math_max" || func == "max" || func == "datara_rt_math_max") && args.len() == 2 {
+        let a = ctx
+            .val_map
+            .get(&args[0])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().f64const(0.0));
+        let b = ctx
+            .val_map
+            .get(&args[1])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().f64const(0.0));
+        let a_ty = ctx.builder.func.dfg.value_type(a);
+        let b_ty = ctx.builder.func.dfg.value_type(b);
+        if a_ty == clif_types::F64 && b_ty == clif_types::F64 {
+            let res = ctx.builder.ins().fmax(a, b);
+            ctx.val_map.insert(*dest, res);
+            return Ok(());
+        }
+    }
+
+    // Direct unchecked list get/set: only DMIR sites proven safe
+    // by static analysis (induction variable within bounds or
     // bounds-check-elimination pass, which must prove the trip
     // count) may bypass the runtime bounds check. The checked
     // variants always go through the real runtime call below.
-    if (func == "datara_rt_list_get_unchecked") && args.len() == 2 {
+    if (func == "datara_rt_list_get_unchecked" || func == "datara_rt_list_get_f64_unchecked")
+        && args.len() == 2
+    {
         let list_ptr = ctx
             .val_map
             .get(&args[0])
@@ -235,7 +478,12 @@ pub fn compile_call<M: ClifModule>(
         let offset = ctx.builder.ins().iadd_imm_s(idx_scaled, 8);
         let addr = ctx.builder.ins().iadd(list_ptr, offset);
         let flags = cranelift_codegen::ir::MachMemFlags::new();
-        let elem = ctx.builder.ins().load(clif_types::I64, flags, addr, 0);
+        let is_float = ty == "Float" || ty == "f64" || func == "datara_rt_list_get_f64_unchecked";
+        let elem = if is_float {
+            ctx.builder.ins().load(clif_types::F64, flags, addr, 0)
+        } else {
+            ctx.builder.ins().load(clif_types::I64, flags, addr, 0)
+        };
         ctx.val_map.insert(*dest, elem);
         if ty == "String" || ty == "Str" {
             ctx.string_vids.insert(*dest);
@@ -248,7 +496,9 @@ pub fn compile_call<M: ClifModule>(
         }
         return Ok(());
     }
-    if (func == "datara_rt_list_set_unchecked") && args.len() == 3 {
+    if (func == "datara_rt_list_set_unchecked" || func == "datara_rt_list_set_f64_unchecked")
+        && args.len() == 3
+    {
         let list_ptr = ctx
             .val_map
             .get(&args[0])
@@ -268,7 +518,156 @@ pub fn compile_call<M: ClifModule>(
         let offset = ctx.builder.ins().iadd_imm_s(idx_scaled, 8);
         let addr = ctx.builder.ins().iadd(list_ptr, offset);
         let flags = cranelift_codegen::ir::MachMemFlags::new();
-        ctx.builder.ins().store(flags, val, addr, 0);
+        let val_ty = ctx.builder.func.dfg.value_type(val);
+        if val_ty == clif_types::F64 {
+            ctx.builder.ins().store(flags, val, addr, 0);
+        } else {
+            ctx.builder.ins().store(flags, val, addr, 0);
+        }
+        ctx.val_map.insert(*dest, list_ptr);
+        return Ok(());
+    }
+    if (func == "datara_rt_list_get" || func == "datara_rt_list_get_f64") && args.len() == 2 {
+        let list_ptr = ctx
+            .val_map
+            .get(&args[0])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().iconst(clif_types::I64, 0));
+        let idx_val = ctx
+            .val_map
+            .get(&args[1])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().iconst(clif_types::I64, 0));
+        let flags = cranelift_codegen::ir::MachMemFlags::new();
+
+        let check_block = ctx.builder.create_block();
+        let load_block = ctx.builder.create_block();
+        let else_block = ctx.builder.create_block();
+        let merge_block = ctx.builder.create_block();
+
+        let is_float = ty == "Float" || ty == "f64" || func == "datara_rt_list_get_f64";
+        let res_ty = if is_float {
+            clif_types::F64
+        } else {
+            clif_types::I64
+        };
+        ctx.builder.append_block_param(merge_block, res_ty);
+
+        let is_non_null = ctx.builder.ins().icmp_imm_u(
+            cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+            list_ptr,
+            0,
+        );
+        ctx.builder
+            .ins()
+            .brif(is_non_null, check_block, &[], else_block, &[]);
+
+        ctx.builder.switch_to_block(check_block);
+        ctx.builder.seal_block(check_block);
+        let list_len = ctx.builder.ins().load(clif_types::I64, flags, list_ptr, 0);
+        let in_bounds = ctx.builder.ins().icmp(
+            cranelift_codegen::ir::condcodes::IntCC::UnsignedLessThan,
+            idx_val,
+            list_len,
+        );
+        ctx.builder
+            .ins()
+            .brif(in_bounds, load_block, &[], else_block, &[]);
+
+        ctx.builder.switch_to_block(load_block);
+        ctx.builder.seal_block(load_block);
+        let idx_scaled = ctx.builder.ins().ishl_imm_u(idx_val, 3);
+        let offset = ctx.builder.ins().iadd_imm_s(idx_scaled, 8);
+        let addr = ctx.builder.ins().iadd(list_ptr, offset);
+        let elem = ctx.builder.ins().load(res_ty, flags, addr, 0);
+        ctx.builder
+            .ins()
+            .jump(merge_block, &[BlockArg::Value(elem)]);
+
+        ctx.builder.switch_to_block(else_block);
+        ctx.builder.seal_block(else_block);
+        let zero = if is_float {
+            ctx.builder.ins().f64const(0.0)
+        } else {
+            ctx.builder.ins().iconst(clif_types::I64, 0)
+        };
+        ctx.builder
+            .ins()
+            .jump(merge_block, &[BlockArg::Value(zero)]);
+
+        ctx.builder.switch_to_block(merge_block);
+        ctx.builder.seal_block(merge_block);
+        let res = ctx.builder.block_params(merge_block)[0];
+        ctx.val_map.insert(*dest, res);
+        if ty == "String" || ty == "Str" {
+            ctx.string_vids.insert(*dest);
+        } else if ty == "Bool" {
+            ctx.bool_vids.insert(*dest);
+        } else if ty.starts_with("List") || ty.starts_with('[') {
+            ctx.list_vids.insert(*dest);
+        } else if ty.starts_with("Map") {
+            ctx.map_vids.insert(*dest);
+        }
+        return Ok(());
+    }
+    if (func == "datara_rt_list_set" || func == "datara_rt_list_set_f64") && args.len() == 3 {
+        let list_ptr = ctx
+            .val_map
+            .get(&args[0])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().iconst(clif_types::I64, 0));
+        let idx_val = ctx
+            .val_map
+            .get(&args[1])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().iconst(clif_types::I64, 0));
+        let val = ctx
+            .val_map
+            .get(&args[2])
+            .copied()
+            .unwrap_or_else(|| ctx.builder.ins().iconst(clif_types::I64, 0));
+        let flags = cranelift_codegen::ir::MachMemFlags::new();
+
+        let check_block = ctx.builder.create_block();
+        let store_block = ctx.builder.create_block();
+        let merge_block = ctx.builder.create_block();
+
+        let is_non_null = ctx.builder.ins().icmp_imm_u(
+            cranelift_codegen::ir::condcodes::IntCC::NotEqual,
+            list_ptr,
+            0,
+        );
+        ctx.builder
+            .ins()
+            .brif(is_non_null, check_block, &[], merge_block, &[]);
+
+        ctx.builder.switch_to_block(check_block);
+        ctx.builder.seal_block(check_block);
+        let list_len = ctx.builder.ins().load(clif_types::I64, flags, list_ptr, 0);
+        let in_bounds = ctx.builder.ins().icmp(
+            cranelift_codegen::ir::condcodes::IntCC::UnsignedLessThan,
+            idx_val,
+            list_len,
+        );
+        ctx.builder
+            .ins()
+            .brif(in_bounds, store_block, &[], merge_block, &[]);
+
+        ctx.builder.switch_to_block(store_block);
+        ctx.builder.seal_block(store_block);
+        let idx_scaled = ctx.builder.ins().ishl_imm_u(idx_val, 3);
+        let offset = ctx.builder.ins().iadd_imm_s(idx_scaled, 8);
+        let addr = ctx.builder.ins().iadd(list_ptr, offset);
+        let val_ty = ctx.builder.func.dfg.value_type(val);
+        if val_ty == clif_types::F64 {
+            ctx.builder.ins().store(flags, val, addr, 0);
+        } else {
+            ctx.builder.ins().store(flags, val, addr, 0);
+        }
+        ctx.builder.ins().jump(merge_block, &[]);
+
+        ctx.builder.switch_to_block(merge_block);
+        ctx.builder.seal_block(merge_block);
         ctx.val_map.insert(*dest, list_ptr);
         return Ok(());
     }
@@ -356,6 +755,7 @@ pub fn compile_call<M: ClifModule>(
     let callee_ref = ctx
         .module
         .declare_func_in_func(resolved_callee_id, ctx.builder.func);
+    ctx.builder.func.dfg.ext_funcs[callee_ref].colocated = true;
     let is_str_concat = callee_name.starts_with("datara_rt_str_concat");
     let conv_ref = ctx
         .module

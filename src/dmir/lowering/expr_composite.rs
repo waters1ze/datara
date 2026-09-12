@@ -625,29 +625,88 @@ impl<'a> Lowering<'a> {
                 } else {
                     "datara_rt_list_get"
                 };
-                let ret_ty: String = match &**object {
-                    Expr::Identifier(name, _) => {
-                        if let Some(obj_ty) = self.lookup_var_type(name) {
-                            match obj_ty {
-                                DataraType::Map(_, val) => match *val {
-                                    DataraType::Float => "Float".into(),
-                                    DataraType::String => "String".into(),
-                                    DataraType::Bool => "Bool".into(),
-                                    _ => "Int".into(),
-                                },
-                                DataraType::List(elem) => match *elem {
-                                    DataraType::Float => "Float".into(),
-                                    DataraType::String => "String".into(),
-                                    DataraType::Bool => "Bool".into(),
-                                    _ => "Int".into(),
-                                },
+                let ret_ty: String = if let Some(obj_ty) = self.infer_expr_datara_type(object) {
+                    match obj_ty {
+                        DataraType::Map(_, val) => match *val {
+                            DataraType::Float => "Float".into(),
+                            DataraType::String => "String".into(),
+                            DataraType::Bool => "Bool".into(),
+                            _ => "Int".into(),
+                        },
+                        DataraType::List(elem) => match *elem {
+                            DataraType::Float => "Float".into(),
+                            DataraType::String => "String".into(),
+                            DataraType::Bool => "Bool".into(),
+                            _ => "Int".into(),
+                        },
+                        DataraType::GenericInstance { name, args }
+                            if (name == "Array" || name == "List") && !args.is_empty() =>
+                        {
+                            match &args[0] {
+                                DataraType::Float => "Float".into(),
+                                DataraType::String => "String".into(),
+                                DataraType::Bool => "Bool".into(),
                                 _ => "Int".into(),
                             }
-                        } else {
-                            "Int".into()
                         }
+                        DataraType::GenericInstance { name, args }
+                            if name == "Map" && args.len() >= 2 =>
+                        {
+                            match &args[1] {
+                                DataraType::Float => "Float".into(),
+                                DataraType::String => "String".into(),
+                                DataraType::Bool => "Bool".into(),
+                                _ => "Int".into(),
+                            }
+                        }
+                        _ => "Int".into(),
                     }
-                    _ => "Int".into(),
+                } else {
+                    match &**object {
+                        Expr::Identifier(name, _) => {
+                            if let Some(obj_ty) = self.lookup_var_type(name) {
+                                match obj_ty {
+                                    DataraType::Map(_, val) => match *val {
+                                        DataraType::Float => "Float".into(),
+                                        DataraType::String => "String".into(),
+                                        DataraType::Bool => "Bool".into(),
+                                        _ => "Int".into(),
+                                    },
+                                    DataraType::List(elem) => match *elem {
+                                        DataraType::Float => "Float".into(),
+                                        DataraType::String => "String".into(),
+                                        DataraType::Bool => "Bool".into(),
+                                        _ => "Int".into(),
+                                    },
+                                    DataraType::GenericInstance { name, args }
+                                        if (name == "Array" || name == "List")
+                                            && !args.is_empty() =>
+                                    {
+                                        match &args[0] {
+                                            DataraType::Float => "Float".into(),
+                                            DataraType::String => "String".into(),
+                                            DataraType::Bool => "Bool".into(),
+                                            _ => "Int".into(),
+                                        }
+                                    }
+                                    DataraType::GenericInstance { name, args }
+                                        if name == "Map" && args.len() >= 2 =>
+                                    {
+                                        match &args[1] {
+                                            DataraType::Float => "Float".into(),
+                                            DataraType::String => "String".into(),
+                                            DataraType::Bool => "Bool".into(),
+                                            _ => "Int".into(),
+                                        }
+                                    }
+                                    _ => "Int".into(),
+                                }
+                            } else {
+                                "Int".into()
+                            }
+                        }
+                        _ => "Int".into(),
+                    }
                 };
                 self.get_block_mut(*cur_block)
                     .instructions

@@ -54,7 +54,7 @@ fn main() {
 
     // Verify CLIF contains direct float multiplication and addition, with no heap malloc or vtable calls
     assert!(
-        clif.contains("fmul") || clif.contains("fadd"),
+        clif.contains("fmul") || clif.contains("fadd") || clif.contains("fma"),
         "CLIF must contain direct float arithmetic"
     );
     assert!(

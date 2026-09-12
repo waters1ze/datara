@@ -67,22 +67,133 @@ impl<'a> TypeChecker<'a> {
             }
             if fn_name == "float4"
                 || fn_name == "datara_rt_float4"
+                || fn_name == "f32x4"
+                || fn_name == "datara_rt_f32x4"
                 || fn_name == "min4"
                 || fn_name == "max4"
+                || fn_name.starts_with("f32x4_add")
+                || fn_name.starts_with("f32x4_sub")
+                || fn_name.starts_with("f32x4_mul")
+                || fn_name.starts_with("f32x4_div")
+                || fn_name.starts_with("f32x4_cross")
+                || fn_name.starts_with("f32x4_min")
+                || fn_name.starts_with("f32x4_max")
+                || fn_name.starts_with("f32x4_lerp")
+                || fn_name.starts_with("f32x4_normalize")
             {
                 return DataraType::Class("Float4".to_string());
             }
-            if fn_name == "int4" || fn_name == "datara_rt_int4" {
+            if fn_name == "f32x8"
+                || fn_name == "datara_rt_f32x8"
+                || fn_name.starts_with("f32x8_add")
+                || fn_name.starts_with("f32x8_sub")
+                || fn_name.starts_with("f32x8_mul")
+                || fn_name.starts_with("f32x8_div")
+                || fn_name.starts_with("f32x8_min")
+                || fn_name.starts_with("f32x8_max")
+                || fn_name.starts_with("f32x8_lerp")
+                || fn_name.starts_with("f32x8_normalize")
+            {
+                return DataraType::Class("f32x8".to_string());
+            }
+            if fn_name == "f32x16"
+                || fn_name == "datara_rt_f32x16"
+                || fn_name.starts_with("f32x16_add")
+                || fn_name.starts_with("f32x16_sub")
+                || fn_name.starts_with("f32x16_mul")
+                || fn_name.starts_with("f32x16_div")
+                || fn_name.starts_with("f32x16_min")
+                || fn_name.starts_with("f32x16_max")
+                || fn_name.starts_with("f32x16_lerp")
+                || fn_name.starts_with("f32x16_normalize")
+            {
+                return DataraType::Class("f32x16".to_string());
+            }
+            if fn_name == "int4"
+                || fn_name == "datara_rt_int4"
+                || fn_name == "i32x4"
+                || fn_name == "datara_rt_i32x4"
+                || fn_name.starts_with("i32x4_add")
+                || fn_name.starts_with("i32x4_sub")
+                || fn_name.starts_with("i32x4_mul")
+                || fn_name.starts_with("i32x4_div")
+                || fn_name.starts_with("i32x4_min")
+                || fn_name.starts_with("i32x4_max")
+            {
                 return DataraType::Class("Int4".to_string());
+            }
+            if fn_name == "i32x8"
+                || fn_name == "datara_rt_i32x8"
+                || fn_name.starts_with("i32x8_add")
+                || fn_name.starts_with("i32x8_sub")
+                || fn_name.starts_with("i32x8_mul")
+                || fn_name.starts_with("i32x8_div")
+                || fn_name.starts_with("i32x8_min")
+                || fn_name.starts_with("i32x8_max")
+            {
+                return DataraType::Class("i32x8".to_string());
+            }
+            if fn_name == "f64x2"
+                || fn_name == "datara_rt_f64x2"
+                || fn_name.starts_with("f64x2_add")
+                || fn_name.starts_with("f64x2_sub")
+                || fn_name.starts_with("f64x2_mul")
+                || fn_name.starts_with("f64x2_div")
+                || fn_name.starts_with("f64x2_min")
+                || fn_name.starts_with("f64x2_max")
+                || fn_name.starts_with("f64x2_lerp")
+                || fn_name.starts_with("f64x2_normalize")
+            {
+                return DataraType::Class("f64x2".to_string());
+            }
+            if fn_name == "f64x4"
+                || fn_name == "datara_rt_f64x4"
+                || fn_name.starts_with("f64x4_add")
+                || fn_name.starts_with("f64x4_sub")
+                || fn_name.starts_with("f64x4_mul")
+                || fn_name.starts_with("f64x4_div")
+                || fn_name.starts_with("f64x4_min")
+                || fn_name.starts_with("f64x4_max")
+                || fn_name.starts_with("f64x4_lerp")
+                || fn_name.starts_with("f64x4_normalize")
+            {
+                return DataraType::Class("f64x4".to_string());
             }
             if fn_name == "dot"
                 || fn_name == "datara_rt_float4_dot"
                 || fn_name.starts_with("float4_")
+                || fn_name.starts_with("f32x4_dot")
+                || fn_name.starts_with("f32x4_horizontal_add")
+                || fn_name.starts_with("f32x4_distance")
+                || fn_name.starts_with("f32x8_dot")
+                || fn_name.starts_with("f32x8_horizontal_add")
+                || fn_name.starts_with("f32x8_distance")
+                || fn_name.starts_with("f32x16_dot")
+                || fn_name.starts_with("f32x16_horizontal_add")
+                || fn_name.starts_with("f32x16_distance")
+                || fn_name.starts_with("f64x2_dot")
+                || fn_name.starts_with("f64x2_horizontal_add")
+                || fn_name.starts_with("f64x2_distance")
+                || fn_name.starts_with("f64x4_dot")
+                || fn_name.starts_with("f64x4_horizontal_add")
+                || fn_name.starts_with("f64x4_distance")
+                || fn_name == "dot_f32_array"
+                || fn_name == "datara_rt_dot_f32_array"
+                || fn_name.contains("ray_sphere_intersect")
                 || fn_name.starts_with("lane")
+                || fn_name == "fma"
+                || fn_name == "fmaf"
+                || fn_name == "datara_rt_fma"
+                || fn_name == "datara_rt_fmaf"
             {
                 return DataraType::Float;
             }
-            if fn_name.starts_with("int4_") {
+            if fn_name.starts_with("int4_")
+                || fn_name.starts_with("i32x4_dot")
+                || fn_name.starts_with("i32x4_horizontal_add")
+                || fn_name.starts_with("i32x8_dot")
+                || fn_name.starts_with("i32x8_horizontal_add")
+            {
                 return DataraType::Int;
             }
 

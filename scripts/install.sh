@@ -17,7 +17,7 @@ echo "   ____        _                     "
 echo "  |  _ \  __ _| |_ __ _ _ __ __ _   "
 echo "  | | | |/ _\` | __/ _\` | '__/ _\` |   DATARA SYSTEMS LANGUAGE"
 echo "  | |_| | (_| | || (_| | | | (_| |   Forgen AOT Native Toolchain v1.0.0"
-echo "  |____/ \__,_|\__\__,_|_|  \__,_|   https://github.com/waters1ze/datara"
+echo "  |____/ \__,_|\__\__,_|_|  \__,_|   https://github.com/datara-lang/datara"
 echo "======================================================================="
 echo -e "${RESET}"
 

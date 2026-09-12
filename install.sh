@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Datara & Forgen Automated Universal Linux/macOS Installer
-# Run: curl -fsSL https://raw.githubusercontent.com/waters1ze/datara/main/install.sh | bash
+# Run: curl -fsSL https://raw.githubusercontent.com/datara-lang/datara/main/install.sh | bash
 
 set -euo pipefail
 
@@ -15,7 +15,7 @@ echo -e "${COLOR_CYAN}   ____        _                     ${COLOR_NC}"
 echo -e "${COLOR_CYAN}  |  _ \\  __ _| |_ __ _ _ __ __ _    Datara Systems Language${COLOR_NC}"
 echo -e "${COLOR_CYAN}  | | | |/ _\` | __/ _\` | '__/ _\` |   Forgen AOT Native Toolchain${COLOR_NC}"
 echo -e "${COLOR_CYAN}  | |_| | (_| | || (_| | | | (_| |   Universal Unix Installer${COLOR_NC}"
-echo -e "${COLOR_CYAN}  |____/ \\__,_|\\__\\__,_|_|  \\__,_|   https://github.com/waters1ze/datara${COLOR_NC}"
+echo -e "${COLOR_CYAN}  |____/ \\__,_|\\__\\__,_|_|  \\__,_|   https://github.com/datara-lang/datara${COLOR_NC}"
 echo -e "${COLOR_CYAN}================================================================================${COLOR_NC}"
 
 INSTALL_DIR="${HOME}/.datara"
@@ -28,9 +28,9 @@ mkdir -p "${BIN_DIR}" "${STDLIB_DIR}" "${ASSETS_DIR}"
 
 # 2. Dynamic Version Detection
 echo -e "${COLOR_YELLOW}[2/5] Resolving latest Datara version from GitHub...${COLOR_NC}"
-REPO="waters1ze/datara"
+REPO="datara-lang/datara"
 API_URL="https://api.github.com/repos/${REPO}/releases/latest"
-LATEST_TAG="v1.1.0"
+LATEST_TAG="v1.2.0"
 DOWNLOAD_URL=""
 
 OS_TYPE="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -135,7 +135,7 @@ if [ "${INSTALLED}" -eq 0 ]; then
 fi
 
 if [ "${INSTALLED}" -eq 0 ]; then
-    echo "Failed to find or build forgen binary. Please clone https://github.com/waters1ze/datara and run cargo build --release."
+    echo "Failed to find or build forgen binary. Please clone https://github.com/datara-lang/datara and run cargo build --release."
     exit 1
 fi
 
@@ -151,10 +151,10 @@ if [ -n "${SCRIPT_DIR}" ] && [ -d "${SCRIPT_DIR}/assets" ]; then
     cp -r "${SCRIPT_DIR}/assets/"* "${ASSETS_DIR}/"
 else
     # Download essential assets from GitHub if running standalone via curl
-    curl -sSL "https://raw.githubusercontent.com/waters1ze/datara/main/assets/datara.xml" -o "${ASSETS_DIR}/datara.xml" 2>/dev/null || true
-    curl -sSL "https://raw.githubusercontent.com/waters1ze/datara/main/assets/icon.svg" -o "${ASSETS_DIR}/icon.svg" 2>/dev/null || true
-    curl -sSL "https://raw.githubusercontent.com/waters1ze/datara/main/assets/datara-logo.png" -o "${ASSETS_DIR}/datara-logo.png" 2>/dev/null || true
-    curl -sSL "https://raw.githubusercontent.com/waters1ze/datara/main/assets/datara.icns" -o "${ASSETS_DIR}/datara.icns" 2>/dev/null || true
+    curl -sSL "https://raw.githubusercontent.com/datara-lang/datara/main/assets/datara.xml" -o "${ASSETS_DIR}/datara.xml" 2>/dev/null || true
+    curl -sSL "https://raw.githubusercontent.com/datara-lang/datara/main/assets/icon.svg" -o "${ASSETS_DIR}/icon.svg" 2>/dev/null || true
+    curl -sSL "https://raw.githubusercontent.com/datara-lang/datara/main/assets/datara-logo.png" -o "${ASSETS_DIR}/datara-logo.png" 2>/dev/null || true
+    curl -sSL "https://raw.githubusercontent.com/datara-lang/datara/main/assets/datara.icns" -o "${ASSETS_DIR}/datara.icns" 2>/dev/null || true
 fi
 
 # Install Desktop Icons and File Associations
@@ -180,7 +180,7 @@ if [ "$(uname -s)" = "Darwin" ]; then
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.1.0</string>
+    <string>1.2.0</string>
     <key>CFBundleDocumentTypes</key>
     <array>
         <dict>

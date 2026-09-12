@@ -209,9 +209,9 @@ fn discover_msvc() -> LinkerSpec {
         lib_paths,
         system_libs: vec![
             "legacy_stdio_definitions.lib".into(),
-            "msvcrt.lib".into(),
-            "ucrt.lib".into(),
-            "vcruntime.lib".into(),
+            "libcmt.lib".into(),
+            "libucrt.lib".into(),
+            "libvcruntime.lib".into(),
             "kernel32.lib".into(),
             "user32.lib".into(),
             "ws2_32.lib".into(),
@@ -766,7 +766,9 @@ pub fn compile_with_llc(
     {
         cmd.arg(format!("-mtriple={}", target));
     }
-    cmd.arg("-mcpu=native");
+    if target_triple.is_none() || target_triple == Some("native") || target_triple == Some("host") {
+        cmd.arg("-mcpu=native");
+    }
     cmd.arg(&input_for_llc);
     cmd.arg("-o").arg(&obj_path);
     let res = cmd
@@ -779,6 +781,30 @@ pub fn compile_with_llc(
         ));
     }
     let _ = std::fs::remove_file(&bc_path);
+
+    let is_cross = if let Some(target) = target_triple {
+        target != "native"
+            && target != "host"
+            && ((cfg!(windows)
+                && (target.contains("linux")
+                    || target.contains("darwin")
+                    || target.contains("apple")))
+                || (cfg!(target_os = "linux")
+                    && (target.contains("windows")
+                        || target.contains("darwin")
+                        || target.contains("apple")))
+                || (cfg!(target_os = "macos")
+                    && (target.contains("windows") || target.contains("linux"))))
+    } else {
+        false
+    };
+
+    if is_cross && find_clang().is_none() && find_lld().is_none() {
+        return Err(format!(
+            "[E0980]: Cross-compilation toolchain not found for target triple '{}'. Install lld or a cross-linker for the target platform.",
+            target_triple.unwrap_or("unknown")
+        ));
+    }
 
     let spec = ensure_linker()?;
     let runtime_lib = crate::runtime::runtime_lib_path();
@@ -871,6 +897,9 @@ pub fn compile_with_clang(
                 || target_triple == Some("native")
                 || target_triple == Some("host")
             {
+                #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+                cmd.arg("-march=x86-64-v3");
+                #[cfg(not(any(target_arch = "x86_64", target_arch = "x86")))]
                 cmd.arg("-march=native");
             }
             cmd.arg(ll_path);
@@ -969,48 +998,75 @@ pub fn compile_shared_with_clang(
     output_lib: &Path,
     opt_level: &str,
 ) -> Result<(), String> {
-    let clang = find_clang().ok_or_else(|| {
-        "Clang is required to build a shared library but was not found".to_string()
-    })?;
-    let opt_flag = match opt_level {
-        "0" | "debug" => "-O0",
-        "1" => "-O1",
-        "2" => "-O2",
-        _ => "-O3",
-    };
+    if let Some(clang) = find_clang() {
+        let is_tiny = opt_level == "tiny" || opt_level == "z" || opt_level == "size";
+        let opt_flag = match opt_level {
+            "0" | "debug" => "-O0",
+            "1" => "-O1",
+            "2" => "-O2",
+            "tiny" | "z" | "size" => "-Oz",
+            "s" => "-Os",
+            _ => "-O3",
+        };
 
-    let mut cmd = Command::new(&clang);
-    cmd.arg(opt_flag).arg("-shared");
-    if cfg!(windows) && find_lld().is_some() {
-        cmd.arg("-fuse-ld=lld");
-    }
-    cmd.arg(ll_path);
-    if let Some(rt) = runtime_lib_path
-        && rt.exists()
-    {
-        // Either the runtime C source or its compiled archive works: clang
-        // treats both as regular inputs.
-        cmd.arg(rt);
-    }
-    cmd.arg("-o").arg(output_lib);
-    if cfg!(windows) {
-        cmd.arg("-lws2_32");
-        cmd.arg("-luser32");
-        cmd.arg("-lkernel32");
-        cmd.arg("-ldbghelp");
-    } else {
-        cmd.arg("-lm");
-        cmd.arg("-lpthread");
+        let mut cmd = Command::new(&clang);
+        cmd.arg(opt_flag).arg("-shared");
+        if !cfg!(windows) {
+            cmd.arg("-fPIC");
+        }
+        cmd.arg("-ffunction-sections");
+        cmd.arg("-fdata-sections");
+        if is_tiny {
+            cmd.arg("-fno-asynchronous-unwind-tables");
+            cmd.arg("-fno-unwind-tables");
+        }
+        if cfg!(windows) && find_lld().is_some() {
+            cmd.arg("-fuse-ld=lld");
+        }
+        cmd.arg(ll_path);
+        if let Some(rt) = runtime_lib_path
+            && rt.exists()
+        {
+            // Either the runtime C source or its compiled archive works: clang
+            // treats both as regular inputs.
+            cmd.arg(rt);
+        }
+        cmd.arg("-o").arg(output_lib);
+        if cfg!(windows) {
+            cmd.arg("-Wl,/OPT:REF");
+            cmd.arg("-Wl,/OPT:ICF");
+            cmd.arg("-lws2_32");
+            cmd.arg("-luser32");
+            cmd.arg("-lkernel32");
+            cmd.arg("-ldbghelp");
+        } else if cfg!(target_os = "macos") {
+            cmd.arg("-Wl,-dead_strip");
+            cmd.arg("-lm");
+            cmd.arg("-lpthread");
+        } else {
+            cmd.arg("-Wl,--gc-sections");
+            if is_tiny {
+                cmd.arg("-s");
+            }
+            cmd.arg("-lm");
+            cmd.arg("-lpthread");
+        }
+
+        let res = cmd
+            .output()
+            .map_err(|e| format!("Failed to run clang: {}", e))?;
+        if !res.status.success() {
+            return Err(format!(
+                "Clang shared-library compilation failed:\n{}",
+                String::from_utf8_lossy(&res.stderr)
+            ));
+        }
+        return Ok(());
     }
 
-    let res = cmd
-        .output()
-        .map_err(|e| format!("Failed to run clang: {}", e))?;
-    if !res.status.success() {
-        return Err(format!(
-            "Clang shared-library compilation failed:\n{}",
-            String::from_utf8_lossy(&res.stderr)
-        ));
+    if let Some(llc) = find_llc() {
+        return compile_with_llc(&llc, ll_path, output_lib, opt_level, None, false);
     }
-    Ok(())
+
+    Err("Neither Clang nor LLC found on system toolchain to build shared library".to_string())
 }

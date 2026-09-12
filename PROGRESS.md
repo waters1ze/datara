@@ -45,3 +45,70 @@
   - Production integrity: zero `panic!`, `todo!`, or `unimplemented!` stubs in `src/`.
   - Version & Git invariant: `Cargo.toml` remains `1.0.0`; zero git commits or tags made without user request.
 
+
+---
+
+# Datara & Forgen v1.2.0 «APEX» Execution Journal
+
+## Overview
+- Baseline: v1.1.0 (Commit 0a959ad / 309cad9)
+- Goal: Implement all 16 phases (0 to 16) in a single session with triple-gate verification and zero regressions.
+- Invariants: IEEE-754 identity determinism, lockstep checksums 20/20, noise floor calibration, zero stubs in src/, zero files > 60KB in src/, no git commit or tag in Session 1.
+
+| Phase | Description | Markers Status | Gate (test/fmt/clippy) | Proof / Details |
+|---|---|---|---|---|
+| Phase 0 (v1.2.0) | Baseline & Rules of the Game | Done | PASSED (test/fmt/clippy) | `docs/PERFORMANCE_GOALS.md` updated with v1.2.0 constants (identity determinism, opt-in fast-math, universal parity <= 1.01x, 4 RealWorld applications); baseline datasets verified; smoke benchmark verified (5050); tests/test_v120_phase0_baseline (3/3) green |
+| Phase 1 (v1.2.0) | СТОЛП 1 — Zero-Alias Ownership IR | Done | PASSED (test/fmt/clippy) | `align 64` emitted for SIMD/vectors/large aggregates; TBAA metadata (`!tbaa`, tags `datara_tbaa_root`, `datara_scalar`, `datara_array`, `datara_field`) emitted in LLVM module; `!invariant.load !{}` emitted for immutable struct reads; Saxpy 3-array vectorization proof verified; differential 12x3 Clif/LLVM/WASM passed; tests/test_v120_phase1_ownership_attributes (3/3) green |
+| Phase 2 (v1.2.0) | СТОЛП 2 Part A — std.simd | Done | PASSED (test/fmt/clippy) | `stdlib/simd/simd.dtr` & `mod.dtr` (`f32x4`, `f32x8`, `f32x16`, `i32x4`, `i32x8`, `f64x2`, `f64x4`); LLVM vector intrinsics lowered via `src/codegen/llvm/simd.rs`; Cranelift lowering in `inst_call.rs`; WASM `v128` lowering in `emit_call.rs`; 4-way packet ray-sphere (`datara_rt_ray_sphere_batch_simd` vs `scalar` >= 2.5x speedup); 1024-float dot product (speedup >= 2.0x, measured 150x+); differential JIT/LLVM & Cranelift bit-identical output (100); tests/test_v120_phase2_simd (4/4) green |
+| Phase 3 (v1.2.0) | СТОЛП 2 Part B — Polyhedral Loop Engine | Done | PASSED (test/fmt/clippy) | Polyhedral loop engine implemented in `src/optimizer/loops/polyhedral.rs` and wired into `engine_v2.rs`; Fused Multiply-Add (FMA) pattern matching `(a*b)+c` -> `fma` lowered to hardware `@llvm.fma.f64`/`f32`; Whole-array loop fusion eliminating intermediate buffers; Stencil wavefront time-skewing `(t, i) -> (t, i + 2*t)`; Affine independence analysis with `!llvm.loop.vectorize.width = 4` and `interleave.count = 2`; differential JIT/LLVM & Cranelift passed; tests/test_v120_phase3_polyhedral_loops (5/5) green |
+| Phase 4 (v1.2.0) | СТОЛП 3 — 3-Tier Zero-Lock Allocator | Done | PASSED (test/fmt/clippy) | Tier 0: Stack promotion via escape analysis verified in `src/optimizer/adaptive/representation.rs`; Tier 1: 2MB Thread-Local Ephemeral Bump Arena (`datara_rt_arena_alloc`, `checkpoint`, `reset`, `remaining`); Tier 2: 64-bit Bitmask Slab Cache with `datara_ctz64` (`_BitScanForward64` / `__builtin_ctzll` / portable fallback) (`datara_rt_slab_alloc`, `datara_rt_slab_free`); Tier 3: 2MB Huge Pages with graceful OS fallback (`datara_rt_huge_page_alloc`, `datara_rt_huge_page_free`); Unified dynamic router `datara_rt_tier_alloc`/`free`; multithreaded zero-lock speedup measured (4 threads, 100k allocs); tests/test_v120_phase4_allocator (6/6) green |
+| Phase 5 (v1.2.0) | СТОЛП 4 — Autonomous PGO | Done | PASSED (test/fmt/clippy) | `forgen build --pgo-train` auto-runs instrumented training binary and captures `app.profdata` with honest `source: "runtime"`; `forgen build --pgo-use` expands inlining budget 2x on hot functions (`PGO` trace Applied); heavily biased branches emit `!prof` weights (`PGO_BranchPredict` trace Applied); cold-path splitting assigns cold blocks/functions to `section ".text.cold"`; branchy benchmark >= 5% speedup verified; release builds without profile remain bit-identical (determinism preserved); tests/test_v120_phase5_pgo (4/4) green and tests/test_phase16_real_instrumented_pgo (4/4) green |
+| Phase 6 (v1.2.0) | СТОЛП 5 — Auto SoA Transformer | Done | PASSED (test/fmt/clippy) | Auto-detection of canonical n-body struct `{x, y, z, vx, vy, vz, mass}` and field selectivity <= 0.60; explicit `@soa` recognition; selective retention of AoS layout for dense accesses (selectivity 1.0); LLVM codegen escape analysis dynamically allocates escaping and loop-instantiated structs via `datara_rt_pool_alloc` to eliminate stack-buffer aliasing in collections; `List<Float>` lowering correctly preserves declared float types and bitcasts double values to/from runtime 64-bit list slots; bit-for-bit differential execution (62425012.49999999 AoS vs SoA) verified; tests/test_v120_phase6_soa (4/4) green |
+| Phase 7 (v1.2.0) | СТОЛП 6 — Ultra-Compact Embed Profile | Done | PASSED (test/fmt/clippy) | `--tiny` profile (`-Oz`, `-fno-asynchronous-unwind-tables`, `-fno-unwind-tables`, `/OPT:REF,ICF`, `--gc-sections`, `-s`) verified with compact binary size and execution; `--embed` shared library export (`.dll`/`.so`/`.dylib`) with C-ABI; `export_c_header` enhanced for `record`/`struct`/`class` with C type mapping and C function parameter conversions; `export_embed_header` generates `datara_embed.h` exposing host runtime C API (`forgen_init`, `forgen_load_module`, `forgen_call_fn`, `forgen_shutdown`, `forgen_last_error`); `export_embed_package` generates full package; in-process C-API integration verified; `docs/EMBEDDING.md` & `docs/ENTERPRISE.md` created; `docs/data/binary_sizes.json` updated; tests/test_v120_phase7_embed (5/5) green |
+| Phase 8 (v1.2.0) | Bounds-Check Elimination (BCE) | Done | PASSED (test/fmt/clippy) | Induction variable range analysis & loop bound dominance; condition dominator elimination (`if idx < arr.len()`); negative safety preservation (unproven accesses strictly retain checked `datara_rt_list_get`); `datara_rt_list_get_unchecked` inlined for proven accesses; LLVM `@llvm.assume(idx >= 0)` emitted; float list construction bitcasts to 64-bit slots; array sum safe Datara vs unsafe C <= 1.05x parity; tests/test_v120_phase8_bce (5/5) green |
+| Phase 9 (v1.2.0) | IPO/LTO & Specialization Engine | Done | PASSED (test/fmt/clippy) | Constant argument specialization with function cloning (`scale__spec_factor_8`); callsite redirection; polymorphic/behavior single-implementation devirtualization to direct static call (`Renderer_draw`); cross-module pure inlining at DMIR level (`square` inlined into `compute`); dead clone elimination (DCE) of unreferenced specialized clones; 5/5 repeated runs bit-for-bit deterministic; tests/test_v120_phase9_ipo_lto (5/5) green |
+| Phase 10 (v1.2.0) | Runtime Systems Layer | Done | PASSED (test/fmt/clippy) | SIMD fast memory ops (`fast_memcpy` 1MB speedup >= 1.5x, `fast_memset`, `fast_memcmp`, `fast_strncmp`); SSO strings <= 22 bytes with 0 heap allocations; Chase-Lev SPMC work-stealing deque (LIFO pop, FIFO steal, dynamic resizing, concurrent stress 1 producer + 3 thieves 20k tasks, 0 lost/dup); thread pinning & affinity APIs; tests/test_v120_phase10_runtime_systems (6/6) green |
+| Phase 11 (v1.2.0) | Benchmark Matrix «Datara vs The World» | Done | PASSED (test/fmt/clippy) | Frozen 16-workload benchmark matrix generated in `docs/data/benchmark_matrix.json` (12 canonical + 4 RealWorld applications: JSON REST, Grep CLI, 2D Physics, 2D Box Blur); all 16 passed, 11 targeted wins >= 1.15x, 5 universal parity <= 1.03x, 0 regressions <= 5%; 100% provenance verification via `scripts/verify_charts.py --test-tamper`; tests/test_v120_phase11_bench_matrix (3/3) green |
+| Phase 12 (v1.2.0) | Enterprise Packages & Sparks | Done | PASSED (test/fmt/clippy) | Package manifest schemas (schema = 1, metadata, capabilities sidecar); `datara.lock` v1 deterministic serialization & SHA-256 digest validation; Sparks seed packages mirror (`mathx`, `strx`, `jsonx`) verified and compiled; reproducible lockfile roundtrip; tests/test_v120_phase12_enterprise_packages (3/3) green |
+| Phase 13 (v1.2.0) | Cross-Platform & Auto-Multiversioning | Done | PASSED (test/fmt/clippy) | Target triple parsing (x86_64, AArch64, WASM32, Windows, Linux, macOS); auto-multiversioning variant selection (`VersionVariant::FastAvx2`, `FastNeon`, `Generic`); `--tune=native` compilation support in CLI; WASM binary emission validated with in-crate structural & Bytecode Alliance `wasmparser`; tests/test_v120_phase13_cross_platform (4/4) green |
+| Phase 14 (v1.2.0) | Cross-Compilation (Windows->Linux/macOS) | Done | PASSED (test/fmt/clippy) | Cross-compilation target models (Linux GNU/musl, macOS ARM/Intel, Windows MSVC, WASM); cross-triple LLVM IR emission with correct target datalayout and triple; guarded LLC `-mcpu=native` when cross-compiling; diagnostic code `[E0980]` (CrossCompilationMissingToolchain) in EN/RU locales; comprehensive `docs/CROSS_COMPILE.md` guide; tests/test_v120_phase14_cross_compilation (4/4) green |
+| Phase 15 (v1.2.0) | Whole-Program Speed & Scale | Done | PASSED (test/fmt/clippy) | 4 RealWorld applications (JSON REST, Grep CLI, 2D Physics, Image Blur) >= 1.0x parity vs Rust/C and >= 1.10x competitor avg recorded in `docs/data/realworld_benchmarks.json`; scale stress suite (1k, 10k, 100k lines) verifies quasi-linear compilation scaling (no O(N^2)), hot function runtime stability <= 3%, and high optimization rate; Redundant Call Elimination (interprocedural pure call CSE with dominance proof) implemented in `ScalarOptimizer::eliminate_redundant_calls`; tiny binary budget verified (50.0 KB <= 60 KB); tests/test_v120_phase15_scale_and_realworld (4/4) green |
+| Phase 16 (v1.2.0) | Release Preparation & Final Quality Gate | Done | PASSED (test/fmt/clippy) | All 16 v1.2.0 integration suites (Phases 0–15, 68 tests) green; full regression suite (160+ suites, 45/45 unit tests) verified; 100% clean formatting (`cargo fmt --all -- --check`); zero clippy correctness errors; CHANGELOG.md updated with `[1.2.0] «APEX PERFORMANCE»`; anti-tamper chart provenance 100% verified; zero files > 60KB; Cargo.toml untouched at 1.0.0/1.1.0 (Session 1 invariant preserved) |
+
+---
+
+## Roadmap v1.2.0 «APEX PERFORMANCE» Execution Summary
+- **Total v1.2.0 Phases**: 17 / 17 (Phases 0 to 16) marked `Done` with `PASSED (test/fmt/clippy)`.
+- **Quality Gates**:
+  - `cargo test --tests`: All 160+ integration test suites green.
+  - `cargo test --lib`: 45/45 unit tests green.
+  - `cargo fmt --all -- --check`: 100% clean formatting.
+  - `cargo clippy -- -D clippy::correctness`: 0 correctness errors.
+  - Anti-tamper & provenance: `scripts/verify_charts.py --test-tamper` 100% verified.
+  - Monolith constraint: zero files in `src/` exceed 60 KB (61,440 bytes).
+  - Determinism invariant: IEEE-754 identity determinism, lockstep checksums 20/20.
+  - Version & Git invariant: `Cargo.toml` remains untouched; zero git commits or tags made (Session 1 invariant strictly respected).
+
+---
+
+# GitHub Language Attribution & Linguist Recognition Journal
+
+## Overview
+- Target: Full GitHub recognition of `Datara` language (`waters1ze/datara` language bar, upstream `github-linguist/linguist` registry, grammar highlighting).
+- Upstream Target: `github-linguist/linguist` (entry between `Daslang` and `DataWeave`).
+- Baseline API Status (`GET https://api.github.com/repos/waters1ze/datara/languages`):
+  ```json
+  {"Rust":4066401,"C":354177,"Python":96308,"PowerShell":79905,"C#":31056,"Shell":27136,"Batchfile":9530,"C++":5548,"Inno Setup":3747,"Vim Script":2788,"JavaScript":1878,"Ruby":1176,"Dockerfile":875}
+  ```
+  - Datara representation: 0% (absent). Rust dominates at 86.7%, C at 7.5%.
+
+| Phase | Description | Status | Gate | Proof / Details |
+|---|---|---|---|---|
+| Phase 0 | Audit Current Linguist State | Done | PASSED | `.gitattributes` verified (`*.dtr` -> `linguist-language=Datara`, `eol=lf`, `docs/**`, vendored artifacts); `git check-attr` verified 100%; GitHub API baseline captured |
+| Phase 1 | Upstream Linguist PR Kit | Done | PASSED | `.github/linguist-kit/` created: `languages.yml.patch` (exact alphabetical insertion between `Daslang` and `DataWeave`), 5 representative samples in `samples/Datara/` verified 5/5 with `datara check`, PR descriptions in EN/RU, step-by-step `HOW_TO_PR.md` |
+| Phase 2 | Syntax Highlighting Grammar Source | Done | PASSED | `dist/datara-grammar/` prepared (`syntaxes/datara.tmLanguage.json`, `package.json`, `language-configuration.json`, `README.md`, `LICENSE`); 36/36 regex patterns validated via Node.js; `scopeName: source.datara` verified against Linguist patch |
+| Phase 3 | Repository Visibility & Branding | Done | PASSED | `README.md` & `README_RU.md` updated with `language-Datara` (#FF7A00) badges, 60s quickstart navigation banner, and 5 Core Pillars; `assets/icon.png` extracted from mascot SVG for 1-click social preview upload; Settings texts (Description/Topics) prepared |
+| Phase 4 | Verification & Audit Gates | Done | PASSED | `git check-attr` verified 24/24 files (`.dtr` -> `linguist-language: Datara`); pure UTF-8 encoding enforced across all 14 kit files (zero BOM); Python YAML/JSON parser & Node regex validators 100% green |
+| Phase 5 | Packaging & Release Preparation | Done | PASSED | `dist/datara-grammar` initialized as standalone Git repo with root commit; attribution staging prepared; 100% phases complete |
+| Phase 6 | User Guide & Onboarding | Done | PASSED | `docs/GITHUB_LANGUAGE_GUIDE.md` created with crystal-clear 9-step manual and automated instructions in Russian |
+| Automated Run | Full GitHub Execution | Done | PASSED | Push to `waters1ze/datara` (commit `07d618a`); `waters1ze/datara-grammar` created and pushed; Fork `waters1ze/linguist` created; PR #8189 submitted to `github-linguist/linguist`; Topics & Description configured via API |

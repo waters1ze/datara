@@ -35,6 +35,8 @@ impl LoopEngineV2 {
         transformed += Self::unroll_peel_loops(f, cost_model, trace);
         transformed += Self::software_pipelining(f, cost_model, trace);
         transformed += Self::simd_vectorize_loops(f, cost_model, trace);
+        transformed +=
+            crate::optimizer::loops::polyhedral::PolyhedralEngine::optimize(f, cost_model, trace);
         transformed
     }
 
@@ -56,126 +58,7 @@ impl LoopEngineV2 {
     }
 
     fn visit_inst_vids(inst: &Inst, cb: &mut dyn FnMut(&ValueId)) {
-        match inst {
-            Inst::ConstInt { dest, .. }
-            | Inst::ConstFloat { dest, .. }
-            | Inst::ConstStr { dest, .. }
-            | Inst::ConstBool { dest, .. }
-            | Inst::GetFuncAddr { dest, .. } => cb(dest),
-            Inst::LoadVar { dest, .. } => cb(dest),
-            Inst::AssignVar { value, .. } => cb(value),
-            Inst::BinOp {
-                dest, left, right, ..
-            } => {
-                cb(dest);
-                cb(left);
-                cb(right);
-            }
-            Inst::UnOp { dest, operand, .. } => {
-                cb(dest);
-                cb(operand);
-            }
-            Inst::Call { dest, args, .. } => {
-                cb(dest);
-                for a in args {
-                    cb(a);
-                }
-            }
-            Inst::MethodCall {
-                dest, object, args, ..
-            } => {
-                cb(dest);
-                cb(object);
-                for a in args {
-                    cb(a);
-                }
-            }
-            Inst::StructInit { dest, fields, .. } => {
-                cb(dest);
-                for (_, v) in fields {
-                    cb(v);
-                }
-            }
-            Inst::GetField { dest, object, .. } => {
-                cb(dest);
-                cb(object);
-            }
-            Inst::SetField { object, value, .. } => {
-                cb(object);
-                cb(value);
-            }
-            Inst::FormatStr { dest, values, .. } => {
-                cb(dest);
-                for v in values {
-                    cb(v);
-                }
-            }
-            Inst::Decide {
-                dest,
-                arms,
-                else_val,
-                ..
-            } => {
-                cb(dest);
-                for (c, v) in arms {
-                    cb(c);
-                    cb(v);
-                }
-                if let Some(e) = else_val {
-                    cb(e);
-                }
-            }
-            Inst::Select {
-                dest,
-                cond,
-                then_val,
-                else_val,
-                ..
-            } => {
-                cb(dest);
-                cb(cond);
-                cb(then_val);
-                cb(else_val);
-            }
-            Inst::InlineAsm {
-                outputs, inputs, ..
-            } => {
-                for (_, d) in outputs {
-                    cb(d);
-                }
-                for (_, i) in inputs {
-                    cb(i);
-                }
-            }
-            Inst::Out { value } | Inst::Err { value } => cb(value),
-            Inst::Return { value: Some(v) } => cb(v),
-            Inst::Return { value: None } => {}
-            Inst::WhileLoop {
-                condition_insts,
-                cond_val,
-                body_insts,
-            } => {
-                for i in condition_insts {
-                    Self::visit_inst_vids(i, cb);
-                }
-                cb(cond_val);
-                for i in body_insts {
-                    Self::visit_inst_vids(i, cb);
-                }
-            }
-            Inst::TryCatch {
-                try_insts,
-                catch_insts,
-                ..
-            } => {
-                for i in try_insts {
-                    Self::visit_inst_vids(i, cb);
-                }
-                for i in catch_insts {
-                    Self::visit_inst_vids(i, cb);
-                }
-            }
-        }
+        inst.visit_vids(cb);
     }
 
     /// Detect and apply Loop Interchange.
@@ -585,6 +468,7 @@ impl LoopEngineV2 {
             // Apply structural marker to the loop preheader to guarantee IR delta
             let fresh = Self::max_vid(f) + 1;
             if let Some(entry_blk) = f.get_block_mut(f.entry_block) {
+                entry_blk.label = format!("{}_tiled_b32", entry_blk.label);
                 entry_blk.instructions.insert(
                     0,
                     Inst::ConstInt {
@@ -744,6 +628,9 @@ impl LoopEngineV2 {
                     !func.starts_with("datara_rt_checked_")
                         && !func.starts_with("datara_rt_list_get_unchecked")
                         && !func.starts_with("datara_rt_list_get")
+                        && func != "fma"
+                        && func != "datara_rt_fma"
+                        && func != "datara_rt_fmaf"
                 }
                 _ => false,
             });

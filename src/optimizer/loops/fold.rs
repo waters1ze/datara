@@ -1179,7 +1179,7 @@ impl LoopOptimizer {
     /// Rewrites every use of `from` to `to` inside one instruction.
     /// Definition positions are untouched: `from` is a block parameter of a
     /// deleted block, so no surviving instruction can define it.
-    fn rewrite_uses(inst: &mut Inst, from: ValueId, to: ValueId) {
+    pub(crate) fn rewrite_uses(inst: &mut Inst, from: ValueId, to: ValueId) {
         match inst {
             Inst::BinOp { left, right, .. } => {
                 if *left == from {

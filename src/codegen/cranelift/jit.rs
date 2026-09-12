@@ -47,6 +47,12 @@ unsafe extern "C" {
     pub fn datara_rt_pgo_flush(path: *const c_char);
     pub fn datara_rt_pgo_reset();
 
+    pub fn datara_rt_cap_set_mask(mask: u64);
+    pub fn datara_rt_cap_get_mask() -> u64;
+    pub fn datara_rt_cap_revoke(mask: u64);
+    pub fn datara_rt_cap_grant(mask: u64);
+    pub fn datara_rt_cap_require(required_bit: u64, op_name: *const c_char);
+
     pub fn datara_rt_chase_lev_create(capacity: i64) -> *mut ();
     pub fn datara_rt_chase_lev_destroy(q: *mut ());
     pub fn datara_rt_chase_lev_push(q: *mut (), task_id: i64);
@@ -220,6 +226,8 @@ unsafe extern "C" {
     ) -> *mut ();
     pub fn datara_rt_map_insert(map: *mut i64, key: *const c_char, val: i64) -> *mut i64;
     pub fn datara_rt_map_get(map: *mut i64, key: *const c_char) -> i64;
+    pub fn datara_rt_map_contains(map: *mut i64, key: *const c_char) -> i64;
+    pub fn datara_rt_map_len(map: *mut i64) -> i64;
     pub fn datara_rt_map_free(map: *mut ());
 
     pub fn datara_rt_socket_create(is_tcp: i64) -> i64;
@@ -365,6 +373,16 @@ pub fn register_runtime_symbols(builder: &mut JITBuilder) {
     );
     reg!("datara_rt_pgo_flush", datara_rt_pgo_flush);
     reg!("datara_rt_pgo_reset", datara_rt_pgo_reset);
+    reg!("datara_rt_cap_set_mask", datara_rt_cap_set_mask);
+    reg!("cap_set_mask", datara_rt_cap_set_mask);
+    reg!("datara_rt_cap_get_mask", datara_rt_cap_get_mask);
+    reg!("cap_get_mask", datara_rt_cap_get_mask);
+    reg!("datara_rt_cap_revoke", datara_rt_cap_revoke);
+    reg!("cap_revoke", datara_rt_cap_revoke);
+    reg!("datara_rt_cap_grant", datara_rt_cap_grant);
+    reg!("cap_grant", datara_rt_cap_grant);
+    reg!("datara_rt_cap_require", datara_rt_cap_require);
+    reg!("cap_require", datara_rt_cap_require);
     reg!("datara_rt_input", datara_rt_input);
     reg!("input", datara_rt_input);
     reg!("read_line", datara_rt_input);
@@ -580,6 +598,8 @@ pub fn register_runtime_symbols(builder: &mut JITBuilder) {
     reg!("datara_rt_map_create_5", datara_rt_map_create_5);
     reg!("datara_rt_map_insert", datara_rt_map_insert);
     reg!("datara_rt_map_get", datara_rt_map_get);
+    reg!("datara_rt_map_contains", datara_rt_map_contains);
+    reg!("datara_rt_map_len", datara_rt_map_len);
     reg!("datara_rt_map_free", datara_rt_map_free);
 
     reg!("datara_rt_socket_create", datara_rt_socket_create);
@@ -622,34 +642,46 @@ pub fn register_runtime_symbols(builder: &mut JITBuilder) {
 
     reg!("datara_rt_math_sqrt", datara_rt_math_sqrt);
     reg!("math_sqrt", datara_rt_math_sqrt);
+    reg!("sqrt", datara_rt_math_sqrt);
     reg!("datara_rt_math_pow", datara_rt_math_pow);
     reg!("math_pow", datara_rt_math_pow);
+    reg!("pow", datara_rt_math_pow);
     reg!("datara_rt_math_abs", datara_rt_math_abs);
     reg!("math_abs", datara_rt_math_abs);
     reg!("datara_rt_math_sin", datara_rt_math_sin);
     reg!("math_sin", datara_rt_math_sin);
+    reg!("sin", datara_rt_math_sin);
     reg!("datara_rt_math_cos", datara_rt_math_cos);
     reg!("math_cos", datara_rt_math_cos);
+    reg!("cos", datara_rt_math_cos);
     reg!("datara_rt_math_tan", datara_rt_math_tan);
     reg!("math_tan", datara_rt_math_tan);
+    reg!("tan", datara_rt_math_tan);
     reg!("datara_rt_math_floor", datara_rt_math_floor);
     reg!("math_floor", datara_rt_math_floor);
+    reg!("floor", datara_rt_math_floor);
     reg!("datara_rt_math_ceil", datara_rt_math_ceil);
     reg!("math_ceil", datara_rt_math_ceil);
+    reg!("ceil", datara_rt_math_ceil);
     reg!("datara_rt_math_round", datara_rt_math_round);
     reg!("math_round", datara_rt_math_round);
+    reg!("round", datara_rt_math_round);
     reg!("datara_rt_math_min", datara_rt_math_min);
     reg!("math_min", datara_rt_math_min);
     reg!("datara_rt_math_max", datara_rt_math_max);
     reg!("math_max", datara_rt_math_max);
     reg!("datara_rt_math_clamp", datara_rt_math_clamp);
     reg!("math_clamp", datara_rt_math_clamp);
+    reg!("clamp", datara_rt_math_clamp);
     reg!("datara_rt_math_hypot", datara_rt_math_hypot);
     reg!("math_hypot", datara_rt_math_hypot);
+    reg!("hypot", datara_rt_math_hypot);
     reg!("datara_rt_math_log", datara_rt_math_log);
     reg!("math_log", datara_rt_math_log);
+    reg!("log", datara_rt_math_log);
     reg!("datara_rt_math_exp", datara_rt_math_exp);
     reg!("math_exp", datara_rt_math_exp);
+    reg!("exp", datara_rt_math_exp);
     reg!("datara_rt_math_min_int", datara_rt_math_min_int);
     reg!("math_min_int", datara_rt_math_min_int);
     reg!("datara_rt_math_max_int", datara_rt_math_max_int);
@@ -727,6 +759,10 @@ pub fn register_runtime_symbols(builder: &mut JITBuilder) {
 
 pub fn create_jit_module(isa: Arc<dyn TargetIsa>) -> Result<JITModule, String> {
     let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
+    #[cfg(target_arch = "x86_64")]
+    builder.memory_provider(Box::new(
+        crate::codegen::cranelift::near_memory::NearMemoryProvider::new(),
+    ));
     register_runtime_symbols(&mut builder);
     Ok(JITModule::new(builder))
 }

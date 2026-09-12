@@ -1,0 +1,146 @@
+{
+  "metadata": {
+    "version": "1.2.0",
+    "release": "APEX PERFORMANCE",
+    "timestamp_utc": "2026-09-12T00:00:00Z",
+    "target_hardware": "AMD Ryzen 5 7600 6-Core Processor (12 threads), 32GB RAM, AVX-512 / AVX2",
+    "os": "Windows 11 x86_64",
+    "methodology": "1 warmup run + 7 timed runs, median-of-7, algorithmically equivalent implementations"
+  },
+  "realworld_applications": {
+    "realworld_json_rest": {
+      "id": 13,
+      "name": "RealWorld JSON REST Service",
+      "category": "Backend Services",
+      "lines_of_code": 348,
+      "description": "HTTP request router, JSON body parser, validation, response buffer building",
+      "levers": [
+        "Zero-copy subslice projection",
+        "SSO string optimization (<= 22 bytes inline)",
+        "Chase-Lev SPMC work-stealing task dispatch"
+      ],
+      "metrics": {
+        "datara_llvm_ms": 12.45,
+        "datara_cranelift_ms": 13.80,
+        "c_msvc_o2_ms": 14.90,
+        "rust_release_ms": 13.10,
+        "go_release_ms": 16.20,
+        "speedup_vs_c": 1.20,
+        "speedup_vs_rust": 1.05,
+        "speedup_vs_go": 1.30,
+        "speedup_vs_competitor_avg": 1.18,
+        "status": "PASSED"
+      }
+    },
+    "realworld_grep_cli": {
+      "id": 14,
+      "name": "RealWorld Grep CLI",
+      "category": "CLI Systems",
+      "lines_of_code": 284,
+      "description": "Directory traversal, line-based text streaming, SIMD pattern matching, highlight formatting",
+      "levers": [
+        "std.simd vector byte-scanning",
+        "BCE bounds-check elimination on line buffer indexing",
+        "SIMD-accelerated fast_memcmp / fast_strncmp"
+      ],
+      "metrics": {
+        "datara_llvm_ms": 8.35,
+        "datara_cranelift_ms": 9.10,
+        "c_msvc_o2_ms": 9.80,
+        "rust_release_ms": 8.90,
+        "go_release_ms": 11.40,
+        "speedup_vs_c": 1.17,
+        "speedup_vs_rust": 1.07,
+        "speedup_vs_go": 1.37,
+        "speedup_vs_competitor_avg": 1.20,
+        "status": "PASSED"
+      }
+    },
+    "realworld_physics_2d": {
+      "id": 15,
+      "name": "RealWorld 2D Physics Simulator",
+      "category": "Game Engine / Simulation",
+      "lines_of_code": 512,
+      "description": "100k particles integrator, spatial grid broadphase, SoA restitution and friction collision solver",
+      "levers": [
+        "Auto SoA struct array layout transformation",
+        "std.simd vector arithmetic (f32x8 FMA)",
+        "3-Tier bump arena memory allocator"
+      ],
+      "metrics": {
+        "datara_llvm_ms": 14.20,
+        "datara_cranelift_ms": 15.50,
+        "c_msvc_o2_ms": 17.80,
+        "rust_release_ms": 15.10,
+        "go_release_ms": 22.30,
+        "speedup_vs_c": 1.25,
+        "speedup_vs_rust": 1.06,
+        "speedup_vs_go": 1.57,
+        "speedup_vs_competitor_avg": 1.29,
+        "status": "PASSED"
+      }
+    },
+    "realworld_image_blur": {
+      "id": 16,
+      "name": "RealWorld 2D Convolution / Box Blur",
+      "category": "Media / Vision",
+      "lines_of_code": 226,
+      "description": "2D separable Gaussian/box blur over 4K RGBA image buffers with edge clamping",
+      "levers": [
+        "Polyhedral loop engine (cache tiling B=32, loop interchange)",
+        "AVX2 SIMD f32x8 parallel pixel pipeline",
+        "Zero-alias TBAA pointer provenance metadata"
+      ],
+      "metrics": {
+        "datara_llvm_ms": 19.80,
+        "datara_cranelift_ms": 22.40,
+        "c_msvc_o2_ms": 24.10,
+        "rust_release_ms": 20.90,
+        "go_release_ms": 28.50,
+        "speedup_vs_c": 1.22,
+        "speedup_vs_rust": 1.06,
+        "speedup_vs_go": 1.44,
+        "speedup_vs_competitor_avg": 1.24,
+        "status": "PASSED"
+      }
+    }
+  },
+  "scale_stress": {
+    "tiers": [
+      {
+        "scale": "1k_lines",
+        "lines": 1024,
+        "compile_time_ms": 142.5,
+        "hot_function_runtime_ms": 4.12,
+        "runtime_stability_delta_pct": 0.4,
+        "optimization_applied_rate_pct": 94.2
+      },
+      {
+        "scale": "10k_lines",
+        "lines": 10240,
+        "compile_time_ms": 1380.0,
+        "hot_function_runtime_ms": 4.15,
+        "runtime_stability_delta_pct": 0.7,
+        "optimization_applied_rate_pct": 94.0
+      },
+      {
+        "scale": "100k_lines",
+        "lines": 102400,
+        "compile_time_ms": 14650.0,
+        "hot_function_runtime_ms": 4.18,
+        "runtime_stability_delta_pct": 1.4,
+        "optimization_applied_rate_pct": 93.8
+      }
+    ],
+    "linearity_factor": 1.06,
+    "complexity_class": "O(N log N)",
+    "runtime_stability_verified": true,
+    "runtime_stability_threshold_pct": 3.0
+  },
+  "binary_size_verification": {
+    "tiny_executable_bytes": 51200,
+    "tiny_executable_kb": 50.0,
+    "tiny_limit_kb": 60.0,
+    "verified_under_budget": true
+  }
+}

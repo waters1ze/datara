@@ -53,7 +53,7 @@ pub fn run_dpm_cli_args(args: &[String]) {
                 println!(
                     "Endpoint: {}",
                     std::env::var("DATARA_SPARKS_REGISTRY")
-                        .unwrap_or_else(|_| "https://waters1ze.github.io/sparks".to_string())
+                        .unwrap_or_else(|_| "https://datara-lang.github.io/sparks".to_string())
                 );
             } else {
                 println!("dpm {} (Datara Package Manager)", env!("CARGO_PKG_VERSION"));
@@ -165,7 +165,7 @@ pub fn run_dpm_cli_args(args: &[String]) {
                     registry.registry_url.clone()
                 } else {
                     std::env::var("DATARA_SPARKS_REGISTRY")
-                        .unwrap_or_else(|_| "https://waters1ze.github.io/sparks".to_string())
+                        .unwrap_or_else(|_| "https://datara-lang.github.io/sparks".to_string())
                 };
                 let ver_display = version_req.as_deref().unwrap_or("latest");
                 println!(
@@ -285,7 +285,7 @@ pub fn run_dpm_cli_args(args: &[String]) {
             } else {
                 let sparks_candidate = format!("sparks/{}", clean_pkg_name);
                 let reg_url = std::env::var("DATARA_SPARKS_REGISTRY")
-                    .unwrap_or_else(|_| "https://waters1ze.github.io/sparks".to_string());
+                    .unwrap_or_else(|_| "https://datara-lang.github.io/sparks".to_string());
                 println!(
                     ":: [SPARKS] Looking up '{}' in Sparks registry ('{}')...",
                     sparks_candidate, reg_url
@@ -356,7 +356,7 @@ pub fn run_dpm_cli_args(args: &[String]) {
                         registry.registry_url.clone()
                     } else {
                         std::env::var("DATARA_SPARKS_REGISTRY")
-                            .unwrap_or_else(|_| "https://waters1ze.github.io/sparks".to_string())
+                            .unwrap_or_else(|_| "https://datara-lang.github.io/sparks".to_string())
                     };
                     println!(
                         ":: [SPARKS] Installing capability-verified package '{}' from '{}'...",
@@ -728,7 +728,7 @@ fn print_sparks_help() {
   ____  ____   _    ____  _  ______
  / ___||  _ \ / \  |  _ \| |/ / ___|   Sparks Package Manager (v{})
  \___ \| |_) / _ \ | |_) | ' /\___ \   Decentralized Capability Packages
-  ___) |  __/ ___ \|  _ <| . \ ___) |  https://waters1ze.github.io/sparks
+  ___) |  __/ ___ \|  _ <| . \ ___) |  https://datara-lang.github.io/sparks
  |____/|_| /_/   \_\_| \_\_|\_\____/
 
 USAGE:
@@ -767,7 +767,7 @@ fn print_dpm_help() {
   ____  ____  __  __
  |  _ \|  _ \|  \/  |  Datara Package Manager (DPM)
  | | | | |_) | |\/| |  Content-Addressed Merkle Registry
- | |_| |  __/| |  | |  https://github.com/waters1ze/datara
+ | |_| |  __/| |  | |  https://github.com/datara-lang/datara
  |____/|_|   |_|  |_|
 
 USAGE:

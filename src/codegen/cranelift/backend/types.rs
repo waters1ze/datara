@@ -98,6 +98,7 @@ pub struct FunctionCompileCtx<'a, 'b, M: ClifModule> {
     pub runtime: &'a RuntimeIds,
     pub val_map: &'a mut HashMap<ValueId, ClifValue>,
     pub const_int_map: &'a mut HashMap<ValueId, i64>,
+    pub const_float_map: &'a mut HashMap<ValueId, f64>,
     pub string_vids: &'a mut HashSet<ValueId>,
     pub bool_vids: &'a mut HashSet<ValueId>,
     pub list_vids: &'a mut HashSet<ValueId>,

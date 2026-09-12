@@ -42,8 +42,14 @@ fn main() {
         .file(runtime_dir.join("datara_js.c"))
         .file(runtime_dir.join("datara_napi.c"))
         .include(&runtime_dir)
-        .opt_level(2)
+        .opt_level(3)
         .cargo_metadata(true);
+
+    if cfg!(target_env = "msvc") {
+        build.static_crt(true);
+    } else {
+        build.pic(true);
+    }
 
     if cfg!(target_os = "windows") {
         println!("cargo:rustc-link-lib=ws2_32");

@@ -1,6 +1,9 @@
 use super::*;
 use crate::dmir::*;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static FIELD_PTR_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 impl<'a> LlvmEmitter<'a> {
     #[allow(clippy::too_many_arguments)]
@@ -20,6 +23,7 @@ impl<'a> LlvmEmitter<'a> {
         range_metadata: &mut HashMap<(i64, i64), usize>,
         next_meta_id: &mut usize,
         address_taken: &HashSet<String>,
+        stack_structs: &HashSet<ValueId>,
     ) {
         match inst {
             Inst::ConstInt { dest, value } => {
@@ -118,59 +122,40 @@ impl<'a> LlvmEmitter<'a> {
 
                 if (is_str || l_ty == "ptr" || r_ty == "ptr") && op == "+" {
                     value_types.insert(*dest, "ptr");
-                    let left_s = if l_ty != "ptr" {
-                        let tmp = format!("%str_conv_l_{}", dest.0);
-                        if l_ty == "double" {
-                            out.push_str(&format!(
-                                "  {} = call ptr @datara_rt_float_to_str(double %v{})\n",
-                                tmp, left.0
-                            ));
-                        } else {
-                            out.push_str(&format!(
-                                "  {} = call ptr @datara_rt_int_to_str(i64 %v{})\n",
-                                tmp, left.0
-                            ));
+                    let mut conv = |vid: &ValueId, ty: &str, side: &str| -> String {
+                        if ty == "ptr" {
+                            return format!("%v{}", vid.0);
                         }
-                        tmp
-                    } else {
-                        format!("%v{}", left.0)
-                    };
-                    let right_s = if r_ty != "ptr" {
-                        let tmp = format!("%str_conv_r_{}", dest.0);
-                        if r_ty == "double" {
-                            out.push_str(&format!(
-                                "  {} = call ptr @datara_rt_float_to_str(double %v{})\n",
-                                tmp, right.0
-                            ));
+                        let tmp = format!("%str_conv_{}_{}", side, dest.0);
+                        let fnc = if ty == "double" {
+                            "datara_rt_float_to_str(double"
                         } else {
-                            out.push_str(&format!(
-                                "  {} = call ptr @datara_rt_int_to_str(i64 %v{})\n",
-                                tmp, right.0
-                            ));
-                        }
+                            "datara_rt_int_to_str(i64"
+                        };
+                        out.push_str(&format!("  {} = call ptr @{} %v{})\n", tmp, fnc, vid.0));
                         tmp
-                    } else {
-                        format!("%v{}", right.0)
                     };
+                    let left_s = conv(left, l_ty, "l");
+                    let right_s = conv(right, r_ty, "r");
                     out.push_str(&format!(
                         "  %v{} = call ptr @datara_rt_str_concat(ptr {}, ptr {})\n",
                         dest.0, left_s, right_s
                     ));
                 } else if is_float {
-                    let left_v = if l_ty == "i64" {
-                        let tmp = format!("%fconv_l_{}", dest.0);
-                        out.push_str(&format!("  {} = sitofp i64 %v{} to double\n", tmp, left.0));
-                        tmp
-                    } else {
-                        format!("%v{}", left.0)
+                    let mut fconv = |vid: &ValueId, ty: &str, side: &str| -> String {
+                        if ty == "i64" {
+                            let tmp = format!("%fconv_{}_{}", side, dest.0);
+                            out.push_str(&format!(
+                                "  {} = sitofp i64 %v{} to double\n",
+                                tmp, vid.0
+                            ));
+                            tmp
+                        } else {
+                            format!("%v{}", vid.0)
+                        }
                     };
-                    let right_v = if r_ty == "i64" {
-                        let tmp = format!("%fconv_r_{}", dest.0);
-                        out.push_str(&format!("  {} = sitofp i64 %v{} to double\n", tmp, right.0));
-                        tmp
-                    } else {
-                        format!("%v{}", right.0)
-                    };
+                    let left_v = fconv(left, l_ty, "l");
+                    let right_v = fconv(right, r_ty, "r");
 
                     match op.as_str() {
                         "==" | "!=" | "<" | "<=" | ">" | ">=" => {
@@ -473,174 +458,39 @@ impl<'a> LlvmEmitter<'a> {
                     return;
                 }
 
-                // First-Class Hardware SIMD Inlining (<4 x float>)
-                if (func == "float4" || func == "datara_rt_float4") && args.len() == 4 {
-                    value_types.insert(*dest, "<4 x float>");
-                    let mut cur = "poison".to_string();
-                    for (i, arg) in args.iter().enumerate() {
-                        let arg_ty = value_types.get(arg).copied().unwrap_or("double");
-                        let f_val = if arg_ty == "double" {
-                            let tmp = format!("%trunc_{}_{}", dest.0, i);
-                            out.push_str(&format!(
-                                "  {} = fptrunc double %v{} to float\n",
-                                tmp, arg.0
-                            ));
-                            tmp
-                        } else if arg_ty == "i64" {
-                            let tmp = format!("%sitofp_{}_{}", dest.0, i);
-                            out.push_str(&format!("  {} = sitofp i64 %v{} to float\n", tmp, arg.0));
-                            tmp
-                        } else {
-                            format!("%v{}", arg.0)
-                        };
-                        let next = format!("%v{}_ins_{}", dest.0, i);
-                        out.push_str(&format!(
-                            "  {} = insertelement <4 x float> {}, float {}, i32 {}\n",
-                            next, cur, f_val, i
-                        ));
-                        cur = next;
-                    }
-                    out.push_str(&format!(
-                        "  %v{} = bitcast <4 x float> {} to <4 x float>\n",
-                        dest.0, cur
-                    ));
+                if crate::codegen::llvm::simd::try_emit_simd_call(
+                    func,
+                    dest,
+                    args,
+                    value_types,
+                    out,
+                ) {
                     return;
-                }
-
-                // First-Class SIMD: int4 packs four i32 lanes into <4 x i32>
-                if (func == "int4" || func == "datara_rt_int4") && args.len() == 4 {
-                    value_types.insert(*dest, "<4 x i32>");
-                    let mut cur = "poison".to_string();
-                    for (i, arg) in args.iter().enumerate() {
-                        let arg_ty = value_types.get(arg).copied().unwrap_or("i64");
-                        let i_val = if arg_ty == "i64" {
-                            let tmp = format!("%trunci_{}_{}", dest.0, i);
-                            out.push_str(&format!("  {} = trunc i64 %v{} to i32\n", tmp, arg.0));
-                            tmp
-                        } else if arg_ty == "double" {
-                            let tmp = format!("%fptosi_{}_{}", dest.0, i);
-                            out.push_str(&format!(
-                                "  {} = fptosi double %v{} to i32\n",
-                                tmp, arg.0
-                            ));
-                            tmp
-                        } else {
-                            format!("%v{}", arg.0)
-                        };
-                        let next = if i == 3 {
-                            format!("%v{}", dest.0)
-                        } else {
-                            format!("%v{}_ins_{}", dest.0, i)
-                        };
-                        out.push_str(&format!(
-                            "  {} = insertelement <4 x i32> {}, i32 {}, i32 {}\n",
-                            next, cur, i_val, i
-                        ));
-                        cur = next;
-                    }
-                    return;
-                }
-
-                // min4 / max4: lane-wise float min/max via LLVM vector
-                // intrinsics (declared above with the runtime decls).
-                if (func == "min4" || func == "max4")
-                    && args.len() == 2
-                    && value_types.get(&args[0]).copied() == Some("<4 x float>")
-                    && value_types.get(&args[1]).copied() == Some("<4 x float>")
-                {
-                    value_types.insert(*dest, "<4 x float>");
-                    let op = if func == "min4" {
-                        "llvm.minnum.v4f32"
-                    } else {
-                        "llvm.maxnum.v4f32"
-                    };
-                    out.push_str(&format!(
-                        "  %v{} = call <4 x float> @{}(<4 x float> %v{}, <4 x float> %v{})\n",
-                        dest.0, op, args[0].0, args[1].0
-                    ));
-                    return;
-                }
-
-                if (func == "dot" || func == "datara_rt_float4_dot") && args.len() == 2 {
-                    // Integer vector dot: widen lanes to i64, multiply, sum.
-                    if value_types.get(&args[0]).copied() == Some("<4 x i32>")
-                        && value_types.get(&args[1]).copied() == Some("<4 x i32>")
-                    {
-                        value_types.insert(*dest, "double");
-                        let mut acc = String::from("0");
-                        for lane in 0..4 {
-                            let a_e = format!("%dot_a{}_{}", dest.0, lane);
-                            let b_e = format!("%dot_b{}_{}", dest.0, lane);
-                            let a_w = format!("%dot_aw{}_{}", dest.0, lane);
-                            let b_w = format!("%dot_bw{}_{}", dest.0, lane);
-                            let m = format!("%dot_m{}_{}", dest.0, lane);
-                            let s = format!("%dot_s{}_{}", dest.0, lane);
-                            out.push_str(&format!(
-                                "  {} = extractelement <4 x i32> %v{}, i32 {}\n",
-                                a_e, args[0].0, lane
-                            ));
-                            out.push_str(&format!(
-                                "  {} = extractelement <4 x i32> %v{}, i32 {}\n",
-                                b_e, args[1].0, lane
-                            ));
-                            out.push_str(&format!("  {} = sext i32 {} to i64\n", a_w, a_e));
-                            out.push_str(&format!("  {} = sext i32 {} to i64\n", b_w, b_e));
-                            out.push_str(&format!("  {} = mul i64 {}, {}\n", m, a_w, b_w));
-                            out.push_str(&format!("  {} = add i64 {}, {}\n", s, acc, m));
-                            acc = s;
-                        }
-                        out.push_str(&format!("  %v{} = sitofp i64 {} to double\n", dest.0, acc));
-                        return;
-                    }
-                    // Float vector dot: only when both operands are tracked
-                    // as <4 x float>; otherwise fall through to the generic
-                    // call path so the IR error names the real cause.
-                    if value_types.get(&args[0]).copied() == Some("<4 x float>")
-                        && value_types.get(&args[1]).copied() == Some("<4 x float>")
-                    {
-                        value_types.insert(*dest, "double");
-                        let mul_vec = format!("%vmul_{}", dest.0);
-                        out.push_str(&format!(
-                            "  {} = fmul <4 x float> %v{}, %v{}\n",
-                            mul_vec, args[0].0, args[1].0
-                        ));
-                        let red_val = format!("%vred_{}", dest.0);
-                        out.push_str(&format!(
-                            "  {} = call fast float @llvm.vector.reduce.fadd.v4f32(float -0.0, <4 x float> {})\n",
-                            red_val, mul_vec
-                        ));
-                        out.push_str(&format!(
-                            "  %v{} = fpext float {} to double\n",
-                            dest.0, red_val
-                        ));
-                        return;
-                    }
                 }
 
                 // Map standard runtime names to datara_rt equivalents if needed
                 let actual_func = match func.as_str() {
-                    "math_sqrt" => "datara_rt_math_sqrt",
-                    "math_pow" => "datara_rt_math_pow",
-                    "math_abs" => "datara_rt_math_abs",
-                    "math_sin" => "datara_rt_math_sin",
-                    "math_cos" => "datara_rt_math_cos",
-                    "math_tan" => "datara_rt_math_tan",
-                    "math_floor" => "datara_rt_math_floor",
-                    "math_ceil" => "datara_rt_math_ceil",
-                    "math_round" => "datara_rt_math_round",
+                    "math_sqrt" | "sqrt" => "datara_rt_math_sqrt",
+                    "math_pow" | "pow" => "datara_rt_math_pow",
+                    "math_abs" | "abs" => "datara_rt_math_abs",
+                    "math_sin" | "sin" => "datara_rt_math_sin",
+                    "math_cos" | "cos" => "datara_rt_math_cos",
+                    "math_tan" | "tan" => "datara_rt_math_tan",
+                    "math_floor" | "floor" => "datara_rt_math_floor",
+                    "math_ceil" | "ceil" => "datara_rt_math_ceil",
+                    "math_round" | "round" => "datara_rt_math_round",
                     "math_min" => "datara_rt_math_min",
                     "math_max" => "datara_rt_math_max",
-                    "math_clamp" => "datara_rt_math_clamp",
-                    "math_hypot" => "datara_rt_math_hypot",
-                    "math_log" => "datara_rt_math_log",
-                    "math_exp" => "datara_rt_math_exp",
+                    "math_clamp" | "clamp" => "datara_rt_math_clamp",
+                    "math_hypot" | "hypot" => "datara_rt_math_hypot",
+                    "math_log" | "log" => "datara_rt_math_log",
+                    "math_exp" | "exp" => "datara_rt_math_exp",
                     "math_min_int" => "datara_rt_math_min_int",
                     "math_max_int" => "datara_rt_math_max_int",
-                    "math_clamp_int" => "datara_rt_math_clamp_int",
+                    "math_clamp_int" | "clamp_int" => "datara_rt_math_clamp_int",
                     "math_abs_int" => "datara_rt_math_abs_int",
                     "sleep" => "datara_rt_sleep",
-                    "now" => "datara_rt_now_ms",
-                    "now_ms" => "datara_rt_now_ms",
+                    "now" | "now_ms" => "datara_rt_now_ms",
                     "now_ns" => "datara_rt_now_ns",
                     "now_precise_ms" => "datara_rt_now_precise_ms",
                     "path_join" => "datara_rt_path_join",
@@ -648,17 +498,14 @@ impl<'a> LlvmEmitter<'a> {
                     "file_read" => "datara_rt_file_read",
                     "file_append" => "datara_rt_file_append",
                     "file_exists" => "datara_rt_file_exists",
-                    "str_len" => "datara_rt_str_len",
-                    "byte_len" => "datara_rt_str_len",
-                    "str_chars" => "datara_rt_str_chars",
-                    "char_len" => "datara_rt_str_chars",
+                    "str_len" | "byte_len" => "datara_rt_str_len",
+                    "str_chars" | "char_len" => "datara_rt_str_chars",
                     "validate_utf8" => "datara_rt_validate_utf8",
                     "str_sanitize_utf8" => "datara_rt_str_sanitize_utf8",
                     "str_scalar_at" => "datara_rt_str_scalar_at",
                     "str_next_offset" => "datara_rt_str_next_offset",
-                    "str_char_at" => "datara_rt_str_char_at",
-                    "str_byte_at" => "datara_rt_str_byte_at",
-                    "byte_at" => "datara_rt_str_byte_at",
+                    "str_char_at" | "char_at" => "datara_rt_str_char_at",
+                    "str_byte_at" | "byte_at" => "datara_rt_str_byte_at",
                     "str_trim" => "datara_rt_str_trim",
                     "str_to_int" => "datara_rt_str_to_int",
                     "int_to_str" => "datara_rt_int_to_str",
@@ -669,6 +516,11 @@ impl<'a> LlvmEmitter<'a> {
                     "str_index_of" => "datara_rt_str_index_of",
                     "own_acquire" => "datara_rt_own_acquire",
                     "own_release" => "datara_rt_own_release",
+                    "cap_set_mask" => "datara_rt_cap_set_mask",
+                    "cap_get_mask" => "datara_rt_cap_get_mask",
+                    "cap_revoke" => "datara_rt_cap_revoke",
+                    "cap_grant" => "datara_rt_cap_grant",
+                    "cap_require" => "datara_rt_cap_require",
                     other => other,
                 };
 
@@ -679,9 +531,30 @@ impl<'a> LlvmEmitter<'a> {
                 if actual_func.ends_with("http_get") && args.is_empty() {
                     converted_args.push("ptr null".to_string());
                 }
+                let is_set_f64_unchecked = actual_func == "datara_rt_list_set_unchecked"
+                    && args.len() >= 3
+                    && value_types.get(&args[2]).copied() == Some("double");
+                let actual_func = if is_set_f64_unchecked {
+                    "datara_rt_list_set_f64_unchecked"
+                } else {
+                    actual_func
+                };
+
                 for (idx, a) in args.iter().enumerate() {
                     let aty = value_types.get(a).copied().unwrap_or("i64");
-                    if is_str_concat && aty != "ptr" {
+                    let is_list_slot_f64 = aty == "double"
+                        && !is_set_f64_unchecked
+                        && ((actual_func == "datara_rt_list_append" && idx == 1)
+                            || (actual_func == "datara_rt_list_set" && idx == 2)
+                            || (actual_func == "datara_rt_list_create_repeat" && idx == 1)
+                            || (actual_func.starts_with("datara_rt_list_create_")
+                                && actual_func != "datara_rt_list_create_repeat"
+                                && actual_func != "datara_rt_list_create_capacity"));
+                    if is_list_slot_f64 {
+                        let tmp = format!("%bitcast_f64_i64_{}_{}", dest.0, a.0);
+                        out.push_str(&format!("  {} = bitcast double %v{} to i64\n", tmp, a.0));
+                        converted_args.push(format!("i64 {}", tmp));
+                    } else if is_str_concat && aty != "ptr" {
                         let tmp = format!("%sc_arg_{}_{}", dest.0, idx);
                         out.push_str(&format!(
                             "  {} = call ptr @datara_rt_int_to_str(i64 %v{})\n",
@@ -704,6 +577,23 @@ impl<'a> LlvmEmitter<'a> {
                     out.push_str(&format!(
                         "  {} void @{}({})\n",
                         call_prefix, actual_func, args_str
+                    ));
+                } else if actual_func == "datara_rt_list_get_f64_unchecked"
+                    || (actual_func == "datara_rt_list_get_unchecked" && ret_ty == "double")
+                {
+                    out.push_str(&format!(
+                        "  %v{} = {} double @datara_rt_list_get_f64_unchecked({})\n",
+                        dest.0, call_prefix, args_str
+                    ));
+                } else if actual_func == "datara_rt_list_get" && ret_ty == "double" {
+                    let raw_tmp = format!("%raw_f64_get_{}", dest.0);
+                    out.push_str(&format!(
+                        "  {} = {} i64 @{}({})\n",
+                        raw_tmp, call_prefix, actual_func, args_str
+                    ));
+                    out.push_str(&format!(
+                        "  %v{} = bitcast i64 {} to double\n",
+                        dest.0, raw_tmp
                     ));
                 } else {
                     out.push_str(&format!(
@@ -795,10 +685,27 @@ impl<'a> LlvmEmitter<'a> {
                     format!("ptr %v{}", object.0)
                 };
 
+                let is_set_f64_unchecked = actual_func == "datara_rt_list_set_unchecked"
+                    && args.len() >= 2
+                    && value_types.get(&args[1]).copied() == Some("double");
+                let actual_func = if is_set_f64_unchecked {
+                    "datara_rt_list_set_f64_unchecked".to_string()
+                } else {
+                    actual_func
+                };
+
                 let mut all_args = vec![obj_arg];
-                for a in args {
+                for (idx, a) in args.iter().enumerate() {
                     let aty = value_types.get(a).copied().unwrap_or("i64");
-                    all_args.push(format!("{} %v{}", aty, a.0));
+                    if (actual_func == "datara_rt_list_append" && aty == "double")
+                        || (actual_func == "datara_rt_list_set" && idx == 1 && aty == "double")
+                    {
+                        let tmp = format!("%mcast_f64_i64_{}_{}", dest.0, a.0);
+                        out.push_str(&format!("  {} = bitcast double %v{} to i64\n", tmp, a.0));
+                        all_args.push(format!("i64 {}", tmp));
+                    } else {
+                        all_args.push(format!("{} %v{}", aty, a.0));
+                    }
                 }
                 let args_str = all_args.join(", ");
 
@@ -812,6 +719,23 @@ impl<'a> LlvmEmitter<'a> {
                     out.push_str(&format!(
                         "  {} void @{}({})\n",
                         call_prefix, actual_func, args_str
+                    ));
+                } else if actual_func == "datara_rt_list_get_f64_unchecked"
+                    || (actual_func == "datara_rt_list_get_unchecked" && ret_ty == "double")
+                {
+                    out.push_str(&format!(
+                        "  %v{} = {} double @datara_rt_list_get_f64_unchecked({})\n",
+                        dest.0, call_prefix, args_str
+                    ));
+                } else if actual_func == "datara_rt_list_get" && ret_ty == "double" {
+                    let raw_tmp = format!("%mraw_f64_get_{}", dest.0);
+                    out.push_str(&format!(
+                        "  {} = {} i64 @{}({})\n",
+                        raw_tmp, call_prefix, actual_func, args_str
+                    ));
+                    out.push_str(&format!(
+                        "  %v{} = bitcast i64 {} to double\n",
+                        dest.0, raw_tmp
                     ));
                 } else {
                     out.push_str(&format!(
@@ -827,6 +751,13 @@ impl<'a> LlvmEmitter<'a> {
             } => {
                 value_types.insert(*dest, "ptr");
                 value_classes.insert(*dest, class_name.clone());
+                if !stack_structs.contains(dest) {
+                    let byte_size = fields.len().saturating_mul(8).max(8);
+                    out.push_str(&format!(
+                        "  %v{} = call ptr @datara_rt_pool_alloc(i64 {})\n",
+                        dest.0, byte_size
+                    ));
+                }
                 for (idx, (_, val_id)) in fields.iter().enumerate() {
                     let f_ty = value_types.get(val_id).copied().unwrap_or("i64");
                     let gep_reg = format!("%gep_{}_{}", dest.0, idx);
@@ -856,14 +787,27 @@ impl<'a> LlvmEmitter<'a> {
                     value_classes.get(object).map(|c| c.as_str()),
                     field,
                 );
+                let obj_is_ptr = value_types.get(object).copied() == Some("ptr");
+                let obj_ptr = if obj_is_ptr {
+                    format!("%v{}", object.0)
+                } else {
+                    let pid = FIELD_PTR_COUNTER.fetch_add(1, Ordering::Relaxed);
+                    let ptr_reg = format!("%iptr_g_{}", pid);
+                    out.push_str(&format!(
+                        "  {} = inttoptr i64 %v{} to ptr\n",
+                        ptr_reg, object.0
+                    ));
+                    ptr_reg
+                };
                 let gep_reg = format!("%fgep_{}", dest.0);
                 out.push_str(&format!(
-                    "  {} = getelementptr inbounds i8, ptr %v{}, i64 {}\n",
-                    gep_reg, object.0, offset
+                    "  {} = getelementptr inbounds i8, ptr {}, i64 {}\n",
+                    gep_reg, obj_ptr, offset
                 ));
+                let tbaa_tag = attributes::get_tbaa_tag(f_ty);
                 out.push_str(&format!(
-                    "  %v{} = load {}, ptr {}, align 8\n",
-                    dest.0, f_ty, gep_reg
+                    "  %v{} = load {}, ptr {}, align 8{}, !invariant.load !{{}}\n",
+                    dest.0, f_ty, gep_reg, tbaa_tag
                 ));
             }
             Inst::SetField {
@@ -877,10 +821,23 @@ impl<'a> LlvmEmitter<'a> {
                     value_classes.get(object).map(|c| c.as_str()),
                     field,
                 );
-                let gep_reg = format!("%fgep_s_{}_{}", object.0, value.0);
+                let obj_is_ptr = value_types.get(object).copied() == Some("ptr");
+                let obj_ptr = if obj_is_ptr {
+                    format!("%v{}", object.0)
+                } else {
+                    let pid = FIELD_PTR_COUNTER.fetch_add(1, Ordering::Relaxed);
+                    let ptr_reg = format!("%iptr_s_{}", pid);
+                    out.push_str(&format!(
+                        "  {} = inttoptr i64 %v{} to ptr\n",
+                        ptr_reg, object.0
+                    ));
+                    ptr_reg
+                };
+                let pid = FIELD_PTR_COUNTER.fetch_add(1, Ordering::Relaxed);
+                let gep_reg = format!("%fgep_s_{}", pid);
                 out.push_str(&format!(
-                    "  {} = getelementptr inbounds i8, ptr %v{}, i64 {}\n",
-                    gep_reg, object.0, offset
+                    "  {} = getelementptr inbounds i8, ptr {}, i64 {}\n",
+                    gep_reg, obj_ptr, offset
                 ));
                 out.push_str(&format!(
                     "  store {} %v{}, ptr {}, align 8\n",

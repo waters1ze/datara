@@ -51,6 +51,8 @@ pub fn get_embedded_stdlib_source(module_path: &str) -> Option<&'static str> {
         "kernel.arch.x86_64.ports" => Some(include_str!("../stdlib/kernel/ports.dtr")),
         "kernel.ports" => Some(include_str!("../stdlib/kernel/ports.dtr")),
         "sys.arena" => Some(include_str!("../stdlib/sys/arena.dtr")),
+        "sys.cap" => Some(include_str!("../stdlib/sys/cap.dtr")),
+        "cap" => Some(include_str!("../stdlib/sys/cap.dtr")),
         "web.webgl" => Some(include_str!("../stdlib/web/webgl.dtr")),
         "web.webgpu" => Some(include_str!("../stdlib/web/webgpu.dtr")),
         "ui.web" => Some(include_str!("../stdlib/ui/web.dtr")),
@@ -64,6 +66,10 @@ pub fn get_embedded_stdlib_source(module_path: &str) -> Option<&'static str> {
         }
         "collections.iter" => Some(include_str!("../stdlib/collections/iter.dtr")),
         "text.string_builder" => Some(include_str!("../stdlib/text/string_builder.dtr")),
+        "simd" => Some(include_str!("../stdlib/simd/simd.dtr")),
+        "simd.simd" => Some(include_str!("../stdlib/simd/simd.dtr")),
+        "simd.mod" => Some(include_str!("../stdlib/simd/mod.dtr")),
+        "std.simd" => Some(include_str!("../stdlib/simd/simd.dtr")),
         _ => None,
     }
 }
@@ -116,6 +122,7 @@ pub const ALL_EMBEDDED_MODULES: &[&str] = &[
     "kernel.arch.x86_64.ports",
     "kernel.ports",
     "sys.arena",
+    "sys.cap",
     "web.webgl",
     "web.webgpu",
     "async.task",
@@ -126,4 +133,8 @@ pub const ALL_EMBEDDED_MODULES: &[&str] = &[
     "collections.priority_queue",
     "collections.iter",
     "text.string_builder",
+    "simd",
+    "simd.simd",
+    "simd.mod",
+    "std.simd",
 ];

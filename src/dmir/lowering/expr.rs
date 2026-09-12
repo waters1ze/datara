@@ -190,7 +190,6 @@ impl<'a> Lowering<'a> {
                 // `a || b` short-circuits to 1 when `a` is truthy.
                 // `a && b` short-circuits to 0 when `a` is falsy.
                 let short_circuit_when_true = op == "||";
-                let short_circuit_value: i64 = if short_circuit_when_true { 1 } else { 0 };
 
                 let l = self.lower_expr(left, cur_block)?;
 
@@ -238,22 +237,26 @@ impl<'a> Lowering<'a> {
                     op: "!=".into(),
                     left: r,
                     right: zero,
-                    ty: "Int".into(),
+                    ty: "Bool".into(),
                 });
 
                 // Short-circuit path: the result is a constant; the right
                 // operand is never evaluated.
                 let sc_const = self.next_val();
-                self.get_block_mut(sc_id).instructions.push(Inst::ConstInt {
-                    dest: sc_const,
-                    value: short_circuit_value,
-                });
+                self.get_block_mut(sc_id)
+                    .instructions
+                    .push(Inst::ConstBool {
+                        dest: sc_const,
+                        value: short_circuit_when_true,
+                    });
 
                 // Both paths write the result into one dedicated temporary.
                 // DMIR has no phi instruction with lowering support in the
                 // backend, so a variable is the only way to join the two values.
                 let tmp = format!("__logic_{}", self.val_counter);
                 self.val_counter += 1;
+                self.local_var_types
+                    .insert(tmp.clone(), crate::types::DataraType::Bool);
 
                 self.get_block_mut(rhs_cur)
                     .instructions
@@ -409,26 +412,7 @@ impl<'a> Lowering<'a> {
                     return Some(dest);
                 }
                 let dest = self.next_val();
-                let is_float = match &**expr {
-                    Expr::Literal(LiteralValue::Float(_), _) => true,
-                    Expr::MemberAccess { member, .. } => {
-                        self.class_field_types
-                            .get(member)
-                            .map(|t| t == "Float")
-                            .unwrap_or(false)
-                            || member.contains("flt")
-                            || member.contains("float")
-                    }
-                    Expr::Identifier(n, _) => {
-                        self.class_field_types
-                            .get(n)
-                            .map(|t| t == "Float")
-                            .unwrap_or(false)
-                            || n.contains("flt")
-                            || n.contains("float")
-                    }
-                    _ => false,
-                };
+                let is_float = self.is_expr_float(expr);
                 self.get_block_mut(*cur_block)
                     .instructions
                     .push(Inst::UnOp {

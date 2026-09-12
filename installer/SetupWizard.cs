@@ -58,7 +58,7 @@ namespace DataraInstaller
         [DllImport("Shell32.dll")]
         public static extern void SHChangeNotify(int eventId, int flags, IntPtr item1, IntPtr item2);
 
-        public const string AppVersion = "1.1.0";
+        public const string AppVersion = "1.2.0";
 
         public InstallerForm()
         {
@@ -548,7 +548,7 @@ namespace DataraInstaller
                     key.SetValue("DisplayIcon", Path.Combine(installDir, @"assets\datara.ico"));
                     key.SetValue("InstallLocation", installDir);
                     key.SetValue("UninstallString", "\"" + Application.ExecutablePath + "\" /uninstall");
-                    key.SetValue("URLInfoAbout", "https://github.com/waters1ze/datara");
+                    key.SetValue("URLInfoAbout", "https://github.com/datara-lang/datara");
                 }
             } catch { }
         }
@@ -681,7 +681,7 @@ namespace DataraInstaller
 
                     string args = File.Exists(ps1Path)
                         ? "-NoProfile -ExecutionPolicy Bypass -File \"" + ps1Path + "\""
-                        : "-NoProfile -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $s = (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/waters1ze/datara/main/scripts/install_build_tools.ps1'); Invoke-Expression $s\"";
+                        : "-NoProfile -ExecutionPolicy Bypass -Command \"[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; $s = (New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/datara-lang/datara/main/scripts/install_build_tools.ps1'); Invoke-Expression $s\"";
 
                     var psi = new System.Diagnostics.ProcessStartInfo {
                         FileName = "powershell.exe",

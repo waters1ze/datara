@@ -10,7 +10,7 @@ Write-Host @"
   |  _ \  __ _| |_ __ _ _ __ __ _   
   | | | |/ _` | __/ _` | '__/ _` |   DATARA SYSTEMS LANGUAGE
   | |_| | (_| | || (_| | | | (_| |   Forgen AOT Native Toolchain v1.0.0
-  |____/ \__,_|\__\__,_|_|  \__,_|   https://github.com/waters1ze/datara
+  |____/ \__,_|\__\__,_|_|  \__,_|   https://github.com/datara-lang/datara
 =======================================================================
 "@ -ForegroundColor Cyan
 
@@ -126,7 +126,7 @@ To start using Datara, open a new PowerShell or Terminal window:
      forgen run
 
   3. Documentation & GitHub:
-     https://github.com/waters1ze/datara
+     https://github.com/datara-lang/datara
 =======================================================================
 "@ -ForegroundColor Cyan
 

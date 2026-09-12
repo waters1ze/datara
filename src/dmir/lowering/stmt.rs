@@ -29,6 +29,41 @@ impl<'a> Lowering<'a> {
             | Stmt::Const { name, init, .. }
             | Stmt::Val { name, init, .. }
             | Stmt::CompactBind { name, init, .. } => {
+                let type_node = match stmt {
+                    Stmt::Let { type_node, .. }
+                    | Stmt::Mut { type_node, .. }
+                    | Stmt::Const { type_node, .. }
+                    | Stmt::Val { type_node, .. } => type_node.as_ref(),
+                    _ => None,
+                };
+                if let Some(tn) = type_node {
+                    if tn.name == "List" {
+                        let elem_ty = match tn.generic_args.first().map(|a| a.name.as_str()) {
+                            Some("Float" | "Float64" | "f64" | "Float32" | "f32") => {
+                                DataraType::Float
+                            }
+                            Some("String" | "Str") => DataraType::String,
+                            Some("Bool") => DataraType::Bool,
+                            _ => DataraType::Int,
+                        };
+                        self.local_var_types
+                            .insert(name.clone(), DataraType::List(Box::new(elem_ty.clone())));
+                        if elem_ty == DataraType::Float {
+                            self.class_field_types.insert(name.clone(), "Float".into());
+                        }
+                    } else if matches!(
+                        tn.name.as_str(),
+                        "Float" | "Float64" | "f64" | "Float32" | "f32"
+                    ) {
+                        self.local_var_types.insert(name.clone(), DataraType::Float);
+                        self.class_field_types.insert(name.clone(), "Float".into());
+                    } else if matches!(tn.name.as_str(), "String" | "Str") {
+                        self.local_var_types
+                            .insert(name.clone(), DataraType::String);
+                    } else if tn.name == "Bool" {
+                        self.local_var_types.insert(name.clone(), DataraType::Bool);
+                    }
+                }
                 if let Some(ty) = self.types.symbol_types.get(name) {
                     self.local_var_types.insert(name.clone(), ty.clone());
                 }
@@ -53,20 +88,22 @@ impl<'a> Lowering<'a> {
                         DataraType::Map(Box::new(DataraType::String), Box::new(val_ty)),
                     );
                 } else if let Expr::ListLiteral(elements, _) = init {
-                    let mut is_flt = false;
-                    for e in elements {
-                        if self.is_expr_float(e) {
-                            is_flt = true;
-                            break;
+                    if !self.local_var_types.contains_key(name) {
+                        let mut is_flt = false;
+                        for e in elements {
+                            if self.is_expr_float(e) {
+                                is_flt = true;
+                                break;
+                            }
                         }
+                        let val_ty = if is_flt {
+                            DataraType::Float
+                        } else {
+                            DataraType::Int
+                        };
+                        self.local_var_types
+                            .insert(name.clone(), DataraType::List(Box::new(val_ty)));
                     }
-                    let val_ty = if is_flt {
-                        DataraType::Float
-                    } else {
-                        DataraType::Int
-                    };
-                    self.local_var_types
-                        .insert(name.clone(), DataraType::List(Box::new(val_ty)));
                 } else if self.is_expr_str(init) {
                     self.local_var_types
                         .insert(name.clone(), DataraType::String);
@@ -78,6 +115,11 @@ impl<'a> Lowering<'a> {
                 if let Expr::Lambda { params, body, .. } = init {
                     self.local_lambdas
                         .insert(name.clone(), (params.clone(), *body.clone()));
+                }
+                if !self.local_var_types.contains_key(name) {
+                    if let Some(inferred) = self.infer_expr_datara_type(init) {
+                        self.local_var_types.insert(name.clone(), inferred);
+                    }
                 }
                 if !self.local_var_types.contains_key(name)
                     && let Some(ty) = self.lookup_var_type(name)
@@ -154,6 +196,15 @@ impl<'a> Lowering<'a> {
                                     args: vec![obj_val, idx_val, v],
                                     ty: ty.into(),
                                 });
+                                if let Expr::Identifier(var_name, _) = &**object {
+                                    self.get_block_mut(cur_block).instructions.push(
+                                        Inst::AssignVar {
+                                            name: var_name.clone(),
+                                            value: ret_val,
+                                        },
+                                    );
+                                    self.symbol_values.insert(var_name.clone(), ret_val);
+                                }
                             }
                         }
                         _ => {}

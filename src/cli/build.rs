@@ -83,8 +83,18 @@ pub(crate) fn cmd_run(command: &str, args: &[String]) -> bool {
     } else {
         "release"
     };
+    let is_sandbox = args
+        .iter()
+        .any(|a| a == "--sandbox" || a.starts_with("--sandbox="));
+    if is_sandbox {
+        unsafe {
+            std::env::set_var("DATARA_SANDBOX", "1");
+        }
+    }
     let is_llvm = args.iter().any(|a| a == "--llvm");
-    let is_native = args.iter().any(|a| a == "--native");
+    let is_native = args
+        .iter()
+        .any(|a| a == "--native" || a == "--tune=native" || a.starts_with("--tune="));
     let target_triple = args
         .iter()
         .position(|a| a == "--target")
@@ -96,21 +106,46 @@ pub(crate) fn cmd_run(command: &str, args: &[String]) -> bool {
                 .and_then(|a| a.strip_prefix("--target=").map(|s| s.to_string()))
         });
     let debug_info = args.iter().any(|a| a == "-g" || a == "--debug");
+    let is_pgo_train = args
+        .iter()
+        .any(|a| a == "--pgo-train" || a.starts_with("--pgo-train="));
     let profile_gen = if args
         .iter()
         .any(|a| a == "--profile" || a == "--profile-generate")
+        || is_pgo_train
     {
         let prof_dir = layout.root.join(".forgen_profile");
         let _ = fs::create_dir_all(&prof_dir);
-        Some(prof_dir.join(format!("{}.json", layout.binary_name())))
+        if is_pgo_train {
+            Some(layout.root.join("app.profdata"))
+        } else {
+            Some(prof_dir.join(format!("{}.json", layout.binary_name())))
+        }
     } else {
         None
     };
     let pgo_profile = args
         .iter()
-        .position(|a| a == "--pgo")
+        .position(|a| a == "--pgo" || a == "--pgo-use")
         .and_then(|i| args.get(i + 1))
-        .map(PathBuf::from);
+        .map(PathBuf::from)
+        .or_else(|| {
+            args.iter()
+                .find(|a| a.starts_with("--pgo-use="))
+                .map(|a| PathBuf::from(a.strip_prefix("--pgo-use=").unwrap()))
+        })
+        .or_else(|| {
+            if args.iter().any(|a| a == "--pgo-use") {
+                let candidate = layout.root.join("app.profdata");
+                if candidate.exists() {
+                    Some(candidate)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        });
     let compiler = ForgenCompiler::new(mode)
         .with_llvm(is_llvm)
         .with_pgo(pgo_profile)
@@ -295,7 +330,9 @@ pub(crate) fn cmd_test(args: &[String]) -> bool {
     }
 
     let is_llvm = args.iter().any(|a| a == "--llvm");
-    let is_native = args.iter().any(|a| a == "--native");
+    let is_native = args
+        .iter()
+        .any(|a| a == "--native" || a == "--tune=native" || a.starts_with("--tune="));
     let target_triple = args
         .iter()
         .position(|a| a == "--target")
@@ -360,7 +397,9 @@ pub(crate) fn cmd_bench(args: &[String]) -> bool {
     };
 
     let is_llvm = args.iter().any(|a| a == "--llvm");
-    let is_native = args.iter().any(|a| a == "--native");
+    let is_native = args
+        .iter()
+        .any(|a| a == "--native" || a == "--tune=native" || a.starts_with("--tune="));
     let target_triple = args
         .iter()
         .position(|a| a == "--target")
@@ -393,11 +432,66 @@ pub(crate) fn cmd_build(command: &str, args: &[String]) -> bool {
         }
     };
 
-    let pgo_profile = args
+    let is_pgo_train = args
         .iter()
-        .position(|a| a == "--pgo")
-        .and_then(|i| args.get(i + 1))
-        .map(PathBuf::from);
+        .any(|a| a == "--pgo-train" || a.starts_with("--pgo-train="));
+    let is_pgo_use = args
+        .iter()
+        .any(|a| a == "--pgo-use" || a.starts_with("--pgo-use="));
+
+    let pgo_profile = if is_pgo_use {
+        let explicit_use = args
+            .iter()
+            .position(|a| a == "--pgo-use")
+            .and_then(|i| args.get(i + 1))
+            .filter(|a| !a.starts_with("-"))
+            .map(PathBuf::from)
+            .or_else(|| {
+                args.iter()
+                    .find(|a| a.starts_with("--pgo-use="))
+                    .map(|a| PathBuf::from(a.strip_prefix("--pgo-use=").unwrap()))
+            });
+        explicit_use.or_else(|| {
+            let c1 = layout.root.join("app.profdata");
+            if c1.exists() {
+                Some(c1)
+            } else {
+                let c2 = layout
+                    .root
+                    .join(".forgen_profile")
+                    .join(format!("{}.json", layout.binary_name()));
+                if c2.exists() { Some(c2) } else { None }
+            }
+        })
+    } else {
+        let explicit_pgo = args
+            .iter()
+            .position(|a| a == "--pgo")
+            .and_then(|i| args.get(i + 1))
+            .filter(|a| !a.starts_with("-"))
+            .map(PathBuf::from)
+            .or_else(|| {
+                args.iter()
+                    .find(|a| a.starts_with("--pgo="))
+                    .map(|a| PathBuf::from(a.strip_prefix("--pgo=").unwrap()))
+            });
+        explicit_pgo.or_else(|| {
+            if args.iter().any(|a| a == "--pgo" || a.starts_with("--pgo=")) {
+                let c1 = layout.root.join("app.profdata");
+                if c1.exists() {
+                    Some(c1)
+                } else {
+                    let c2 = layout
+                        .root
+                        .join(".forgen_profile")
+                        .join(format!("{}.json", layout.binary_name()));
+                    if c2.exists() { Some(c2) } else { None }
+                }
+            } else {
+                None
+            }
+        })
+    };
     let target_triple = args
         .iter()
         .position(|a| a == "--target")
@@ -423,14 +517,17 @@ pub(crate) fn cmd_build(command: &str, args: &[String]) -> bool {
         command
     };
     let is_llvm = args.iter().any(|a| a == "--llvm");
-    let is_native = args.iter().any(|a| a == "--native");
-    let is_profile_generate = args
+    let is_native = args
         .iter()
-        .any(|a| a == "--profile-generate" || a.starts_with("--profile-generate="));
+        .any(|a| a == "--native" || a == "--tune=native" || a.starts_with("--tune="));
+    let is_profile_generate = is_pgo_train
+        || args
+            .iter()
+            .any(|a| a == "--profile-generate" || a.starts_with("--profile-generate="));
     let profile_generate = if is_profile_generate {
         let prof_gen_path = args
             .iter()
-            .position(|a| a == "--profile-generate")
+            .position(|a| a == "--profile-generate" || a == "--pgo-train")
             .and_then(|i| args.get(i + 1))
             .filter(|a| !a.starts_with("-"))
             .map(PathBuf::from)
@@ -438,13 +535,21 @@ pub(crate) fn cmd_build(command: &str, args: &[String]) -> bool {
                 args.iter()
                     .find(|a| a.starts_with("--profile-generate="))
                     .map(|a| PathBuf::from(a.strip_prefix("--profile-generate=").unwrap()))
+            })
+            .or_else(|| {
+                args.iter()
+                    .find(|a| a.starts_with("--pgo-train="))
+                    .map(|a| PathBuf::from(a.strip_prefix("--pgo-train=").unwrap()))
             });
         let prof_dir = layout.root.join(".forgen_profile");
         let _ = fs::create_dir_all(&prof_dir);
-        Some(
-            prof_gen_path
-                .unwrap_or_else(|| prof_dir.join(format!("{}.json", layout.binary_name()))),
-        )
+        Some(prof_gen_path.unwrap_or_else(|| {
+            if is_pgo_train {
+                layout.root.join("app.profdata")
+            } else {
+                prof_dir.join(format!("{}.json", layout.binary_name()))
+            }
+        }))
     } else {
         None
     };
@@ -452,7 +557,7 @@ pub(crate) fn cmd_build(command: &str, args: &[String]) -> bool {
     let compiler = ForgenCompiler::new(mode)
         .with_llvm(is_llvm)
         .with_pgo(pgo_profile)
-        .with_profile_generate(profile_generate)
+        .with_profile_generate(profile_generate.clone())
         .with_debug(debug_info)
         .with_target(target_triple)
         .with_native(is_native);
@@ -573,6 +678,46 @@ pub(crate) fn cmd_build(command: &str, args: &[String]) -> bool {
                 println!(
                     "[Forgen] Profile: C-ABI Embeddable Library (game engine / host scripting integration)"
                 );
+                let h_path = exe_p.with_extension("h");
+                if let Some(src) = layout.source_files.first() {
+                    if let Ok(p) = crate::export::export_c_header(src, &h_path) {
+                        println!("[Forgen Embed] Generated C ABI header: {}", p.display());
+                    }
+                }
+                if let Some(parent) = exe_p.parent() {
+                    let embed_h = parent.join("datara_embed.h");
+                    if let Ok(p) = crate::export::export_embed_header(&embed_h) {
+                        println!(
+                            "[Forgen Embed] Generated embed runtime header: {}",
+                            p.display()
+                        );
+                    }
+                }
+            }
+
+            if is_pgo_train && !is_lib_target {
+                println!(
+                    "[Forgen PGO] Auto-running instrumented training binary to generate profile..."
+                );
+                let mut train_cmd = std::process::Command::new(exe_p);
+                if let Some(pos) = args.iter().position(|a| a == "--") {
+                    train_cmd.args(&args[pos + 1..]);
+                }
+                let status = train_cmd.status();
+                if let Ok(st) = status {
+                    println!(
+                        "[Forgen PGO] Training execution completed with status: {}",
+                        st
+                    );
+                }
+                if let Some(ref prof_p) = profile_generate {
+                    if prof_p.exists() {
+                        println!(
+                            "[Forgen PGO] Generated runtime profile data: {}",
+                            prof_p.display()
+                        );
+                    }
+                }
             }
 
             if is_python_target {
@@ -879,5 +1024,40 @@ pub(crate) fn cmd_profile(args: &[String]) -> bool {
             prof_file.display()
         );
     }
+
+    let should_build = args
+        .iter()
+        .any(|a| a == "--build" || a == "--apply" || a == "--aot");
+    if should_build {
+        println!(
+            "[Forgen Profile] Closing PGO loop: Compiling optimized AOT binary using measured profile..."
+        );
+        let is_llvm = args.iter().any(|a| a == "--llvm");
+        let aot_compiler = ForgenCompiler::new("release")
+            .with_llvm(is_llvm)
+            .with_pgo(Some(prof_file.clone()));
+        let aot_res = if layout.source_files.len() == 1 {
+            aot_compiler.compile_file(&layout.source_files[0], None)
+        } else {
+            aot_compiler.compile_files(&layout.source_files, None)
+        };
+        if aot_res.success {
+            println!(
+                "[Forgen Profile] PGO Optimization Complete: {}",
+                aot_res
+                    .exe_path
+                    .as_ref()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
+            );
+        } else {
+            eprintln!(
+                "[Forgen Profile] PGO compile failed: {}",
+                aot_res.error.unwrap_or_default()
+            );
+            return false;
+        }
+    }
+
     true
 }

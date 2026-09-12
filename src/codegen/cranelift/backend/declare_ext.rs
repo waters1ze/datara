@@ -1003,47 +1003,54 @@ pub fn declare_runtime_ext<M: ClifModule>(
         (rt_sched_cancel_id, rt_sched_cancel_sig),
     );
 
-    // Fast Math: 1-arg double -> double (sqrt, abs, sin, cos, tan, floor, ceil, round)
+    // Fast Math: 1-arg double -> double (sqrt, sin, cos, tan, floor, ceil, round, log, exp)
+    // NOTE: plain "abs" is intentionally excluded here. `abs(Float)` is
+    // lowered inline via Cranelift's `fabs` instruction in inst_call.rs,
+    // and `abs(Int)` is provided by sparks / user code with an i64 signature.
+    // Declaring "abs" as F64 here would cause a signature conflict whenever
+    // sparks declares abs(i64) -> i64.
     let f64_1_funcs = [
-        ("datara_rt_math_sqrt", "math_sqrt"),
-        ("datara_rt_math_abs", "math_abs"),
-        ("datara_rt_math_sin", "math_sin"),
-        ("datara_rt_math_cos", "math_cos"),
-        ("datara_rt_math_tan", "math_tan"),
-        ("datara_rt_math_floor", "math_floor"),
-        ("datara_rt_math_ceil", "math_ceil"),
-        ("datara_rt_math_round", "math_round"),
-        ("datara_rt_math_log", "math_log"),
-        ("datara_rt_math_exp", "math_exp"),
+        ("sqrt", "math_sqrt", "datara_rt_math_sqrt"),
+        ("datara_rt_math_abs", "math_abs", "datara_rt_math_abs"),
+        ("sin", "math_sin", "datara_rt_math_sin"),
+        ("cos", "math_cos", "datara_rt_math_cos"),
+        ("tan", "math_tan", "datara_rt_math_tan"),
+        ("floor", "math_floor", "datara_rt_math_floor"),
+        ("ceil", "math_ceil", "datara_rt_math_ceil"),
+        ("round", "math_round", "datara_rt_math_round"),
+        ("log", "math_log", "datara_rt_math_log"),
+        ("exp", "math_exp", "datara_rt_math_exp"),
     ];
-    for (rt_name, alias) in &f64_1_funcs {
+    for (crt_name, alias, rt_name) in &f64_1_funcs {
         let mut sig = Signature::new(call_conv);
         sig.params.push(AbiParam::new(clif_types::F64));
         sig.returns.push(AbiParam::new(clif_types::F64));
         let id = module
-            .declare_function(rt_name, Linkage::Import, &sig)
+            .declare_function(crt_name, Linkage::Import, &sig)
             .map_err(|e| e.to_string())?;
-        func_ids.insert(rt_name.to_string(), (id, sig.clone()));
-        func_ids.insert(alias.to_string(), (id, sig));
+        func_ids.insert(crt_name.to_string(), (id, sig.clone()));
+        func_ids.insert(alias.to_string(), (id, sig.clone()));
+        func_ids.insert(rt_name.to_string(), (id, sig));
     }
 
     // Fast Math: 2-arg double -> double (pow, min, max, hypot)
     let f64_2_funcs = [
-        ("datara_rt_math_pow", "math_pow"),
-        ("datara_rt_math_min", "math_min"),
-        ("datara_rt_math_max", "math_max"),
-        ("datara_rt_math_hypot", "math_hypot"),
+        ("pow", "math_pow", "datara_rt_math_pow"),
+        ("fmin", "math_min", "datara_rt_math_min"),
+        ("fmax", "math_max", "datara_rt_math_max"),
+        ("hypot", "math_hypot", "datara_rt_math_hypot"),
     ];
-    for (rt_name, alias) in &f64_2_funcs {
+    for (crt_name, alias, rt_name) in &f64_2_funcs {
         let mut sig = Signature::new(call_conv);
         sig.params.push(AbiParam::new(clif_types::F64));
         sig.params.push(AbiParam::new(clif_types::F64));
         sig.returns.push(AbiParam::new(clif_types::F64));
         let id = module
-            .declare_function(rt_name, Linkage::Import, &sig)
+            .declare_function(crt_name, Linkage::Import, &sig)
             .map_err(|e| e.to_string())?;
-        func_ids.insert(rt_name.to_string(), (id, sig.clone()));
-        func_ids.insert(alias.to_string(), (id, sig));
+        func_ids.insert(crt_name.to_string(), (id, sig.clone()));
+        func_ids.insert(alias.to_string(), (id, sig.clone()));
+        func_ids.insert(rt_name.to_string(), (id, sig));
     }
 
     // Fast Math: 3-arg double -> double (clamp)
@@ -1201,6 +1208,62 @@ pub fn declare_runtime_ext<M: ClifModule>(
         .declare_function("datara_rt_own_release", Linkage::Import, &own_rel_sig)
         .map_err(|e| e.to_string())?;
     func_ids.insert("datara_rt_own_release".into(), (own_rel_id, own_rel_sig));
+
+    let mut cap_set_sig = Signature::new(call_conv);
+    cap_set_sig.params.push(AbiParam::new(clif_types::I64));
+    let cap_set_id = module
+        .declare_function("datara_rt_cap_set_mask", Linkage::Import, &cap_set_sig)
+        .map_err(|e| e.to_string())?;
+    func_ids.insert(
+        "datara_rt_cap_set_mask".into(),
+        (cap_set_id, cap_set_sig.clone()),
+    );
+    func_ids.insert("cap_set_mask".into(), (cap_set_id, cap_set_sig));
+
+    let mut cap_get_sig = Signature::new(call_conv);
+    cap_get_sig.returns.push(AbiParam::new(clif_types::I64));
+    let cap_get_id = module
+        .declare_function("datara_rt_cap_get_mask", Linkage::Import, &cap_get_sig)
+        .map_err(|e| e.to_string())?;
+    func_ids.insert(
+        "datara_rt_cap_get_mask".into(),
+        (cap_get_id, cap_get_sig.clone()),
+    );
+    func_ids.insert("cap_get_mask".into(), (cap_get_id, cap_get_sig));
+
+    let mut cap_rev_sig = Signature::new(call_conv);
+    cap_rev_sig.params.push(AbiParam::new(clif_types::I64));
+    let cap_rev_id = module
+        .declare_function("datara_rt_cap_revoke", Linkage::Import, &cap_rev_sig)
+        .map_err(|e| e.to_string())?;
+    func_ids.insert(
+        "datara_rt_cap_revoke".into(),
+        (cap_rev_id, cap_rev_sig.clone()),
+    );
+    func_ids.insert("cap_revoke".into(), (cap_rev_id, cap_rev_sig));
+
+    let mut cap_grant_sig = Signature::new(call_conv);
+    cap_grant_sig.params.push(AbiParam::new(clif_types::I64));
+    let cap_grant_id = module
+        .declare_function("datara_rt_cap_grant", Linkage::Import, &cap_grant_sig)
+        .map_err(|e| e.to_string())?;
+    func_ids.insert(
+        "datara_rt_cap_grant".into(),
+        (cap_grant_id, cap_grant_sig.clone()),
+    );
+    func_ids.insert("cap_grant".into(), (cap_grant_id, cap_grant_sig));
+
+    let mut cap_req_sig = Signature::new(call_conv);
+    cap_req_sig.params.push(AbiParam::new(clif_types::I64));
+    cap_req_sig.params.push(AbiParam::new(clif_types::I64));
+    let cap_req_id = module
+        .declare_function("datara_rt_cap_require", Linkage::Import, &cap_req_sig)
+        .map_err(|e| e.to_string())?;
+    func_ids.insert(
+        "datara_rt_cap_require".into(),
+        (cap_req_id, cap_req_sig.clone()),
+    );
+    func_ids.insert("cap_require".into(), (cap_req_id, cap_req_sig));
 
     Ok((rt_str_char_at_id, rt_str_eq_id))
 }

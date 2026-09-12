@@ -2,6 +2,7 @@ pub mod backend;
 pub mod clif;
 pub mod dwarf;
 pub mod jit;
+pub mod near_memory;
 
 use crate::ast::Program;
 use crate::codegen::CodegenBackend;

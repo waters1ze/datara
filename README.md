@@ -1,22 +1,42 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/datara-logo.svg" alt="Datara Logo" width="360" />
+</p>
+
 # Datara: High-Performance Systems & Application Language
 
-[![License](https://img.shields.io/badge/License-Apache_2.0_OR_MIT-blue.svg)](LICENSE-APACHE)
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)]()
-[![CI](https://github.com/waters1ze/datara/actions/workflows/ci.yml/badge.svg)](https://github.com/waters1ze/datara/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-148%20suites%20%7C%20668%20passing-brightgreen.svg)]()
-[![Conformance](https://img.shields.io/badge/Spec_V1_Conformance-84%2F84_Gates_PASS-brightgreen.svg)](docs/CONFORMANCE_MATRIX.md)
-[![Target](https://img.shields.io/badge/target-x86__64_native-orange.svg)]()
-[![Codegen](https://img.shields.io/badge/codegen-Cranelift_%2B_LLVM_%2B_Wasm-purple.svg)]()
-[![Evidence Gate](https://img.shields.io/badge/evidence_gate-DMIR_SSA_verified-brightgreen.svg)]()
-[![Zero GC](https://img.shields.io/badge/runtime-zero_GC_pauses-success.svg)]()
+<p align="center">
+  <a href="https://github.com/datara-lang/datara"><img src="https://img.shields.io/badge/language-Datara-%23E3B341.svg" alt="Language" /></a>
+  <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/License-Apache_2.0_OR_MIT-blue.svg" alt="License" /></a>
+  <img src="https://img.shields.io/badge/version-1.2.0-blue.svg" alt="Version" />
+  <a href="https://github.com/datara-lang/datara/actions/workflows/ci.yml"><img src="https://github.com/datara-lang/datara/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <img src="https://img.shields.io/badge/tests-148%20suites%20%7C%20668%20passing-brightgreen.svg" alt="Tests" />
+  <a href="docs/CONFORMANCE_MATRIX.md"><img src="https://img.shields.io/badge/Spec_V1_Conformance-84%2F84_Gates_PASS-brightgreen.svg" alt="Conformance" /></a>
+  <img src="https://img.shields.io/badge/target-x86__64_native-orange.svg" alt="Target" />
+  <img src="https://img.shields.io/badge/codegen-Cranelift_%2B_LLVM_%2B_Wasm-purple.svg" alt="Codegen" />
+  <img src="https://img.shields.io/badge/evidence_gate-DMIR_SSA_verified-brightgreen.svg" alt="Evidence Gate" />
+  <img src="https://img.shields.io/badge/runtime-zero_GC_pauses-success.svg" alt="Zero GC" />
+</p>
+
+<p align="center">
+  <a href="#1-installation--setup"><b>Quickstart in 60s</b></a> &bull;
+  <a href="#2-complete-language-syntax--mastery-guide"><b>Complete Syntax Guide</b></a> &bull;
+  <a href="docs/PERFORMANCE_GOALS.md"><b>Benchmark Matrix</b></a> &bull;
+  <a href="README_RU.md"><b>Русская документация</b></a>
+</p>
 
 **Datara** is a next-generation compiled systems and application programming language and compiler toolchain (**`forgen`**) written in Rust. Designed for high-frequency trading, cloud microservices, scientific computing, game engines, and native UI applications, Datara unites the syntax clarity and ergonomic velocity of modern languages with the mechanical sympathy, zero-cost abstractions, and predictable sub-millisecond execution of bare-metal C and Rust.
 
 Datara completely eliminates garbage collection pauses and reference-counting cycles through deterministic scope-based **affine ownership** and zero-copy borrowing (`view`). It pioneers the **Evidence Gate Optimizer**, a formal verification pipeline where every optimization pass (SROA, Mem2Reg, Closed-Form LoopFold, CSE, Branchless Select) is backed by structural mathematical proof at the SSA intermediate representation (DMIR) level. Code generation is powered by a multi-target backend: **Cranelift** (with DWARF 4 line & debug info) for instant 30–50ms developer builds and JIT evaluation, **LLVM AOT** (`--llvm`) with Clang `-O3 -flto` for peak machine-speed deployment, and **Capability-Native WebAssembly** (`--wasm`) for zero-trust sandboxed browser and serverless runtimes.
 
+### Why a New Language? (5 Core Pillars)
+1. **Determinism by Design**: 100% bit-exact reproducible compilation, IEEE-754 identity determinism across runs, and zero undefined behavior verified by the formal [Evidence Gate](docs/CONFORMANCE_MATRIX.md).
+2. **Affine Ownership Without Annotations**: Automatic compile-time memory management with zero GC pauses and zero manual lifetime sigils (`'a`) or borrow annotations.
+3. **Frictionless C-ABI Interoperability**: Direct zero-cost call-in and call-out for existing C/C++ libraries, plus automatic C header emission via `--embed` ([C Embedding Guide](docs/EMBEDDING.md)).
+4. **Cryptographic Sparks Package Ecosystem**: Secure package distribution signed with Ed25519 signatures and capability-guarded sidecars (`.capabilities.json`) to prevent supply chain attacks.
+5. **Bare-Metal Mechanical Sympathy**: Instant 30–50ms JIT/developer compilation via Cranelift, and production peak throughput via LLVM AOT with auto-vectorization and SIMD primitives matching or outperforming C and Rust ([Performance Matrix](docs/PERFORMANCE_GOALS.md)).
 
 > [!NOTE]
-> 🇷🇺 **Русскоязычная версия для всех**: [Руководство по Datara простыми словами](README_RU.md) — без сложного жаргона, с наглядными тестами, замерами скорости и условиями задач.
+> **Русскоязычная документация**: [Полная документация по языку Datara на русском языке](README_RU.md) — исчерпывающий перевод со всеми главами, синтаксисом, архитектурными схемами, стандартной библиотекой и тестами производительности.
 
 ---
 
@@ -68,6 +88,7 @@ Datara completely eliminates garbage collection pauses and reference-counting cy
    - [DWARF 4 Native Debugging & Line Information](#dwarf-4-native-debugging)
    - [Proof-Carrying Scheduler (PCS) & Deterministic Wavefronts](#proof-carrying-scheduler)
    - [Capability-Native WebAssembly Backend (`--wasm`)](#capability-native-webassembly-backend---wasm)
+   - [Near-Memory JIT Allocator & Chase-Lev Seqlock Runtime](#near-memory-jit-and-runtime)
    - [Continuous Integration & AddressSanitizer (ASan)](#continuous-integration--addresssanitizer-asan)
    - [Datara Performance & Optimization Matrix](#benchmarks-matrix)
 5. [The Forgen Developer Tooling Ecosystem (DX Suite)](#5-the-forgen-developer-tooling-ecosystem)
@@ -86,9 +107,10 @@ Datara completely eliminates garbage collection pauses and reference-counting cy
    - [`forgen why` & `forgen context` (Semantic Optimization & Introspection API)](#forgen-why--context)
    - [`forgen ui` (Zero-JS Web & Native GUI Application Runner)](#forgen-ui)
    - [`forgen vendor` & `forgen update` (Air-Gapped 100% Offline Builds)](#forgen-vendor--update)
+   - [`forgen completions` (Shell Autocomplete for PowerShell, Bash, Zsh, Fish)](#forgen-completions)
+   - [`forgen lsp` (Language Server Protocol v3.17 Daemon)](#forgen-lsp)
    - [`dpm` (Package Manager, HTTP/Tarball Registry & Lockfile)](#dpm-datara-package-manager)
    - [`forgen export` (C99/C++ Header & Shared Library `.dll`/`.so`)](#forgen-export)
-   - [`forgen completions` (Shell Autocomplete for PowerShell, Bash, Zsh, Fish)](#forgen-completions)
 6. [Specialized Systems Domains: Game Engines, Microcontrollers & OS Kernels](#6-specialized-systems-domains)
    - [Game Development & Deterministic Simulation Support](#61-game-development--simulation-engine)
    - [Microcontrollers & Embedded Systems (Bare-Metal Real-Time)](#62-microcontrollers--embedded-systems)
@@ -107,11 +129,11 @@ Datara completely eliminates garbage collection pauses and reference-counting cy
 > **Zero-Configuration & Zero-Dependency Guarantee:**
 > All **33 official Standard Library modules** (`stdlib.math`, `stdlib.io.fs`, `stdlib.json`, `stdlib.crypto`, `stdlib.collections`, `stdlib.time`, `stdlib.net`, etc.) are **compiled directly into the binary** as an in-memory fallback. You never need to manually download or configure them. External third-party packages are installed via the built-in package manager (`dpm add <pkg>`) or restored automatically via `dpm install`.
 
-#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/windows.svg" height="20" valign="middle" alt="Windows" /> Windows Installation
+#### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/windows.svg" height="20" valign="middle" alt="Windows" /> Windows Installation
 
 #### Method A: Official Standalone GUI Installer (Recommended)
 Download and run the official 1-click installer:
-- **[Download Datara-Setup.exe](https://github.com/waters1ze/datara/releases/latest/download/Datara-Setup.exe)** *(or run `dist/Datara-Setup.exe` from this repository)*
+- **[Download Datara-Setup.exe](https://github.com/datara-lang/datara/releases/latest/download/Datara-Setup.exe)** *(or run `dist/Datara-Setup.exe` from this repository)*
 
 *What the installer does automatically:*
 - Native Windows GUI wizard with dark theme and official Datara icon.
@@ -125,16 +147,16 @@ Download and run the official 1-click installer:
 #### Method B: Automated PowerShell One-Liner
 Open PowerShell and run:
 ```powershell
-irm https://raw.githubusercontent.com/waters1ze/datara/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/datara-lang/datara/main/install.ps1 | iex
 ```
 
 ---
 
-### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Linux & <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/apple.svg" height="20" valign="middle" alt="macOS" /> macOS Installation
+### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Linux & <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/apple.svg" height="20" valign="middle" alt="macOS" /> macOS Installation
 
 Open your terminal and run the official Unix installation script:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/waters1ze/datara/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/datara-lang/datara/main/install.sh | bash
 ```
 *Dynamically detects your OS and architecture, downloads the latest release, installs `forgen`, `datara`, and `dpm` to `~/.datara/bin`, sets up standard library, registers desktop MIME file icons (`text/x-datara` for GNOME/KDE/macOS Finder), and configures `PATH` in `~/.bashrc` or `~/.zshrc`.*
 
@@ -151,20 +173,20 @@ source ~/.zshrc    # On macOS / Zsh
 
 Install and run Datara seamlessly across developer ecosystems:
 
-#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/npm.svg" height="20" valign="middle" alt="NPM" /> NPM & NPX (Zero-Install Execution)
+#### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/npm.svg" height="20" valign="middle" alt="NPM" /> NPM & NPX (Zero-Install Execution)
 Run Datara files or launch the REPL instantly with `npx`:
 ```bash
 # Instant run with zero local installation:
-npx @waters1ze/datara run main.dtr
+npx @datara-lang/datara run main.dtr
 
 # Interactive REPL:
-npx @waters1ze/datara repl
+npx @datara-lang/datara repl
 
 # Global installation:
-npm install -g @waters1ze/datara
+npm install -g @datara-lang/datara
 ```
 
-#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/python.svg" height="20" valign="middle" alt="Python" /> Python PyPI (`pip install datara`)
+#### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/python.svg" height="20" valign="middle" alt="Python" /> Python PyPI (`pip install datara`)
 Install CLI runners and Python FFI bindings via `pip`:
 ```bash
 pip install datara
@@ -175,36 +197,36 @@ import datara
 datara.run("algorithm.dtr")
 ```
 
-#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/rust.svg" height="20" valign="middle" alt="Rust" /> Rust Crates.io (`cargo install forgen`)
+#### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/rust.svg" height="20" valign="middle" alt="Rust" /> Rust Crates.io (`cargo install forgen`)
 Compile and install the latest Forgen compiler directly from crates.io:
 ```bash
 cargo install forgen
 ```
 
-#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/vscode.svg" height="20" valign="middle" alt="VS Code" /> VS Code & Cursor Extension (.vsix)
+#### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/vscode.svg" height="20" valign="middle" alt="VS Code" /> VS Code & Cursor Extension (.vsix)
 Install syntax highlighting, type hover, and icon themes in 1 command:
 ```bash
-code --install-extension dist/datara-language-1.1.0.vsix
+code --install-extension dist/datara-language-1.2.0.vsix
 ```
 
-#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Linux Native Packages (.deb & .rpm)
+#### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Linux Native Packages (.deb & .rpm)
 Install native system packages on Debian/Ubuntu or Fedora/RHEL:
 ```bash
 # Debian / Ubuntu / Pop!_OS / Linux Mint:
-sudo dpkg -i datara_1.1.0_amd64.deb
+sudo dpkg -i datara_1.2.0_amd64.deb
 
 # Fedora / RHEL / CentOS / openSUSE:
-sudo rpm -ivh datara-1.1.0-1.x86_64.rpm
+sudo rpm -ivh datara-1.2.0-1.x86_64.rpm
 ```
 
-#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/windows.svg" height="20" valign="middle" alt="Windows" /> Windows: Winget & Scoop
+#### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/windows.svg" height="20" valign="middle" alt="Windows" /> Windows: Winget & Scoop
 ```powershell
 winget install waters1ze.Datara
 # or Scoop:
-scoop install https://raw.githubusercontent.com/waters1ze/datara/main/packaging/scoop/datara.json
+scoop install https://raw.githubusercontent.com/datara-lang/datara/main/packaging/scoop/datara.json
 ```
 
-#### <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/apple.svg" height="20" valign="middle" alt="macOS" /> macOS & <img src="https://raw.githubusercontent.com/waters1ze/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Linux: Homebrew & AUR
+#### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/apple.svg" height="20" valign="middle" alt="macOS" /> macOS & <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Linux: Homebrew & AUR
 ```bash
 brew install waters1ze/tap/datara
 # or Arch Linux:
@@ -219,13 +241,13 @@ Run Datara without installing anything locally via the official container image 
 
 ```bash
 # Pull official image from GitHub Container Registry
-docker pull ghcr.io/waters1ze/datara:latest
+docker pull ghcr.io/datara-lang/datara:latest
 
 # Launch interactive REPL inside container
-docker run -it --rm ghcr.io/waters1ze/datara:latest
+docker run -it --rm ghcr.io/datara-lang/datara:latest
 
 # Build and run a local Datara file
-docker run --rm -v ${PWD}:/workspace -w /workspace ghcr.io/waters1ze/datara:latest run main.dtr
+docker run --rm -v ${PWD}:/workspace -w /workspace ghcr.io/datara-lang/datara:latest run main.dtr
 ```
 
 ---
@@ -248,7 +270,7 @@ The canonical checksum ledger is located at [`dist/SHA256SUMS.txt`](dist/SHA256S
 
 If you have Rust 1.80+ and Cargo installed:
 ```bash
-git clone https://github.com/waters1ze/datara.git
+git clone https://github.com/datara-lang/datara.git
 cd datara
 cargo build --release --bin forgen
 ```
@@ -1495,6 +1517,27 @@ node main.js
 
 ---
 
+### <a id="near-memory-jit-and-runtime"></a> Near-Memory JIT Allocator & Chase-Lev Seqlock Runtime
+
+#### 1. Near-Memory JIT Allocator (2GB x86_64 Neighborhood)
+In x86_64 machine architecture, direct relative branch and call instructions (`call rel32`, `jmp rel32`) encode jump targets as signed 32-bit displacements relative to the instruction pointer (`%rip`). This limits direct hardware jumps to a $\pm 2\text{ GB}$ virtual address window:
+- If a JIT compiler allocates executable code pages at arbitrary 64-bit addresses, branches between JIT-emitted code and runtime libraries cannot use direct `rel32` offsets and must fall back to slower indirect jumps (`mov rax, imm64; jmp rax`), increasing instruction cache pressure and branch misprediction penalties.
+- Datara's native runtime implements an architectural **`NearMemoryProvider`**:
+  - Probes the virtual address space surrounding existing code sections (`VirtualAlloc` on Windows with `MEM_RESERVE | MEM_COMMIT`, `mmap` with `MAP_ANONYMOUS` on POSIX systems).
+  - Guarantees that all dynamically compiled functions reside strictly within $\pm 2\text{ GB}$ of the Cranelift execution context and C runtime symbols.
+  - Enables direct 32-bit PC-relative dispatch for all JIT-compiled functions, eliminating indirect trampoline overhead.
+
+#### 2. Chase-Lev Work-Stealing Runtime with Seqlock Synchronization
+Datara's multi-core parallel scheduler uses a lock-free **Chase-Lev work-stealing deque**:
+- **Single-Producer, Multi-Consumer**: The owning worker thread pushes and pops tasks from the bottom of the deque in LIFO order (maximizing cache locality), while idle worker threads steal tasks from the top in FIFO order.
+- **Dynamic Resizing with Seqlock Versioning**: When a thread exhausts its local deque capacity, the buffer must grow dynamically. In naive implementations, concurrent steals during a buffer resize can read partially copied or invalid memory.
+- Datara solves this with **Seqlock (Sequential Lock) synchronization**:
+  - An atomic 64-bit sequence counter guards ring buffer expansion.
+  - The worker thread increments the counter to an odd number before reallocating and copying tasks, and restores it to an even number upon completion.
+  - Stealing threads read the sequence counter before and after copying a stolen task with atomic acquire/release memory barriers. If the counter changed or was odd, the steal seamlessly retries without holding OS mutexes or blocking OS threads.
+
+---
+
 ### <a id="continuous-integration--addresssanitizer-asan"></a> Continuous Integration & AddressSanitizer (ASan)
 
 Reliability and systems-level safety are continuously verified through Datara's multi-tiered CI pipeline (`.github/workflows/ci.yml`):
@@ -1578,14 +1621,14 @@ Benchmarks executed on hardware measuring real wall-clock minimum execution time
 
 | Benchmark Workload | Dataset Volume | Category / Optimization Target | C (`MSVC /O2`) | Rust (`rustc -O3`) | Datara Cranelift | Datara `--llvm` | Speedup vs C | Speedup vs Rust | Verdict |
 |---|---|---|---|---|---|---|---|---|---|
-| **Loop Induction / Closed-Form Sum** | 1,000,000,000 iterations (1B) | Loop Optimization / DMIR LoopFold | 202.94 ms | 0.00 ms (folded) | **0.00 ms** (folded) | **0.00 ms** (folded) | **>200,000x** | **1.00x** | 🏆 **O(1) Fold** |
-| **Dataflow Pipeline (Chained Math)** | 100,000,000 ops (100M) | Register Pressure & ILP Pipelining | 63.64 ms | 103.48 ms | 139.00 ms | **76.00 ms** | 0.84x | **1.36x faster** | 🚀 **Faster** |
-| **SROA 3D Vertex Transformation** | 20,000,000 vertices (20M) | Aggregate Scalarization / SROA | 90.55 ms | 88.85 ms | 115.00 ms | **82.00 ms** | **1.10x faster** | **1.08x faster** | 🚀 **Faster** |
-| **Parallel Work-Stealing Multi-Core** | 240,000,000 ops (16x15M) | Lock-Free Concurrency & Work-Stealing | 75.32 ms | 76.13 ms | 102.00 ms | **81.00 ms** | 0.93x | 0.94x | ⚡ **On Par** |
-| **Hardware SIMD 4D Dot Product** | 80,000,000 floats (20M vecs) | Native AVX2/SSE SIMD Vectorization | 12.56 ms | 12.19 ms | **16.00 ms** | **17.00 ms** | 0.79x | 0.76x | ⚡ **On Par** |
-| **Collatz Conjecture Branch Analysis** | 1,000,000 sequences (1M) | Branch Prediction & Hardware Bit Intrinsics | 124.20 ms | 84.58 ms | 112.00 ms | **58.00 ms** | **2.14x faster** | **1.46x faster** | 🏆 **Fastest** |
+| **Loop Induction / Closed-Form Sum** | 1,000,000,000 iterations (1B) | Loop Optimization / DMIR LoopFold | 202.94 ms | 0.00 ms (folded) | **0.00 ms** (folded) | **0.00 ms** (folded) | **>200,000x** | **1.00x** | **O(1) Fold** |
+| **Dataflow Pipeline (Chained Math)** | 100,000,000 ops (100M) | Register Pressure & ILP Pipelining | 63.64 ms | 103.48 ms | 139.00 ms | **76.00 ms** | 0.84x | **1.36x faster** | **Faster** |
+| **SROA 3D Vertex Transformation** | 20,000,000 vertices (20M) | Aggregate Scalarization / SROA | 90.55 ms | 88.85 ms | 115.00 ms | **82.00 ms** | **1.10x faster** | **1.08x faster** | **Faster** |
+| **Parallel Work-Stealing Multi-Core** | 240,000,000 ops (16x15M) | Lock-Free Concurrency & Work-Stealing | 75.32 ms | 76.13 ms | 102.00 ms | **81.00 ms** | 0.93x | 0.94x | **On Par** |
+| **Hardware SIMD 4D Dot Product** | 80,000,000 floats (20M vecs) | Native AVX2/SSE SIMD Vectorization | 12.56 ms | 12.19 ms | **16.00 ms** | **17.00 ms** | 0.79x | 0.76x | **On Par** |
+| **Collatz Conjecture Branch Analysis** | 1,000,000 sequences (1M) | Branch Prediction & Hardware Bit Intrinsics | 124.20 ms | 84.58 ms | 112.00 ms | **58.00 ms** | **2.14x faster** | **1.46x faster** | **Fastest** |
 
-👉 *For complete methodology, raw JSON metrics, and step-by-step reproduction instructions, see [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).*
+*For complete methodology, raw JSON metrics, and step-by-step reproduction instructions, see [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).*
 
 ---
 
@@ -1694,16 +1737,21 @@ Displays categorized adaptation records (Memory, Concurrency, Vectorization, Dis
 
 ---
 
-### `forgen profile` (Static & Runtime Execution Profiler)
+### `forgen profile` (Autonomous Runtime PGO Profiler & Loop Closure)
 
-Runs project execution profiling, analyzes call graph topology, and generates profile data for Profile-Guided Optimization (PGO):
+Runs project execution profiling, instruments function calls, measures branch frequencies and loop trip counts, and automatically feeds the profile back into LLVM AOT:
 
 ```bash
+# 1. Profile execution and measure runtime call graph & loop trip counts
 forgen profile
-```
-Generates `.forgen_profile/<project>.json` and measures execution time, stdout/stderr streams, and static call-site frequency distributions.
 
-> **Status:** runtime PGO profiling is a design preview / not yet enforced — profile data is collected, but it does not yet feed back into runtime-guided optimization decisions.
+# 2. Automatically close the PGO loop (profile and compile optimized AOT binary in one pass)
+forgen profile --build --llvm
+
+# 3. Or build using an existing profile
+forgen build --pgo --llvm
+```
+Generates `.forgen_profile/<project>.json` or `app.profdata` with verified runtime provenance. LLVM AOT automatically consumes this profile to emit fine-grained branch weights (`!prof`), assign cold paths to `.text.cold` while hot routines are marked `hot` in `.text.hot`, and inject loop unroll metadata (`!llvm.loop.unroll.count`).
 
 ---
 
@@ -1738,7 +1786,7 @@ forgen repl
 ```
 ```datara
 ================================================================================
- Datara Interactive REPL (Zero-Latency In-Process JIT Console v1.1.0)
+ Datara Interactive REPL (Zero-Latency In-Process JIT Console v1.2.0)
  Type ':help' for commands, ':exit' or Ctrl+C to quit.
 ================================================================================
 >> let x = 10
@@ -1809,7 +1857,7 @@ Output:
 [Forgen lint] Clean! 0 warnings across 33 files (verified in 4ms)
 ```
 
-> **Status:** runtime capability enforcement is a design preview / not yet enforced — the Effect Lattice is enforced statically at compile/lint time, but generated binaries do not yet enforce capability restrictions at runtime.
+> **Capability Lattice Enforcement:** Security capabilities are enforced **both statically** at compile/lint time (via `Capability<T>` and `SystemCapabilities`) **and dynamically at runtime** via hardware capability traps. If unauthorized operations attempt to execute unprivileged syscalls (or if capabilities are dropped via `cap_revoke()` or constrained via `--sandbox` / `DATARA_SANDBOX=1`), the Datara runtime triggers a hardware CPU trap (`ud2` on x86_64, `__builtin_trap()` on GCC/Clang, `__debugbreak()` on MSVC), terminating the process immediately with exit code 132. Privilege dropping is monotonic and irreversible.
 
 ---
 
@@ -1848,7 +1896,7 @@ forgen tree --effects
 ```text
 myapp v1.0.0
 ├── crypto_lib v1.2.0 [pure]
-└── http_client v0.4.0 [io, net] ⚠️ requires network
+└── http_client v0.4.0 [io, net] (requires network)
 ```
 
 ---
@@ -1905,6 +1953,40 @@ forgen update
 
 ---
 
+### `forgen completions` (Shell Autocomplete)
+
+Generate native command-line completions for your preferred shell:
+```bash
+# PowerShell (add to $PROFILE)
+forgen completions powershell | Out-String | Invoke-Expression
+
+# Bash (add to ~/.bashrc)
+eval "$(forgen completions bash)"
+
+# Zsh (add to ~/.zshrc)
+eval "$(forgen completions zsh)"
+
+# Fish (add to ~/.config/fish/config.fish)
+forgen completions fish | source
+```
+
+---
+
+### <a id="forgen-lsp"></a> `forgen lsp` (Language Server Protocol v3.17 Daemon)
+
+Datara embeds a production Language Server Protocol daemon directly inside `forgen`:
+```bash
+forgen lsp
+```
+Operates over `stdio` conforming to the LSP v3.17 specification:
+- **Real-Time Semantic Diagnostics**: Live syntax and semantic analysis with compiler error codes (`E0001`..`E0955`).
+- **Semantic Tokens & Highlighting**: Tokenizes keywords, types, mutability sigils, and effect annotations.
+- **Hover Inspection**: Displays type signatures, trait requirements, and doc comments on symbol hover.
+- **Auto-Completion**: Intelligently completes standard library modules, functions, methods, and record fields.
+- **Formatting on Save**: Integrates directly with the `forgen format` engine.
+
+---
+
 ### `dpm` (Datara Package Manager)
 
 Datara includes its own dedicated, production package manager: **`dpm`** (*Datara Package Manager*). Packages are distributed as standard HTTP tarball archives (`.tar.gz` / `.tar`), cryptographically verified with SHA-256 digests, and pinned deterministically in `datara.lock`.
@@ -1920,7 +2002,7 @@ Commands are available via the standalone binary `dpm <command>` or via the comp
   ____  ____  __  __
  |  _ \|  _ \|  \/  |  Datara Package Manager (DPM)
  | | | | |_) | |\/| |  Content-Addressed Merkle Registry
- | |_| |  __/| |  | |  https://github.com/waters1ze/datara
+ | |_| |  __/| |  | |  https://github.com/datara-lang/datara
  |____/|_|   |_|  |_|
 ```
 
@@ -1937,6 +2019,7 @@ Commands are available via the standalone binary `dpm <command>` or via the comp
 | `dpm info <pkg>` | — | Prints detailed metadata, author, capabilities, and file contents of a package |
 | `dpm verify` | `forgen pkg verify` | Cryptographically checks all installed package files against hashes in `datara.lock` |
 | `dpm publish` | `forgen publish` | Verifies and registers a local library into the Content-Addressed package registry |
+| `dpm rust-bridge <crate>` | — | Generates Rust shim cdylib & Datara .dtr bindings with catch_unwind safety |
 | `dpm run [file]` | — | Compiles and executes project entry or specified `.dtr` file |
 
 #### Usage Workflow Example:
@@ -2123,7 +2206,7 @@ Datara provides the low-level control of C with modern formal verification, maki
 Datara's compiler incorporates an effect lattice that classifies every function and module:
 * Effects: `pure`, `io.fs`, `net.connect`, `sys.env`, `ffi.c`.
 * **Zero-Trust by Default**: An untrusted library or module cannot initiate network connections or touch filesystem paths unless explicitly granted capabilities in its metadata manifest (`.capabilities.json`).
-* **Hardware Ring Isolation**: The compiler prevents privilege escalation by validating that user-space code paths cannot access kernel-space registers or execute privileged instructions.
+* **Hardware Ring Isolation & Runtime Traps**: The compiler prevents privilege escalation by validating that user-space code paths cannot access kernel-space registers or execute privileged instructions. In addition, runtime hardware traps (`ud2` / `__builtin_trap()`) intercept forbidden operations immediately if privileges were revoked or restricted under `--sandbox`.
 
 ### 2. Proactive Prevention of Unauthorized Code Execution
 * Unlike conventional compilers that emit code containing undefined behavior or unverified pointers, Forgen's **Evidence Gate** verifies dataflow invariants mathematically.
@@ -2148,36 +2231,36 @@ The **Sparks** package manager (`sparks` / `dpm`) is Datara's official decentral
 
 ```
   ___ ___  _   ___ _  ______ 
- / __| _ \/_\ | _ \ |/ / __|   Sparks Package Manager (v1.1.0)
+ / __| _ \/_\ | _ \ |/ / __|   Sparks Package Manager (v1.2.0)
  \__ \  _/ _ \|   / ' <\__ \   Decentralized Capability Grid
- |___/_|/_/ \_\_|_\_|\_\___/   https://waters1ze.github.io/sparks
+ |___/_|/_/ \_\_|_\_|\_\___/   https://datara-lang.github.io/sparks
 ```
 
 ### Global Installation & Availability
 The `sparks` binary and command shim are automatically installed to your system `PATH` (`~/.datara/bin` and Windows `%LOCALAPPDATA%\Programs\Datara\bin`) by the official installer:
 ```powershell
 # Windows 1-Line Universal Installer (PowerShell)
-irm https://raw.githubusercontent.com/waters1ze/datara/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/datara-lang/datara/main/install.ps1 | iex
 ```
 ```bash
 # Linux & macOS Automated Installer
-curl -fsSL https://raw.githubusercontent.com/waters1ze/datara/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/datara-lang/datara/main/install.sh | bash
 ```
 
 Once installed, you can invoke `sparks` or `dpm` interchangeably from any directory or terminal window:
 ```bash
 sparks --version
-# sparks 1.1.0 (Datara Package & Sparks Manager)
+# sparks 1.2.0 (Datara Package & Sparks Manager)
 # Registry: Sparks Decentralized Capability Grid
-# Endpoint: https://waters1ze.github.io/sparks
+# Endpoint: https://datara-lang.github.io/sparks
 ```
 
 ### Official Decentralized Registry Architecture
 The official Sparks registry is hosted on high-availability decentralized static infrastructure:
-- **Registry Endpoint**: `https://waters1ze.github.io/sparks`
-- **Root Snapshot**: `https://waters1ze.github.io/sparks/index.json`
-- **JSON Schema**: `https://waters1ze.github.io/sparks/schema.json`
-- **Package Specifications**: `https://waters1ze.github.io/sparks/packages/<name>.json`
+- **Registry Endpoint**: `https://datara-lang.github.io/sparks`
+- **Root Snapshot**: `https://datara-lang.github.io/sparks/index.json`
+- **JSON Schema**: `https://datara-lang.github.io/sparks/schema.json`
+- **Package Specifications**: `https://datara-lang.github.io/sparks/packages/<name>.json`
 
 ```text
 Registry Layout:
@@ -2246,9 +2329,49 @@ Datara provides native, zero-cost bidirectional interoperability with the Rust e
 dpm rust-bridge <crate_name> --api manifest.toml [--out-dir <dir>]
 ```
 
-* **Automated Panic Safety Barrier**: Every exported bridge function is wrapped in `std::panic::catch_unwind(AssertUnwindSafe(|| ...))`. Panics in third-party Rust crates never unwind across the C ABI boundary into Datara, eliminating undefined behavior.
-* **Zero-Copy Memory Buffer Views**: Large memory buffers (raw image pixels, audio PCM frames, tensor buffers) are transferred between Rust and Datara via a paired `Pointer` (`*const u8`) and length `Int`, avoiding expensive heap copies or JSON serialization.
-* **First-Class Showcase**: Demonstrated in `bridges/image_bridge/`, providing native lossless image decoding and transformation from Datara in microseconds.
+#### How the Rust Bridge Works:
+1. **Bridge Manifest (`manifest.toml`)**:
+   Define the target Rust dependency and the functions to expose:
+   ```toml
+   [crate]
+   name = "regex"
+   version = "1.10"
+
+   [[functions]]
+   name = "regex_is_match"
+   params = [
+       { name = "pattern", type = "Str" },
+       { name = "text", type = "Str" }
+   ]
+   return_type = "Bool"
+   code = """
+   let re = match regex::Regex::new(pattern) {
+       Ok(r) => r,
+       Err(_) => return false,
+   };
+   re.is_match(text)
+   """
+   ```
+
+2. **Automated Cargo Shim Generation**:
+   `dpm rust-bridge` scaffolds a complete Rust `cdylib` crate with `extern "C"` functions, compiling it automatically with `cargo build --release`:
+   - Every trampoline function is wrapped in `std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| ...))`.
+   - Panics in third-party Rust crates never unwind across the C ABI boundary into Datara, eliminating undefined behavior.
+
+3. **Generated Datara Module (`.dtr`)**:
+   Emits a typed Datara module with foreign function declarations and zero-copy views:
+   ```datara
+   // Generated regex_bridge.dtr
+   extern "C" fn rust_regex_is_match(pattern: Str, text: Str) -> Bool
+
+   pub fn is_match(pattern: Str, text: Str) -> Bool {
+       return rust_regex_is_match(pattern, text)
+   }
+   ```
+
+4. **Zero-Copy Memory Buffer Views**:
+   Large binary payloads (raw pixels, audio PCM, tensor matrices) pass between Datara and Rust using a pointer-and-length slice tuple (`view buf[0..len]`), guaranteeing zero heap allocation and zero serialization overhead.
+   *Demonstrated in production in `bridges/image_bridge/` and `bridges/regex_bridge/`.*
 
 ---
 
@@ -2289,7 +2412,7 @@ You may choose either license at your option.
 
 ### Community & Contributing
 Contributions are welcome! Submit issues, report bugs, or propose language RFCs on our GitHub repository:
-- **GitHub Repository**: [https://github.com/waters1ze/datara](https://github.com/waters1ze/datara)
+- **GitHub Repository**: [https://github.com/datara-lang/datara](https://github.com/datara-lang/datara)
 - **Documentation Portal**: [docs/README.md](docs/README.md)
 - **Hands-on Tutorial**: [docs/TUTORIAL.md](docs/TUTORIAL.md)
 - **Unified Technical Glossary**: [docs/GLOSSARY.md](docs/GLOSSARY.md)

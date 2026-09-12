@@ -157,8 +157,8 @@ fn pick(cond: Bool) -> Float {
 }
 
 fn main() {
-    out(pick(true))
-    out(pick(false))
+    let flag = now_ms() > 0
+    out(pick(flag))
 }
 "#;
     let compiler = ForgenCompiler::new("release").with_llvm(true);

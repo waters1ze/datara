@@ -78,6 +78,9 @@ pub enum ErrorCode {
     UnknownBinop,
     CApiArgLimitExceeded,
     AsyncBackendUnsupported,
+
+    // Cross-compilation Errors (E0980)
+    CrossCompilationMissingToolchain,
 }
 
 impl ErrorCode {
@@ -144,6 +147,7 @@ impl ErrorCode {
             ErrorCode::UnknownBinop => "E0903",
             ErrorCode::CApiArgLimitExceeded => "E0904",
             ErrorCode::AsyncBackendUnsupported => "E0955",
+            ErrorCode::CrossCompilationMissingToolchain => "E0980",
         }
     }
 
@@ -263,6 +267,9 @@ impl ErrorCode {
                 ErrorCode::AsyncBackendUnsupported => {
                     "Асинхронное исполнение (async/await) не поддерживается данным целевым бэкендом (требуется PCS Runtime)"
                 }
+                ErrorCode::CrossCompilationMissingToolchain => {
+                    "Отсутствует инструментарий кросс-компиляции для целевой платформы (требуется lld или кросс-линкер)"
+                }
             }
         } else {
             match self {
@@ -376,6 +383,9 @@ impl ErrorCode {
                 }
                 ErrorCode::AsyncBackendUnsupported => {
                     "Async execution (async/await) is unsupported on the selected target backend: requires PCS runtime"
+                }
+                ErrorCode::CrossCompilationMissingToolchain => {
+                    "Cross-compilation toolchain not found for target triple (lld or cross-linker required)"
                 }
             }
         }

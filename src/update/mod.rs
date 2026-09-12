@@ -20,7 +20,7 @@ use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CHECK_INTERVAL_SECS: u64 = 86_400; // 24 hours
-const GITHUB_REPO: &str = "waters1ze/datara";
+const GITHUB_REPO: &str = "datara-lang/datara";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateCache {

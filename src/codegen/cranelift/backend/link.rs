@@ -67,6 +67,7 @@ impl RealCraneliftBackend {
         let obj_path = cache_build_dir.join(obj_filename);
         fs::write(&obj_path, obj_bytes)
             .map_err(|e| format!("Failed to write object file: {}", e))?;
+        let _ = fs::copy(&obj_path, "scratch/bench_ray.obj");
 
         // Locate the toolchain and the Datara runtime at run time. Nothing here
         // may depend on this machine: `linker::discover` resolves MSVC through

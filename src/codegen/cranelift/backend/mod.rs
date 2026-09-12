@@ -54,8 +54,13 @@ impl RealCraneliftBackend {
         flag_builder
             .set("opt_level", "speed")
             .map_err(|e| e.to_string())?;
+        let is_pic = if is_jit || self.target.os == crate::codegen::target::Os::Windows {
+            "false"
+        } else {
+            "true"
+        };
         flag_builder
-            .set("is_pic", if is_jit { "false" } else { "true" })
+            .set("is_pic", is_pic)
             .map_err(|e| e.to_string())?;
         let _ = flag_builder.set("preserve_frame_pointers", "false");
 

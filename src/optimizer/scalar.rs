@@ -213,6 +213,134 @@ impl ScalarOptimizer {
         eliminated
     }
 
+    /// Redundant Pure Call Elimination (interprocedural CSE for pure calls).
+    /// If a call to a pure function or known-pure runtime math function has
+    /// identical arguments to an earlier dominating call, the redundant call is
+    /// replaced by an SSA value copy of the earlier call's destination.
+    pub fn eliminate_redundant_calls(
+        f: &mut Function,
+        pure_funcs: &HashSet<String>,
+        trace: &mut OptimizationDecisionTrace,
+    ) -> usize {
+        let cfg = ControlFlowGraph::build_dominance_only(f);
+
+        // ---- Phase 1: global occurrence counting --------------------------
+        let mut counts: HashMap<(String, Vec<ValueId>), usize> = HashMap::new();
+        for block in &f.blocks {
+            for inst in &block.instructions {
+                if let Inst::Call { func, args, .. } = inst {
+                    if crate::optimizer::loops::LoopOptimizer::is_pure_call(func)
+                        || pure_funcs.contains(func)
+                    {
+                        *counts.entry((func.clone(), args.clone())).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
+        // ---- Phase 2: dominator-ordered rewrite ---------------------------
+        let mut order: Vec<BasicBlockId> = Vec::with_capacity(f.blocks.len());
+        {
+            let mut visited: HashSet<BasicBlockId> = HashSet::new();
+            let mut stack = vec![f.entry_block];
+            while let Some(b) = stack.pop() {
+                if !visited.insert(b) {
+                    continue;
+                }
+                order.push(b);
+                if let Some(children) = cfg.dom_tree_children.get(&b) {
+                    for &c in children.iter().rev() {
+                        stack.push(c);
+                    }
+                }
+            }
+        }
+
+        let mut def_block: HashMap<(String, Vec<ValueId>), BasicBlockId> = HashMap::new();
+        let mut eliminated = 0usize;
+
+        for bid in &order {
+            let Some(bi) = f.blocks.iter().position(|b| &b.id == bid) else {
+                continue;
+            };
+            for ii in 0..f.blocks[bi].instructions.len() {
+                let (key, dest, ty) = match &f.blocks[bi].instructions[ii] {
+                    Inst::Call {
+                        dest,
+                        func,
+                        args,
+                        ty,
+                    } => {
+                        if crate::optimizer::loops::LoopOptimizer::is_pure_call(func)
+                            || pure_funcs.contains(func)
+                        {
+                            ((func.clone(), args.clone()), *dest, ty.clone())
+                        } else {
+                            continue;
+                        }
+                    }
+                    _ => continue,
+                };
+
+                let hit = match def_block.get(&key) {
+                    Some(&db) if db == *bid => Some(db),
+                    Some(&db) if cfg.dominates(db, *bid) => Some(db),
+                    _ => None,
+                };
+
+                let Some(_db) = hit else {
+                    def_block.entry(key).or_insert(*bid);
+                    continue;
+                };
+
+                let first_val = f.blocks[bi]
+                    .instructions
+                    .iter()
+                    .find_map(|i| match i {
+                        Inst::Call {
+                            dest, func, args, ..
+                        } if *bid == _db && func == &key.0 && args == &key.1 => Some(*dest),
+                        _ => None,
+                    })
+                    .or_else(|| {
+                        f.blocks.iter().find(|b| b.id == _db).and_then(|b| {
+                            b.instructions.iter().find_map(|i| match i {
+                                Inst::Call {
+                                    dest, func, args, ..
+                                } if func == &key.0 && args == &key.1 => Some(*dest),
+                                _ => None,
+                            })
+                        })
+                    });
+
+                if let Some(first_val) = first_val {
+                    f.blocks[bi].instructions[ii] = Inst::UnOp {
+                        dest,
+                        op: "copy".to_string(),
+                        operand: first_val,
+                        ty,
+                    };
+                    eliminated += 1;
+                    trace.record(
+                        "RedundantCallElimination",
+                        &format!("{}:bb{}:call {}()", f.name, bid.0, key.0),
+                        "Applied",
+                        &format!(
+                            "reuse of dominating pure call result %{} (bb{})",
+                            first_val.0, _db.0
+                        ),
+                        "None (SSA value forwarding)",
+                        "interprocedural pure call CSE with dominance proof",
+                    );
+                } else {
+                    def_block.remove(&key);
+                }
+            }
+        }
+
+        eliminated
+    }
+
     /// Algebraic simplifications and strength reductions:
     /// - `x + 0 => copy(x)`
     /// - `0 + x => copy(x)`

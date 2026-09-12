@@ -1,0 +1,27 @@
+# ============================================================
+# Datara language attribution (GitHub Linguist)
+# ============================================================
+
+# All Datara and Rust source files belong to the repository with LF line endings
+*.dtr text eol=lf
+*.dtr linguist-language=Datara
+*.rs text eol=lf
+
+# Documentation does not count toward the language bar
+docs/** linguist-documentation
+.github/linguist-kit/** linguist-documentation
+
+# Compiler-side artifacts, generated IR, profiles & caches — not "code written in Datara"
+*.wasm linguist-vendored
+*.wat linguist-vendored
+*.ll linguist-generated
+*.clif linguist-generated
+*.profdata linguist-generated
+*.prof.json linguist-generated
+*.disasm linguist-generated
+*.obj linguist-generated
+*.asm linguist-generated
+examples/**/*.wasm linguist-vendored
+examples/**/*.wat linguist-vendored
+dist/** linguist-vendored
+packages/** linguist-vendored

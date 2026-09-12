@@ -276,6 +276,54 @@ impl<'a> TypeChecker<'a> {
             (vec![DataraType::String], DataraType::Bool, Vec::new()),
         );
         function_signatures.insert(
+            "cap_set_mask".to_string(),
+            (vec![DataraType::Int], DataraType::Unit, Vec::new()),
+        );
+        function_signatures.insert(
+            "datara_rt_cap_set_mask".to_string(),
+            (vec![DataraType::Int], DataraType::Unit, Vec::new()),
+        );
+        function_signatures.insert(
+            "cap_get_mask".to_string(),
+            (vec![], DataraType::Int, Vec::new()),
+        );
+        function_signatures.insert(
+            "datara_rt_cap_get_mask".to_string(),
+            (vec![], DataraType::Int, Vec::new()),
+        );
+        function_signatures.insert(
+            "cap_revoke".to_string(),
+            (vec![DataraType::Int], DataraType::Unit, Vec::new()),
+        );
+        function_signatures.insert(
+            "datara_rt_cap_revoke".to_string(),
+            (vec![DataraType::Int], DataraType::Unit, Vec::new()),
+        );
+        function_signatures.insert(
+            "cap_grant".to_string(),
+            (vec![DataraType::Int], DataraType::Unit, Vec::new()),
+        );
+        function_signatures.insert(
+            "datara_rt_cap_grant".to_string(),
+            (vec![DataraType::Int], DataraType::Unit, Vec::new()),
+        );
+        function_signatures.insert(
+            "cap_require".to_string(),
+            (
+                vec![DataraType::Int, DataraType::String],
+                DataraType::Unit,
+                Vec::new(),
+            ),
+        );
+        function_signatures.insert(
+            "datara_rt_cap_require".to_string(),
+            (
+                vec![DataraType::Int, DataraType::String],
+                DataraType::Unit,
+                Vec::new(),
+            ),
+        );
+        function_signatures.insert(
             "env_get".to_string(),
             (vec![DataraType::String], DataraType::String, Vec::new()),
         );
@@ -660,24 +708,33 @@ impl<'a> TypeChecker<'a> {
         for f in &[
             "math_sqrt",
             "datara_rt_math_sqrt",
+            "sqrt",
             "math_abs",
             "datara_rt_math_abs",
             "math_sin",
             "datara_rt_math_sin",
+            "sin",
             "math_cos",
             "datara_rt_math_cos",
+            "cos",
             "math_tan",
             "datara_rt_math_tan",
+            "tan",
             "math_floor",
             "datara_rt_math_floor",
+            "floor",
             "math_ceil",
             "datara_rt_math_ceil",
+            "ceil",
             "math_round",
             "datara_rt_math_round",
+            "round",
             "math_log",
             "datara_rt_math_log",
+            "log",
             "math_exp",
             "datara_rt_math_exp",
+            "exp",
         ] {
             function_signatures.insert(
                 f.to_string(),
@@ -707,12 +764,14 @@ impl<'a> TypeChecker<'a> {
         for f in &[
             "math_pow",
             "datara_rt_math_pow",
+            "pow",
             "math_min",
             "datara_rt_math_min",
             "math_max",
             "datara_rt_math_max",
             "math_hypot",
             "datara_rt_math_hypot",
+            "hypot",
         ] {
             function_signatures.insert(
                 f.to_string(),

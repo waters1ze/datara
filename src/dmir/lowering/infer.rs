@@ -5,12 +5,158 @@ use crate::types::DataraType;
 use super::Lowering;
 
 impl<'a> Lowering<'a> {
+    pub(crate) fn infer_expr_datara_type(&self, expr: &Expr) -> Option<DataraType> {
+        match expr {
+            Expr::Literal(lit, _) => match lit {
+                LiteralValue::Int(_) => Some(DataraType::Int),
+                LiteralValue::Float(_) => Some(DataraType::Float),
+                LiteralValue::Bool(_) => Some(DataraType::Bool),
+                LiteralValue::String(_) => Some(DataraType::String),
+                LiteralValue::Char(_) => Some(DataraType::Char),
+                LiteralValue::None => Some(DataraType::Unit),
+            },
+            Expr::Identifier(name, _) => {
+                if let Some(ty) = self.lookup_var_type(name) {
+                    return Some(ty);
+                }
+                if let Some(t) = self.class_field_types.get(name) {
+                    if t.starts_with("List<") && t.ends_with('>') {
+                        let inner = &t[5..t.len() - 1];
+                        let elem_ty = match inner {
+                            "Float" | "Float64" | "Float32" => DataraType::Float,
+                            "Int" | "Int64" | "Int32" => DataraType::Int,
+                            "String" | "Str" => DataraType::String,
+                            "Bool" => DataraType::Bool,
+                            _ => DataraType::Class(inner.to_string()),
+                        };
+                        return Some(DataraType::List(Box::new(elem_ty)));
+                    }
+                    match t.as_str() {
+                        "Float" | "Float64" | "Float32" => return Some(DataraType::Float),
+                        "Int" | "Int64" | "Int32" => return Some(DataraType::Int),
+                        "String" | "Str" => return Some(DataraType::String),
+                        "Bool" => return Some(DataraType::Bool),
+                        _ => return Some(DataraType::Class(t.clone())),
+                    }
+                }
+                None
+            }
+            Expr::MemberAccess { object, member, .. } => {
+                let obj_ty = self.infer_expr_datara_type(object)?;
+                match obj_ty {
+                    DataraType::GenericInstance { name, args } => {
+                        let (params, t_fields) = self.types.generic_templates.get(&name)?;
+                        let field_type = t_fields.get(member)?;
+                        if let DataraType::TypeParam(p) = field_type
+                            && let Some(idx) = params.iter().position(|param| param == p)
+                            && idx < args.len()
+                        {
+                            return Some(args[idx].clone());
+                        }
+                        Some(field_type.clone())
+                    }
+                    DataraType::Class(cls_name) => {
+                        if let Some(fields) = self.types.class_fields.get(&cls_name) {
+                            if let Some(ft) = fields.get(member) {
+                                return Some(ft.clone());
+                            }
+                        }
+                        let key = format!("{}.{}", cls_name, member);
+                        if let Some(t) = self.class_field_types.get(&key) {
+                            if t.starts_with("List<") && t.ends_with('>') {
+                                let inner = &t[5..t.len() - 1];
+                                let elem_ty = match inner {
+                                    "Float" | "Float64" | "Float32" => DataraType::Float,
+                                    "Int" | "Int64" | "Int32" => DataraType::Int,
+                                    "String" | "Str" => DataraType::String,
+                                    "Bool" => DataraType::Bool,
+                                    _ => DataraType::Class(inner.to_string()),
+                                };
+                                return Some(DataraType::List(Box::new(elem_ty)));
+                            }
+                            match t.as_str() {
+                                "Float" | "Float64" | "Float32" => return Some(DataraType::Float),
+                                "Int" | "Int64" | "Int32" => return Some(DataraType::Int),
+                                "String" | "Str" => return Some(DataraType::String),
+                                "Bool" => return Some(DataraType::Bool),
+                                _ => return Some(DataraType::Class(t.clone())),
+                            }
+                        }
+                        None
+                    }
+                    _ => None,
+                }
+            }
+            Expr::IndexAccess { object, .. } => {
+                let obj_ty = self.infer_expr_datara_type(object)?;
+                match obj_ty {
+                    DataraType::List(elem) => Some(*elem),
+                    DataraType::Map(_, val) => Some(*val),
+                    _ => None,
+                }
+            }
+            Expr::Binary {
+                op, left, right, ..
+            } => {
+                if matches!(
+                    op.as_str(),
+                    "==" | "!=" | "<" | "<=" | ">" | ">=" | "&&" | "||"
+                ) {
+                    return Some(DataraType::Bool);
+                }
+                let l_ty = self.infer_expr_datara_type(left);
+                let r_ty = self.infer_expr_datara_type(right);
+                if l_ty == Some(DataraType::Float) || r_ty == Some(DataraType::Float) {
+                    return Some(DataraType::Float);
+                }
+                if l_ty == Some(DataraType::String) || r_ty == Some(DataraType::String) {
+                    return Some(DataraType::String);
+                }
+                l_ty.or(r_ty)
+            }
+            Expr::Unary { op, expr, .. } => {
+                if op == "!" {
+                    Some(DataraType::Bool)
+                } else {
+                    self.infer_expr_datara_type(expr)
+                }
+            }
+            Expr::Call { callee, .. } => match &**callee {
+                Expr::Identifier(fn_name, _) => {
+                    let ret = self.infer_fn_ret_ty(fn_name);
+                    match ret.as_str() {
+                        "Float" => Some(DataraType::Float),
+                        "String" => Some(DataraType::String),
+                        "Bool" => Some(DataraType::Bool),
+                        "Int" => Some(DataraType::Int),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            },
+            Expr::ListLiteral(elements, _) => {
+                let elem_ty = elements
+                    .first()
+                    .and_then(|e| self.infer_expr_datara_type(e))
+                    .unwrap_or(DataraType::Int);
+                Some(DataraType::List(Box::new(elem_ty)))
+            }
+            Expr::ArrayRepeatLiteral { elem, .. } => {
+                let elem_ty = self.infer_expr_datara_type(elem).unwrap_or_else(|| {
+                    if self.is_expr_float(elem) {
+                        DataraType::Float
+                    } else {
+                        DataraType::Int
+                    }
+                });
+                Some(DataraType::List(Box::new(elem_ty)))
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn member_field_repr(&self, object: &Expr, member: &str) -> Option<String> {
-        let obj_name = match object {
-            Expr::Identifier(name, _) => name,
-            _ => return None,
-        };
-        let obj_ty = self.lookup_var_type(obj_name)?;
+        let obj_ty = self.infer_expr_datara_type(object)?;
         match obj_ty {
             DataraType::GenericInstance { name, args } => {
                 let (params, t_fields) = self.types.generic_templates.get(&name)?;
@@ -24,8 +170,13 @@ impl<'a> Lowering<'a> {
                 Some(field_type.to_string())
             }
             DataraType::Class(cls_name) => {
-                let fields = self.types.class_fields.get(&cls_name)?;
-                Some(fields.get(member)?.to_string())
+                if let Some(fields) = self.types.class_fields.get(&cls_name) {
+                    if let Some(f) = fields.get(member) {
+                        return Some(f.to_string());
+                    }
+                }
+                let key = format!("{}.{}", cls_name, member);
+                self.class_field_types.get(&key).cloned()
             }
             _ => None,
         }
@@ -196,6 +347,9 @@ impl<'a> Lowering<'a> {
     }
 
     pub(crate) fn is_expr_float(&self, expr: &Expr) -> bool {
+        if let Some(DataraType::Float) = self.infer_expr_datara_type(expr) {
+            return true;
+        }
         match expr {
             Expr::Literal(LiteralValue::Float(_), _) => true,
             Expr::MemberAccess { member, .. } => {
@@ -233,6 +387,22 @@ impl<'a> Lowering<'a> {
                 }
                 _ => false,
             },
+            Expr::IndexAccess { object, .. } => {
+                if let Some(DataraType::List(elem)) = self.infer_expr_datara_type(object) {
+                    return *elem == DataraType::Float;
+                }
+                if let Expr::Identifier(name, ..) = &**object {
+                    if let Some(ty) = self.lookup_var_type(name) {
+                        if let crate::types::DataraType::List(elem) = ty {
+                            return *elem == crate::types::DataraType::Float;
+                        }
+                    }
+                    if let Some(t) = self.class_field_types.get(name) {
+                        return t == "Float" || t == "Float64" || t == "Float32";
+                    }
+                }
+                false
+            }
             _ => false,
         }
     }
@@ -296,6 +466,35 @@ impl<'a> Lowering<'a> {
                 {
                     return true;
                 }
+            }
+        }
+        false
+    }
+
+    pub(crate) fn is_expr_map(&self, expr: &Expr) -> bool {
+        if matches!(expr, Expr::MapLiteral(..)) {
+            return true;
+        }
+        if let Some(ty) = self.infer_expr_datara_type(expr) {
+            match ty {
+                crate::types::DataraType::Map(..) => return true,
+                crate::types::DataraType::Class(ref cls) if cls == "Map" => return true,
+                crate::types::DataraType::GenericInstance { ref name, .. } if name == "Map" => {
+                    return true;
+                }
+                _ => return false,
+            }
+        }
+        if let Expr::Identifier(name, _) = expr
+            && let Some(ty) = self.lookup_var_type(name)
+        {
+            match ty {
+                crate::types::DataraType::Map(..) => return true,
+                crate::types::DataraType::Class(ref cls) if cls == "Map" => return true,
+                crate::types::DataraType::GenericInstance { ref name, .. } if name == "Map" => {
+                    return true;
+                }
+                _ => return false,
             }
         }
         false

@@ -34,8 +34,8 @@ function runBinary(tool, args) {
     if (result.error.code === 'ENOENT') {
       console.error(`\x1b[31m[Datara NPM] Binary '${tool}' not found.\x1b[0m`);
       console.error(`Please install the Datara toolchain:`);
-      console.error(`  - Windows:     iwr https://raw.githubusercontent.com/waters1ze/datara/main/install.ps1 -useb | iex`);
-      console.error(`  - macOS/Linux: curl -fsSL https://raw.githubusercontent.com/waters1ze/datara/main/install.sh | bash`);
+      console.error(`  - Windows:     iwr https://raw.githubusercontent.com/datara-lang/datara/main/install.ps1 -useb | iex`);
+      console.error(`  - macOS/Linux: curl -fsSL https://raw.githubusercontent.com/datara-lang/datara/main/install.sh | bash`);
       process.exit(1);
     }
     console.error(result.error);

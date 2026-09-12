@@ -387,11 +387,11 @@ fn promote_function_inner(function: &mut Function, next: &mut usize) -> Result<u
         // that promotion would silently turn into a garbage SSA value.
         let def_blocks: HashSet<BasicBlockId> = sites.iter().map(|(b, _)| *b).collect();
         let dominated = loads.iter().all(|(lb, li, _, lname)| {
-            lname != name
-                || def_blocks.contains(lb)
-                || sites
-                    .iter()
-                    .any(|(db, _)| *db != *lb && cfg.dominates(*db, *lb))
+            if lname != name {
+                return true;
+            }
+            // Case 1: definition earlier in the same block (or parameter definition at entry block start)
+            let has_earlier_def = (*lb == entry_id && param_seeds.contains_key(name))
                 || sites.iter().any(|(db, _)| {
                     *db == *lb
                         && function
@@ -402,7 +402,44 @@ fn promote_function_inner(function: &mut Function, next: &mut usize) -> Result<u
                                 )
                             })
                             .unwrap_or(false)
-                })
+                });
+            if has_earlier_def {
+                return true;
+            }
+            // Case 2: A single definition block strictly dominates lb
+            if sites
+                .iter()
+                .any(|(db, _)| *db != *lb && cfg.dominates(*db, *lb))
+            {
+                return true;
+            }
+            // Case 3: Set of definition blocks dominates lb (every path from entry to lb passes through def_blocks)
+            if !def_blocks.contains(lb) {
+                let mut visited = HashSet::new();
+                let mut stack = vec![function.entry_block];
+                let mut can_reach_without_def = false;
+                while let Some(curr) = stack.pop() {
+                    if curr == *lb {
+                        can_reach_without_def = true;
+                        break;
+                    }
+                    if def_blocks.contains(&curr) {
+                        continue;
+                    }
+                    if !visited.insert(curr) {
+                        continue;
+                    }
+                    if let Some(succs) = cfg.successors.get(&curr) {
+                        for &s in succs {
+                            stack.push(s);
+                        }
+                    }
+                }
+                if !can_reach_without_def {
+                    return true;
+                }
+            }
+            false
         });
         if dominated {
             promotable.push(name.clone());
@@ -413,10 +450,84 @@ fn promote_function_inner(function: &mut Function, next: &mut usize) -> Result<u
     }
     let promotable_set: HashSet<&str> = promotable.iter().map(|s| s.as_str()).collect();
 
-    // ---- 3. Phi placement (iterated dominance frontier) --------------------
+    // ---- 2.5 Liveness Analysis for Pruned SSA ------------------------------
+    // Only variables that are live-in at a join point need a phi placed there.
+    // This avoids dead/undefined phis for variables that are only defined and
+    // used inside a loop or branch.
+    let mut block_use: HashMap<BasicBlockId, HashSet<String>> = HashMap::new();
+    let mut block_def: HashMap<BasicBlockId, HashSet<String>> = HashMap::new();
+
+    for block in &function.blocks {
+        let mut defs = HashSet::new();
+        if block.id == entry_id {
+            for (name, _) in &param_seeds {
+                defs.insert(name.clone());
+            }
+        }
+        let mut uses = HashSet::new();
+        for inst in &block.instructions {
+            match inst {
+                Inst::LoadVar { name, .. } => {
+                    if promotable_set.contains(name.as_str()) && !defs.contains(name) {
+                        uses.insert(name.clone());
+                    }
+                }
+                Inst::AssignVar { name, .. } => {
+                    if promotable_set.contains(name.as_str()) {
+                        defs.insert(name.clone());
+                    }
+                }
+                _ => {}
+            }
+        }
+        block_use.insert(block.id, uses);
+        block_def.insert(block.id, defs);
+    }
+
+    let mut live_in: HashMap<BasicBlockId, HashSet<String>> = HashMap::new();
+    for b in &function.blocks {
+        live_in.insert(b.id, block_use[&b.id].clone());
+    }
+
+    let mut liveness_changed = true;
+    while liveness_changed {
+        liveness_changed = false;
+        for block in function.blocks.iter().rev() {
+            let bid = block.id;
+            let mut live_out = HashSet::new();
+            if let Some(succs) = cfg.successors.get(&bid) {
+                for s in succs {
+                    if let Some(s_in) = live_in.get(s) {
+                        live_out.extend(s_in.iter().cloned());
+                    }
+                }
+            }
+
+            let mut new_in = block_use[&bid].clone();
+            let defs = &block_def[&bid];
+            for var in &live_out {
+                if !defs.contains(var) {
+                    new_in.insert(var.clone());
+                }
+            }
+
+            if new_in != live_in[&bid] {
+                live_in.insert(bid, new_in);
+                liveness_changed = true;
+            }
+        }
+    }
+
+    // ---- 3. Phi placement (iterated dominance frontier with Pruned SSA) ----
     // phi_names[block] = ordered list of names receiving a phi in that block.
     let mut phi_names: HashMap<BasicBlockId, Vec<String>> = HashMap::new();
     for name in &promotable {
+        let is_param = param_seeds.contains_key(name);
+        let assign_count = assigns.get(name).map(|s| s.len()).unwrap_or(0);
+        let total_defs = assign_count + if is_param { 1 } else { 0 };
+        if total_defs <= 1 {
+            continue;
+        }
         let mut def_blocks: HashSet<BasicBlockId> =
             assigns.get(name).unwrap().iter().map(|(b, _)| *b).collect();
         let mut worklist: Vec<BasicBlockId> = def_blocks.iter().copied().collect();
@@ -425,6 +536,14 @@ fn promote_function_inner(function: &mut Function, next: &mut usize) -> Result<u
                 continue;
             };
             for y in frontier.iter().copied().collect::<Vec<_>>() {
+                // Pruned SSA: only place phi if `name` is live-in at block `y`.
+                if !live_in
+                    .get(&y)
+                    .map(|set| set.contains(name))
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
                 let entry = phi_names.entry(y).or_default();
                 if !entry.iter().any(|n| n == name) {
                     entry.push(name.clone());

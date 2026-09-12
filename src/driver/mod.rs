@@ -363,25 +363,43 @@ impl ForgenCompiler {
                             "2" => "2",
                             _ => "3",
                         };
-                        match crate::codegen::linker::compile_with_clang(
-                            &ll_path,
-                            rt_opt,
-                            &abs_target,
-                            opt_level,
-                            target_triple_for_clang,
-                            self.debug_info,
-                        ) {
+                        let is_shared_lib = target_exe.extension().map_or(false, |ext| {
+                            let s = ext.to_string_lossy().to_lowercase();
+                            s == "dll" || s == "so" || s == "dylib"
+                        });
+                        let link_result = if is_shared_lib {
+                            crate::codegen::linker::compile_shared_with_clang(
+                                &ll_path,
+                                rt_opt,
+                                &abs_target,
+                                opt_level,
+                            )
+                        } else {
+                            crate::codegen::linker::compile_with_clang(
+                                &ll_path,
+                                rt_opt,
+                                &abs_target,
+                                opt_level,
+                                target_triple_for_clang,
+                                self.debug_info,
+                            )
+                        };
+                        match link_result {
                             Ok(()) => {
                                 let _ = std::fs::remove_file(&ll_path);
                                 Ok(abs_target)
                             }
                             Err(e) => {
                                 let _ = std::fs::remove_file(&ll_path);
-                                eprintln!(
-                                    "[Forgen LLVM Warning] LLVM compilation failed: {}. Falling back to native Cranelift backend.",
-                                    e
-                                );
-                                self.cranelift.compile_native(&dmir_module, &target_exe)
+                                if is_shared_lib {
+                                    Err(format!("Shared library link failed: {}", e))
+                                } else {
+                                    eprintln!(
+                                        "[Forgen LLVM Warning] LLVM compilation failed: {}. Falling back to native Cranelift backend.",
+                                        e
+                                    );
+                                    self.cranelift.compile_native(&dmir_module, &target_exe)
+                                }
                             }
                         }
                     } else {

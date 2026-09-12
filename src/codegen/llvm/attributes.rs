@@ -1,12 +1,14 @@
 //! Ownership, Effects, and Profile-Guided Metadata to LLVM IR Attributes.
 //!
-//! Phase 11: Derives fine-grained LLVM IR attributes from Datara's affine
+//! Phase 1 / Pillar 1: Derives fine-grained LLVM IR attributes from Datara's affine
 //! ownership solver and algebraic effects system:
 //! - Uniqueness of ownership -> `noalias`
 //! - Pure effect / non-mutating -> `readonly` / `readnone`
 //! - Non-escaping pointer -> `nocapture`
 //! - Known aggregate/class layout -> `dereferenceable(n)`
-//! - Known aggregate alignment -> `align n`
+//! - Known aggregate alignment -> `align n` (up to `align 64` for SIMD/vectors)
+//! - Type-Based Alias Analysis (TBAA) metadata
+//! - `!invariant.load` metadata for immutable aggregate fields
 //! - Branch hints: `!prof` metadata for guard/cold/biased branches and PGO
 //! - Honest vectorizer metadata: only emit when target actually supports vector extensions
 
@@ -21,6 +23,8 @@ use std::collections::HashMap;
 pub struct FunctionAttrContext {
     pub is_pure: bool,
     pub is_cold: bool,
+    pub is_hot: bool,
+    pub entry_count: Option<usize>,
     pub ast_params: Vec<Param>,
 }
 
@@ -83,7 +87,11 @@ pub fn is_pointer_type(ty: &str) -> bool {
             | "f32"
             | "f16"
             | "<4 x float>"
+            | "<8 x float>"
             | "<4 x i32>"
+            | "<8 x i32>"
+            | "<2 x double>"
+            | "<4 x double>"
             | "Unit"
             | "void"
             | "Never"
@@ -212,8 +220,29 @@ pub fn derive_param_attributes(
     };
     attrs.push(format!("dereferenceable({})", byte_size));
 
-    // 5. Aggregate Alignment -> align 8
-    attrs.push("align 8".to_string());
+    // 5. Aggregate Alignment -> align 8 / 16 / 32 / 64
+    let align_val = if param_ty.contains("Float4")
+        || param_ty.contains("Vector")
+        || param_ty.contains("Simd")
+        || param_ty.contains("Align64")
+        || module
+            .class_fields
+            .get(param_ty)
+            .map(|f| f.len() >= 8)
+            .unwrap_or(false)
+    {
+        64
+    } else if module
+        .class_fields
+        .get(param_ty)
+        .map(|f| f.len() >= 4)
+        .unwrap_or(false)
+    {
+        32
+    } else {
+        8
+    };
+    attrs.push(format!("align {}", align_val));
 
     if attrs.is_empty() {
         String::new()
@@ -222,8 +251,13 @@ pub fn derive_param_attributes(
     }
 }
 
-/// Derive function-level attributes (readonly, readnone, cold) for LLVM IR definition.
-pub fn derive_fn_attributes(func: &Function, is_pure: bool, is_cold: bool) -> Vec<&'static str> {
+/// Derive function-level attributes (readonly, readnone, cold, hot) for LLVM IR definition.
+pub fn derive_fn_attributes(
+    func: &Function,
+    is_pure: bool,
+    is_cold: bool,
+    is_hot: bool,
+) -> Vec<&'static str> {
     let mut attrs = Vec::new();
     if is_pure {
         let has_ptr = func.params.iter().any(|(_, ty, _)| is_pointer_type(ty));
@@ -235,8 +269,48 @@ pub fn derive_fn_attributes(func: &Function, is_pure: bool, is_cold: bool) -> Ve
     }
     if is_cold {
         attrs.push("cold");
+        attrs.push("section \".text.cold\"");
+    } else if is_hot {
+        attrs.push("hot");
+        attrs.push("section \".text.hot\"");
     }
     attrs
+}
+
+/// Derive function entry count metadata (!prof !entry_count) for PGO.
+pub fn derive_fn_entry_count_metadata(
+    entry_count: Option<usize>,
+    entry_count_map: &mut HashMap<usize, usize>,
+    next_meta_id: &mut usize,
+) -> String {
+    if let Some(count) = entry_count {
+        let id = *next_meta_id;
+        *next_meta_id += 1;
+        entry_count_map.insert(id, count);
+        format!(" !prof !{}", id)
+    } else {
+        String::new()
+    }
+}
+
+/// Derive loop unroll metadata from PGO measured loop trip counts.
+pub fn derive_loop_metadata(
+    fn_name: &str,
+    block_id: BasicBlockId,
+    profile: Option<&ProfileData>,
+    loop_metadata_map: &mut HashMap<usize, usize>,
+    next_meta_id: &mut usize,
+) -> String {
+    if let Some(prof) = profile {
+        let loop_id = format!("{}_{}", fn_name, block_id.0);
+        if let Some(&trip_count) = prof.loop_trip_counts.get(&loop_id) {
+            let id = *next_meta_id;
+            *next_meta_id += 1;
+            loop_metadata_map.insert(id, trip_count);
+            return format!(", !llvm.loop !{}", id);
+        }
+    }
+    ", !llvm.loop !0".to_string()
 }
 
 /// Derive branch metadata (!prof branch weights) for conditional branches.
@@ -267,10 +341,8 @@ pub fn derive_branch_metadata(
         let then_cold = is_cold_block(func, then_block);
         let else_cold = is_cold_block(func, else_block);
         if then_cold && !else_cold {
-            // Failure taken to then_block
             weights = Some((1, 1048576));
         } else if else_cold && !then_cold {
-            // Failure taken to else_block
             weights = Some((1048576, 1));
         }
     }
@@ -293,5 +365,39 @@ pub fn derive_branch_metadata(
 pub fn is_vector_supported(target: &TargetInfo) -> bool {
     target.vector_support.contains(&VectorExtension::Avx2)
         || target.vector_support.contains(&VectorExtension::Avx)
+        || target.vector_support.contains(&VectorExtension::Avx512)
         || target.vector_support.contains(&VectorExtension::Neon)
+}
+
+/// Type-Based Alias Analysis (TBAA) metadata node string.
+pub fn emit_tbaa_metadata() -> String {
+    let mut s = String::new();
+    s.push_str("; --- Type-Based Alias Analysis (TBAA) Metadata ---\n");
+    s.push_str("!20 = !{!\"Datara TBAA Root\"}\n");
+    s.push_str("!21 = !{!\"Datara Scalar\", !20, i64 0}\n");
+    s.push_str("!22 = !{!\"Datara Int\", !21, i64 0}\n");
+    s.push_str("!23 = !{!\"Datara Float\", !21, i64 0}\n");
+    s.push_str("!24 = !{!\"Datara Pointer\", !20, i64 0}\n");
+    s.push_str("!25 = !{!\"Datara Aggregate\", !20, i64 0}\n\n");
+    s
+}
+
+/// Tag string for TBAA metadata based on LLVM type.
+pub fn get_tbaa_tag(ty: &str) -> &'static str {
+    match ty {
+        "i64" | "i32" | "i16" | "i8" | "Int" | "Int64" | "Int32" => ", !tbaa !22",
+        "double" | "float" | "Float" | "Float64" | "Float32" => ", !tbaa !23",
+        "ptr" | "String" | "Str" => ", !tbaa !24",
+        _ => ", !tbaa !21",
+    }
+}
+
+/// Invariant load tag for immutable field access.
+#[allow(dead_code)]
+pub fn invariant_load_tag(is_immutable: bool) -> &'static str {
+    if is_immutable {
+        ", !invariant.load !{}"
+    } else {
+        ""
+    }
 }

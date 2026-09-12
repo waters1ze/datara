@@ -1,11 +1,12 @@
 pub(crate) mod bce;
 pub(crate) mod engine_v2;
 pub(crate) mod fold;
+pub mod polyhedral;
 
 use crate::dmir::cfg::ControlFlowGraph;
 use crate::dmir::{BasicBlockId, Function, Inst, Terminator, ValueId};
 use crate::optimizer::cost_model::{CostModel, OptimizationDecisionTrace};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// Loop optimizations that operate on the **real CFG** (basic blocks joined by
 /// `Terminator::Branch` / `Terminator::CondBranch`).
@@ -36,6 +37,7 @@ impl LoopOptimizer {
     ) -> usize {
         let mut transformed = 0;
         transformed += Self::licm_pass(f, cost_model, trace);
+        transformed += Self::forward_invariants_pass(f, cost_model, trace);
         let bce_count = Self::bce_pass(f, cost_model, trace);
         *bce_proven += bce_count;
         transformed += bce_count;
@@ -112,8 +114,11 @@ impl LoopOptimizer {
     }
 
     pub fn is_pure_call(func: &str) -> bool {
+        let clean = func
+            .strip_prefix("datara_rt_math_")
+            .or_else(|| func.strip_prefix("math_"))
+            .unwrap_or(func);
         let pure_prefixes = [
-            "math_",
             "abs",
             "min",
             "max",
@@ -125,6 +130,7 @@ impl LoopOptimizer {
             "tan",
             "floor",
             "ceil",
+            "round",
             "log",
             "exp",
             "fib",
@@ -138,7 +144,7 @@ impl LoopOptimizer {
             "dot",
             "pure_",
         ];
-        pure_prefixes.iter().any(|p| func.starts_with(p))
+        pure_prefixes.iter().any(|p| clean.starts_with(p))
     }
 
     /// Pure instructions whose operands are loop-invariant may be hoisted.
@@ -201,17 +207,22 @@ impl LoopOptimizer {
             // loop could introduce a fault the original never had. Stay
             // conservative and never hoist it.
             Inst::GetField { .. } => false,
-            // Division / modulo may trap on a zero divisor. Moving one out of a
-            // loop that may run zero times can introduce a fault the original
-            // program never had, so those stay where they are.
-            Inst::BinOp { op, .. } => op != "/" && op != "%",
+            // Integer division / modulo may trap on a zero divisor. Floating-point
+            // division under IEEE-754 produces inf/nan and never traps on x86_64, so
+            // float division is safe to hoist.
+            Inst::BinOp { op, ty, .. } => {
+                if op == "/" {
+                    ty == "Float" || ty == "f64"
+                } else {
+                    op != "%"
+                }
+            }
             Inst::ConstInt { .. }
             | Inst::ConstFloat { .. }
             | Inst::ConstBool { .. }
             | Inst::ConstStr { .. } => true,
-            // Only a plain copy is known non-trapping; other unops are not
-            // proven pure.
-            Inst::UnOp { op, .. } => op == "copy",
+            // Plain copy and negation (arithmetic/float) are pure and non-trapping.
+            Inst::UnOp { op, .. } => op == "copy" || op == "-",
             Inst::Call { func, .. } => Self::is_pure_call(func),
             Inst::InlineAsm { options, .. } => options.iter().any(|o| o == "pure"),
             _ => false,
@@ -235,6 +246,12 @@ impl LoopOptimizer {
             Inst::StructInit { fields, .. } => fields.iter().map(|(_, v)| *v).collect(),
             Inst::FormatStr { values, .. } => values.clone(),
             Inst::InlineAsm { inputs, .. } => inputs.iter().map(|(_, v)| *v).collect(),
+            Inst::Select {
+                cond,
+                then_val,
+                else_val,
+                ..
+            } => vec![*cond, *then_val, *else_val],
             _ => Vec::new(),
         }
     }
@@ -580,6 +597,437 @@ impl LoopOptimizer {
         });
 
         Some(new_id)
+    }
+
+    /// Forwards loop-invariant values through loop header block parameters.
+    ///
+    /// When values computed before a loop (e.g. vector components, division results,
+    /// or pure arithmetic) are used inside a loop, Cranelift's egraph elaboration may
+    /// lazily sink their computation into the loop body (especially if any operand is
+    /// a constant marked `remat`), re-evaluating high-latency instructions (like `fdiv`)
+    /// on every iteration.
+    ///
+    /// By threading these invariants as block parameters through the loop header:
+    /// 1. The preheader passes the invariant into the loop header, forcing its evaluation
+    ///    before the loop.
+    /// 2. The loop header receives the invariant as an SSA phi / block parameter.
+    /// 3. The loop latch passes the parameter back around the backedge.
+    /// 4. Inside the loop, instructions read the invariant directly from the block parameter
+    ///    (which Cranelift maps to a callee-saved register).
+    pub fn forward_invariants_pass(
+        f: &mut Function,
+        _cost_model: &CostModel,
+        trace: &mut OptimizationDecisionTrace,
+    ) -> usize {
+        let cfg = ControlFlowGraph::build(f);
+        if cfg.loops.is_empty() {
+            return 0;
+        }
+
+        let mut val_ty: HashMap<ValueId, String> = HashMap::new();
+        let mut def_cost: HashMap<ValueId, u32> = HashMap::new();
+
+        for (_, p_type, p_val) in &f.params {
+            val_ty.insert(*p_val, p_type.clone());
+        }
+
+        for blk in &f.blocks {
+            for p in &blk.params {
+                val_ty.insert(p.val, p.ty.clone());
+            }
+            for inst in &blk.instructions {
+                match inst {
+                    Inst::ConstInt { dest, .. } => {
+                        val_ty.insert(*dest, "Int".into());
+                    }
+                    Inst::ConstFloat { dest, .. } => {
+                        val_ty.insert(*dest, "Float".into());
+                    }
+                    Inst::ConstBool { dest, .. } => {
+                        val_ty.insert(*dest, "Bool".into());
+                    }
+                    Inst::ConstStr { dest, .. } => {
+                        val_ty.insert(*dest, "String".into());
+                    }
+                    Inst::BinOp { dest, op, ty, .. } => {
+                        val_ty.insert(*dest, ty.clone());
+                        if op == "/" {
+                            def_cost.insert(*dest, 30);
+                        } else if op == "*" {
+                            def_cost.insert(*dest, 10);
+                        }
+                    }
+                    Inst::GetField { dest, ty, .. }
+                    | Inst::Select { dest, ty, .. }
+                    | Inst::UnOp { dest, ty, .. } => {
+                        val_ty.insert(*dest, ty.clone());
+                    }
+                    Inst::Call { dest, ty, .. } | Inst::MethodCall { dest, ty, .. } => {
+                        val_ty.insert(*dest, ty.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let mut max_vid = 0usize;
+        let mut bump = |v: &ValueId| {
+            if v.0 > max_vid {
+                max_vid = v.0;
+            }
+        };
+        for (_, _, v) in &f.params {
+            bump(v);
+        }
+        for b in &f.blocks {
+            for p in &b.params {
+                bump(&p.val);
+            }
+            for inst in &b.instructions {
+                Self::for_each_vid(inst, &mut bump);
+            }
+            match &b.terminator {
+                Terminator::Branch { args, .. } => {
+                    for a in args {
+                        bump(a);
+                    }
+                }
+                Terminator::CondBranch {
+                    cond,
+                    then_args,
+                    else_args,
+                    ..
+                } => {
+                    bump(cond);
+                    for a in then_args.iter().chain(else_args.iter()) {
+                        bump(a);
+                    }
+                }
+                Terminator::Return { value } => {
+                    if let Some(v) = value {
+                        bump(v);
+                    }
+                }
+                Terminator::Unreachable => {}
+            }
+        }
+
+        let mut next_vid = max_vid + 1;
+        let mut total_forwarded = 0;
+
+        for lp in &cfg.loops {
+            if lp.header == f.entry_block {
+                continue;
+            }
+
+            let mut defined_in_loop: HashSet<ValueId> = HashSet::new();
+            for &bid in &lp.blocks {
+                if let Some(blk) = f.get_block(bid) {
+                    for p in &blk.params {
+                        defined_in_loop.insert(p.val);
+                    }
+                    for inst in &blk.instructions {
+                        if let Some(d) = Self::dest(inst) {
+                            defined_in_loop.insert(d);
+                        }
+                    }
+                }
+            }
+
+            let header_param_vids: HashSet<ValueId> = f
+                .get_block(lp.header)
+                .map(|h| h.params.iter().map(|p| p.val).collect())
+                .unwrap_or_default();
+
+            let mut invariants_to_forward: Vec<ValueId> = Vec::new();
+            let mut seen_invariants: HashSet<ValueId> = HashSet::new();
+
+            for &bid in &lp.blocks {
+                if let Some(blk) = f.get_block(bid) {
+                    for inst in &blk.instructions {
+                        for src in Self::source_operands(inst) {
+                            if !defined_in_loop.contains(&src)
+                                && def_cost.contains_key(&src)
+                                && val_ty.contains_key(&src)
+                                && !seen_invariants.contains(&src)
+                                && !header_param_vids.contains(&src)
+                            {
+                                seen_invariants.insert(src);
+                                invariants_to_forward.push(src);
+                            }
+                        }
+                    }
+
+                    if !lp.back_edges.contains(&bid) {
+                        match &blk.terminator {
+                            Terminator::Branch { args, .. } => {
+                                for a in args {
+                                    if !defined_in_loop.contains(a)
+                                        && def_cost.contains_key(a)
+                                        && val_ty.contains_key(a)
+                                        && !seen_invariants.contains(a)
+                                        && !header_param_vids.contains(a)
+                                    {
+                                        seen_invariants.insert(*a);
+                                        invariants_to_forward.push(*a);
+                                    }
+                                }
+                            }
+                            Terminator::CondBranch {
+                                cond,
+                                then_args,
+                                else_args,
+                                ..
+                            } => {
+                                for a in std::iter::once(cond)
+                                    .chain(then_args.iter())
+                                    .chain(else_args.iter())
+                                {
+                                    if !defined_in_loop.contains(a)
+                                        && def_cost.contains_key(a)
+                                        && val_ty.contains_key(a)
+                                        && !seen_invariants.contains(a)
+                                        && !header_param_vids.contains(a)
+                                    {
+                                        seen_invariants.insert(*a);
+                                        invariants_to_forward.push(*a);
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            // Sort candidate invariants by cost descending (e.g. division before multiplication)
+            invariants_to_forward.sort_by(|a, b| {
+                let cost_a = def_cost.get(a).copied().unwrap_or(0);
+                let cost_b = def_cost.get(b).copied().unwrap_or(0);
+                cost_b.cmp(&cost_a)
+            });
+
+            // Cap invariants per loop to 3 to ensure zero register spilling on Windows x64
+            if invariants_to_forward.len() > 3 {
+                invariants_to_forward.truncate(3);
+            }
+
+            if invariants_to_forward.is_empty() {
+                continue;
+            }
+
+            let mut subst: HashMap<ValueId, ValueId> = HashMap::new();
+            let mut new_params: Vec<crate::dmir::BlockParam> = Vec::new();
+
+            for &inv in &invariants_to_forward {
+                let ty = val_ty[&inv].clone();
+                let new_param_val = ValueId(next_vid);
+                next_vid += 1;
+                new_params.push(crate::dmir::BlockParam {
+                    val: new_param_val,
+                    ty,
+                    name: None,
+                });
+                subst.insert(inv, new_param_val);
+            }
+
+            // 1. Add parameters to header
+            if let Some(header_blk) = f.get_block_mut(lp.header) {
+                header_blk.params.extend(new_params);
+            }
+
+            // 2. Update predecessors: entering edges pass `inv`, backedges pass `new_param_val`
+            let preds: Vec<BasicBlockId> = cfg
+                .predecessors
+                .get(&lp.header)
+                .cloned()
+                .unwrap_or_default();
+
+            for pred_id in preds {
+                let is_backedge = lp.blocks.contains(&pred_id);
+                if let Some(pred_blk) = f.get_block_mut(pred_id) {
+                    if is_backedge {
+                        Self::subst_term_operands(&mut pred_blk.terminator, &subst);
+                    }
+
+                    let mut backedge_args: Vec<ValueId> = Vec::new();
+                    if is_backedge {
+                        let bool_cond = ValueId(next_vid);
+                        next_vid += 1;
+                        pred_blk.instructions.push(Inst::ConstBool {
+                            dest: bool_cond,
+                            value: true,
+                        });
+                        for &inv in &invariants_to_forward {
+                            let p_val = subst[&inv];
+                            let ty = val_ty[&inv].clone();
+                            let sel_dest = ValueId(next_vid);
+                            next_vid += 1;
+                            pred_blk.instructions.push(Inst::Select {
+                                dest: sel_dest,
+                                cond: bool_cond,
+                                then_val: p_val,
+                                else_val: p_val,
+                                ty,
+                            });
+                            backedge_args.push(sel_dest);
+                        }
+                    }
+
+                    match &mut pred_blk.terminator {
+                        Terminator::Branch { target, args } if *target == lp.header => {
+                            if is_backedge {
+                                args.extend(backedge_args);
+                            } else {
+                                args.extend(invariants_to_forward.iter().copied());
+                            }
+                        }
+                        Terminator::CondBranch {
+                            then_block,
+                            then_args,
+                            else_block,
+                            else_args,
+                            ..
+                        } => {
+                            if *then_block == lp.header {
+                                if is_backedge {
+                                    then_args.extend(backedge_args.iter().copied());
+                                } else {
+                                    then_args.extend(invariants_to_forward.iter().copied());
+                                }
+                            }
+                            if *else_block == lp.header {
+                                if is_backedge {
+                                    else_args.extend(backedge_args.iter().copied());
+                                } else {
+                                    else_args.extend(invariants_to_forward.iter().copied());
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            // 3. Substitute uses in all loop blocks
+            for &bid in &lp.blocks {
+                if let Some(blk) = f.get_block_mut(bid) {
+                    for inst in &mut blk.instructions {
+                        Self::subst_inst_operands(inst, &subst);
+                    }
+                    if !lp.back_edges.contains(&bid) {
+                        Self::subst_term_operands(&mut blk.terminator, &subst);
+                    }
+                }
+            }
+
+            total_forwarded += invariants_to_forward.len();
+            trace.record(
+                "ForwardInvariants",
+                &format!("{}:bb{}", f.name, lp.header.0),
+                "Applied",
+                "high",
+                "zero",
+                &format!(
+                    "forwarded {} invariant(s) through loop header",
+                    invariants_to_forward.len()
+                ),
+            );
+        }
+
+        total_forwarded
+    }
+
+    fn subst_inst_operands(inst: &mut Inst, subst: &HashMap<ValueId, ValueId>) {
+        let map = |v: &mut ValueId| {
+            if let Some(&replacement) = subst.get(v) {
+                *v = replacement;
+            }
+        };
+        match inst {
+            Inst::ConstInt { .. }
+            | Inst::ConstFloat { .. }
+            | Inst::ConstStr { .. }
+            | Inst::ConstBool { .. }
+            | Inst::GetFuncAddr { .. }
+            | Inst::LoadVar { .. } => {}
+            Inst::AssignVar { value, .. } => map(value),
+            Inst::BinOp { left, right, .. } => {
+                map(left);
+                map(right);
+            }
+            Inst::UnOp { operand, .. } => map(operand),
+            Inst::Call { args, .. } => args.iter_mut().for_each(map),
+            Inst::MethodCall { object, args, .. } => {
+                map(object);
+                args.iter_mut().for_each(map);
+            }
+            Inst::StructInit { fields, .. } => fields.iter_mut().for_each(|(_, v)| map(v)),
+            Inst::GetField { object, .. } => map(object),
+            Inst::SetField { object, value, .. } => {
+                map(object);
+                map(value);
+            }
+            Inst::FormatStr { values, .. } => values.iter_mut().for_each(map),
+            Inst::Decide { arms, else_val, .. } => {
+                for (c, v) in arms {
+                    map(c);
+                    map(v);
+                }
+                if let Some(v) = else_val {
+                    map(v);
+                }
+            }
+            Inst::Select {
+                cond,
+                then_val,
+                else_val,
+                ..
+            } => {
+                map(cond);
+                map(then_val);
+                map(else_val);
+            }
+            Inst::Out { value } | Inst::Err { value } => map(value),
+            Inst::InlineAsm { inputs, .. } => {
+                for (_, v) in inputs {
+                    map(v);
+                }
+            }
+            Inst::Return { value } => {
+                if let Some(v) = value {
+                    map(v);
+                }
+            }
+            Inst::WhileLoop { .. } | Inst::TryCatch { .. } => {}
+        }
+    }
+
+    fn subst_term_operands(term: &mut Terminator, subst: &HashMap<ValueId, ValueId>) {
+        let map = |v: &mut ValueId| {
+            if let Some(&replacement) = subst.get(v) {
+                *v = replacement;
+            }
+        };
+        match term {
+            Terminator::Branch { args, .. } => args.iter_mut().for_each(map),
+            Terminator::CondBranch {
+                cond,
+                then_args,
+                else_args,
+                ..
+            } => {
+                map(cond);
+                then_args.iter_mut().for_each(map);
+                else_args.iter_mut().for_each(map);
+            }
+            Terminator::Return { value } => {
+                if let Some(v) = value {
+                    map(v);
+                }
+            }
+            Terminator::Unreachable => {}
+        }
     }
 
     /// Visits every `ValueId` mentioned by an instruction (defs and uses).

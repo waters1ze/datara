@@ -1,6 +1,6 @@
 {
-  "name": "@waters1ze/datara",
-  "version": "1.1.0",
+  "name": "@datara-lang/datara",
+  "version": "1.2.0",
   "description": "The Datara Programming Language and Forgen Native Compiler toolchain runner",
   "main": "lib/binary.js",
   "bin": {
@@ -19,16 +19,16 @@
     "systems-programming",
     "npx"
   ],
-  "author": "waters1ze",
+  "author": "datara-lang",
   "license": "Apache-2.0 OR MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/waters1ze/datara.git"
+    "url": "https://github.com/datara-lang/datara.git"
   },
   "bugs": {
-    "url": "https://github.com/waters1ze/datara/issues"
+    "url": "https://github.com/datara-lang/datara/issues"
   },
-  "homepage": "https://github.com/waters1ze/datara#readme",
+  "homepage": "https://github.com/datara-lang/datara#readme",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"
   }

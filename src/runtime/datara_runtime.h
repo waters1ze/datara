@@ -264,6 +264,8 @@ int64_t*    datara_rt_map_create_4(const char* k0, int64_t v0, const char* k1, i
 int64_t*    datara_rt_map_create_5(const char* k0, int64_t v0, const char* k1, int64_t v1,
                                    const char* k2, int64_t v2, const char* k3, int64_t v3,
                                    const char* k4, int64_t v4);
+int64_t     datara_rt_map_contains(int64_t* map, const char* key);
+int64_t     datara_rt_map_len(int64_t* map);
 void        datara_rt_map_free(void* map);
 
 // Network Sockets
@@ -321,9 +323,17 @@ int64_t     datara_rt_math_xor(int64_t a, int64_t b);
 int64_t     datara_rt_math_and(int64_t a, int64_t b);
 int64_t     datara_rt_math_or(int64_t a, int64_t b);
 
-// First-Class Hardware Accelerated SIMD (AVX2 / NEON)
+// First-Class Hardware Accelerated SIMD (AVX2 / NEON / SSE2)
 typedef struct { float x, y, z, w; } DataraFloat4;
 typedef struct { int32_t x, y, z, w; } DataraInt4;
+typedef DataraFloat4 DataraF32x4;
+typedef struct { float v[8]; } DataraF32x8;
+typedef struct { float v[16]; } DataraF32x16;
+typedef DataraInt4 DataraI32x4;
+typedef struct { int32_t v[8]; } DataraI32x8;
+typedef struct { double x, y; } DataraF64x2;
+typedef struct { double x, y, z, w; } DataraF64x4;
+
 DataraFloat4 datara_rt_float4(double x, double y, double z, double w);
 DataraInt4   datara_rt_int4(int64_t x, int64_t y, int64_t z, int64_t w);
 double       datara_rt_float4_dot(DataraFloat4 a, DataraFloat4 b);
@@ -332,6 +342,107 @@ DataraFloat4 datara_rt_float4_max4(DataraFloat4 a, DataraFloat4 b);
 DataraInt4   datara_rt_int4_min4(DataraInt4 a, DataraInt4 b);
 DataraInt4   datara_rt_int4_max4(DataraInt4 a, DataraInt4 b);
 int          datara_rt_simd_enabled(void);
+
+// std.simd constructors & operations
+DataraF32x4  datara_rt_f32x4(double x, double y, double z, double w);
+DataraF32x8  datara_rt_f32x8(double v0, double v1, double v2, double v3, double v4, double v5, double v6, double v7);
+DataraF32x16 datara_rt_f32x16(double v0, double v1, double v2, double v3, double v4, double v5, double v6, double v7,
+                              double v8, double v9, double v10, double v11, double v12, double v13, double v14, double v15);
+DataraI32x4  datara_rt_i32x4(int64_t x, int64_t y, int64_t z, int64_t w);
+DataraI32x8  datara_rt_i32x8(int64_t v0, int64_t v1, int64_t v2, int64_t v3, int64_t v4, int64_t v5, int64_t v6, int64_t v7);
+DataraF64x2  datara_rt_f64x2(double x, double y);
+DataraF64x4  datara_rt_f64x4(double x, double y, double z, double w);
+
+DataraF32x4  datara_rt_f32x4_add(DataraF32x4 a, DataraF32x4 b);
+DataraF32x4  datara_rt_f32x4_sub(DataraF32x4 a, DataraF32x4 b);
+DataraF32x4  datara_rt_f32x4_mul(DataraF32x4 a, DataraF32x4 b);
+DataraF32x4  datara_rt_f32x4_div(DataraF32x4 a, DataraF32x4 b);
+double       datara_rt_f32x4_dot(DataraF32x4 a, DataraF32x4 b);
+DataraF32x4  datara_rt_f32x4_cross(DataraF32x4 a, DataraF32x4 b);
+double       datara_rt_f32x4_horizontal_add(DataraF32x4 a);
+DataraF32x4  datara_rt_f32x4_min(DataraF32x4 a, DataraF32x4 b);
+DataraF32x4  datara_rt_f32x4_max(DataraF32x4 a, DataraF32x4 b);
+DataraF32x4  datara_rt_f32x4_lerp(DataraF32x4 a, DataraF32x4 b, double t);
+DataraF32x4  datara_rt_f32x4_normalize(DataraF32x4 a);
+double       datara_rt_f32x4_distance(DataraF32x4 a, DataraF32x4 b);
+
+DataraF32x8  datara_rt_f32x8_add(DataraF32x8 a, DataraF32x8 b);
+DataraF32x8  datara_rt_f32x8_sub(DataraF32x8 a, DataraF32x8 b);
+DataraF32x8  datara_rt_f32x8_mul(DataraF32x8 a, DataraF32x8 b);
+DataraF32x8  datara_rt_f32x8_div(DataraF32x8 a, DataraF32x8 b);
+double       datara_rt_f32x8_dot(DataraF32x8 a, DataraF32x8 b);
+double       datara_rt_f32x8_horizontal_add(DataraF32x8 a);
+DataraF32x8  datara_rt_f32x8_min(DataraF32x8 a, DataraF32x8 b);
+DataraF32x8  datara_rt_f32x8_max(DataraF32x8 a, DataraF32x8 b);
+DataraF32x8  datara_rt_f32x8_lerp(DataraF32x8 a, DataraF32x8 b, double t);
+DataraF32x8  datara_rt_f32x8_normalize(DataraF32x8 a);
+double       datara_rt_f32x8_distance(DataraF32x8 a, DataraF32x8 b);
+
+DataraF32x16 datara_rt_f32x16_add(DataraF32x16 a, DataraF32x16 b);
+DataraF32x16 datara_rt_f32x16_sub(DataraF32x16 a, DataraF32x16 b);
+DataraF32x16 datara_rt_f32x16_mul(DataraF32x16 a, DataraF32x16 b);
+DataraF32x16 datara_rt_f32x16_div(DataraF32x16 a, DataraF32x16 b);
+double       datara_rt_f32x16_dot(DataraF32x16 a, DataraF32x16 b);
+double       datara_rt_f32x16_horizontal_add(DataraF32x16 a);
+DataraF32x16 datara_rt_f32x16_min(DataraF32x16 a, DataraF32x16 b);
+DataraF32x16 datara_rt_f32x16_max(DataraF32x16 a, DataraF32x16 b);
+DataraF32x16 datara_rt_f32x16_lerp(DataraF32x16 a, DataraF32x16 b, double t);
+DataraF32x16 datara_rt_f32x16_normalize(DataraF32x16 a);
+double       datara_rt_f32x16_distance(DataraF32x16 a, DataraF32x16 b);
+
+DataraI32x4  datara_rt_i32x4_add(DataraI32x4 a, DataraI32x4 b);
+DataraI32x4  datara_rt_i32x4_sub(DataraI32x4 a, DataraI32x4 b);
+DataraI32x4  datara_rt_i32x4_mul(DataraI32x4 a, DataraI32x4 b);
+DataraI32x4  datara_rt_i32x4_div(DataraI32x4 a, DataraI32x4 b);
+int64_t      datara_rt_i32x4_dot(DataraI32x4 a, DataraI32x4 b);
+int64_t      datara_rt_i32x4_horizontal_add(DataraI32x4 a);
+DataraI32x4  datara_rt_i32x4_min(DataraI32x4 a, DataraI32x4 b);
+DataraI32x4  datara_rt_i32x4_max(DataraI32x4 a, DataraI32x4 b);
+
+DataraI32x8  datara_rt_i32x8_add(DataraI32x8 a, DataraI32x8 b);
+DataraI32x8  datara_rt_i32x8_sub(DataraI32x8 a, DataraI32x8 b);
+DataraI32x8  datara_rt_i32x8_mul(DataraI32x8 a, DataraI32x8 b);
+DataraI32x8  datara_rt_i32x8_div(DataraI32x8 a, DataraI32x8 b);
+int64_t      datara_rt_i32x8_dot(DataraI32x8 a, DataraI32x8 b);
+int64_t      datara_rt_i32x8_horizontal_add(DataraI32x8 a);
+DataraI32x8  datara_rt_i32x8_min(DataraI32x8 a, DataraI32x8 b);
+DataraI32x8  datara_rt_i32x8_max(DataraI32x8 a, DataraI32x8 b);
+
+DataraF64x2  datara_rt_f64x2_add(DataraF64x2 a, DataraF64x2 b);
+DataraF64x2  datara_rt_f64x2_sub(DataraF64x2 a, DataraF64x2 b);
+DataraF64x2  datara_rt_f64x2_mul(DataraF64x2 a, DataraF64x2 b);
+DataraF64x2  datara_rt_f64x2_div(DataraF64x2 a, DataraF64x2 b);
+double       datara_rt_f64x2_dot(DataraF64x2 a, DataraF64x2 b);
+double       datara_rt_f64x2_horizontal_add(DataraF64x2 a);
+DataraF64x2  datara_rt_f64x2_min(DataraF64x2 a, DataraF64x2 b);
+DataraF64x2  datara_rt_f64x2_max(DataraF64x2 a, DataraF64x2 b);
+DataraF64x2  datara_rt_f64x2_lerp(DataraF64x2 a, DataraF64x2 b, double t);
+DataraF64x2  datara_rt_f64x2_normalize(DataraF64x2 a);
+double       datara_rt_f64x2_distance(DataraF64x2 a, DataraF64x2 b);
+
+DataraF64x4  datara_rt_f64x4_add(DataraF64x4 a, DataraF64x4 b);
+DataraF64x4  datara_rt_f64x4_sub(DataraF64x4 a, DataraF64x4 b);
+DataraF64x4  datara_rt_f64x4_mul(DataraF64x4 a, DataraF64x4 b);
+DataraF64x4  datara_rt_f64x4_div(DataraF64x4 a, DataraF64x4 b);
+double       datara_rt_f64x4_dot(DataraF64x4 a, DataraF64x4 b);
+double       datara_rt_f64x4_horizontal_add(DataraF64x4 a);
+DataraF64x4  datara_rt_f64x4_min(DataraF64x4 a, DataraF64x4 b);
+DataraF64x4  datara_rt_f64x4_max(DataraF64x4 a, DataraF64x4 b);
+DataraF64x4  datara_rt_f64x4_lerp(DataraF64x4 a, DataraF64x4 b, double t);
+DataraF64x4  datara_rt_f64x4_normalize(DataraF64x4 a);
+double       datara_rt_f64x4_distance(DataraF64x4 a, DataraF64x4 b);
+
+double       datara_rt_dot_f32_array(const float* a, const float* b, int64_t n);
+double       datara_rt_ray_sphere_intersect_simd(DataraF32x4 ro, DataraF32x4 rd, DataraF32x4 center, double radius);
+double       datara_rt_ray_sphere_intersect_scalar(double rox, double roy, double roz, double rdx, double rdy, double rdz, double cx, double cy, double cz, double r);
+DataraF32x4  datara_rt_ray_sphere_4x_simd(DataraF32x4 ro_x, DataraF32x4 ro_y, DataraF32x4 ro_z, DataraF32x4 rd_x, DataraF32x4 rd_y, DataraF32x4 rd_z, DataraF32x4 cx, DataraF32x4 cy, DataraF32x4 cz, DataraF32x4 radius);
+DataraF32x4  datara_rt_ray_sphere_4x_scalar(DataraF32x4 ro_x, DataraF32x4 ro_y, DataraF32x4 ro_z, DataraF32x4 rd_x, DataraF32x4 rd_y, DataraF32x4 rd_z, DataraF32x4 cx, DataraF32x4 cy, DataraF32x4 cz, DataraF32x4 radius);
+void         datara_rt_ray_sphere_batch_simd(const float* rox, const float* roy, const float* roz, const float* rdx, const float* rdy, const float* rdz, float cx, float cy, float cz, float r, float* out_t, int64_t count);
+void         datara_rt_ray_sphere_batch_scalar(const float* rox, const float* roy, const float* roz, const float* rdx, const float* rdy, const float* rdz, float cx, float cy, float cz, float r, float* out_t, int64_t count);
+double       datara_rt_fma(double a, double b, double c);
+float        datara_rt_fmaf(float a, float b, float c);
+
+
 void        datara_rt_thread_pool_init(int64_t workers);
 int64_t     datara_rt_num_workers(void);
 void        datara_rt_parallel_for(int64_t start, int64_t end, void (*fn)(int64_t idx, void* ctx), void* ctx);
@@ -341,9 +452,23 @@ void        datara_rt_parallel_invoke(void (*fn1)(void* ctx1), void* ctx1, void 
 void*       datara_rt_arena_alloc(int64_t bytes);
 int64_t     datara_rt_arena_checkpoint(void);
 void        datara_rt_arena_reset(int64_t saved_top);
+int64_t     datara_rt_arena_remaining(void);
 void        datara_rt_free(void* ptr);
 void        datara_rt_str_free(const char* s);
 void        datara_rt_list_free(void* list);
+
+// ============================================================================
+// 3-Tier Zero-Lock Allocator (v1.2.0 Phase 4)
+// ============================================================================
+void*       datara_rt_tier_alloc(size_t bytes);
+void        datara_rt_tier_free(void* ptr, size_t bytes);
+void*       datara_rt_slab_alloc(size_t bytes);
+void        datara_rt_slab_free(void* ptr, size_t bytes);
+void*       datara_rt_huge_page_alloc(size_t bytes);
+void        datara_rt_huge_page_free(void* ptr, size_t bytes);
+double      datara_rt_benchmark_tier_allocator(int64_t threads, int64_t iters_per_thread, int64_t alloc_size);
+double      datara_rt_benchmark_malloc_free(int64_t threads, int64_t iters_per_thread, int64_t alloc_size);
+
 
 // ============================================================================
 // Size-Class Pool Allocator & Value Representation (Phase 13)
@@ -418,6 +543,27 @@ int                  datara_rt_fast_memcmp(const void* s1, const void* s2, size_
 int                  datara_rt_pin_thread(int64_t core_id);
 int64_t              datara_rt_get_current_core(void);
 void                 datara_rt_pin_worker_threads(void);
+
+// ============================================================================
+// Capability Lattice: Hardware/Runtime Capability Traps
+// ============================================================================
+#define DATARA_CAP_FS_READ    (1ULL << 0) // 0x01
+#define DATARA_CAP_FS_WRITE   (1ULL << 1) // 0x02
+#define DATARA_CAP_NET_CLIENT (1ULL << 2) // 0x04
+#define DATARA_CAP_NET_SERVER (1ULL << 3) // 0x08
+#define DATARA_CAP_SYS_EXEC   (1ULL << 4) // 0x10
+#define DATARA_CAP_SYS_ENV    (1ULL << 5) // 0x20
+#define DATARA_CAP_RAW_MMIO   (1ULL << 6) // 0x40
+#define DATARA_CAP_RAW_PORT   (1ULL << 7) // 0x80
+#define DATARA_CAP_RING0_OS   (1ULL << 8) // 0x100
+#define DATARA_CAP_ALL        (~0ULL)
+
+void        datara_rt_cap_set_mask(uint64_t mask);
+uint64_t    datara_rt_cap_get_mask(void);
+void        datara_rt_cap_revoke(uint64_t mask);
+void        datara_rt_cap_grant(uint64_t mask);
+void        datara_rt_cap_require(uint64_t required_bit, const char* op_name);
+void        datara_rt_trigger_hardware_cap_trap(uint64_t required_bit, const char* op_name);
 
 #ifdef __cplusplus
 }
