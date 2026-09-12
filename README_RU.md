@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/datara-lang/datara"><img src="https://img.shields.io/badge/language-Datara-%23E3B341.svg" alt="Язык" /></a>
   <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/License-Apache_2.0_OR_MIT-blue.svg" alt="Лицензия" /></a>
-  <img src="https://img.shields.io/badge/версия-1.2.0-blue.svg" alt="Версия" />
+  <img src="https://img.shields.io/badge/версия-1.2.1-blue.svg" alt="Версия" />
   <a href="https://github.com/datara-lang/datara/actions/workflows/ci.yml"><img src="https://github.com/datara-lang/datara/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/тесты-148%20наборов%20%7C%20668%20пройдено-brightgreen.svg" alt="Тесты" />
   <a href="docs/CONFORMANCE_MATRIX.md"><img src="https://img.shields.io/badge/Соответствие_Спецификации_V1-84%2F84_Врат_ПРОЙДЕНО-brightgreen.svg" alt="Соответствие" /></a>
@@ -214,7 +214,7 @@ cargo install datara
 #### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/vscode.svg" height="20" valign="middle" alt="VS Code" /> Расширение для VS Code и Cursor (.vsix)
 Официальное расширение Datara поставляется с полной поддержкой подсветки синтаксиса TextMate, сниппетами, интеграцией сборщика и клиентом Language Server Protocol:
 ```bash
-code --install-extension editors/vscode/datara-1.2.0.vsix
+code --install-extension editors/vscode/datara-1.2.1.vsix
 ```
 
 #### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/docker.svg" height="20" valign="middle" alt="Docker" /> Официальный контейнер (GitHub Packages / GHCR)
@@ -227,10 +227,10 @@ docker run -it --rm -v $(pwd):/workspace ghcr.io/datara-lang/datara:latest run m
 #### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Нативные пакеты Linux (.deb и .rpm)
 ```bash
 # Debian / Ubuntu / Mint:
-sudo dpkg -i dist/datara_1.2.0_amd64.deb
+sudo dpkg -i dist/datara_1.2.1_amd64.deb
 
 # Fedora / RHEL / CentOS:
-sudo rpm -i dist/datara-1.2.0.x86_64.rpm
+sudo rpm -i dist/datara-1.2.1.x86_64.rpm
 ```
 
 #### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/windows.svg" height="20" valign="middle" alt="Windows" /> Менеджеры пакетов Windows: Winget и Scoop

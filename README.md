@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://github.com/datara-lang/datara"><img src="https://img.shields.io/badge/language-Datara-%23E3B341.svg" alt="Language" /></a>
   <a href="LICENSE-APACHE"><img src="https://img.shields.io/badge/License-Apache_2.0_OR_MIT-blue.svg" alt="License" /></a>
-  <img src="https://img.shields.io/badge/version-1.2.0-blue.svg" alt="Version" />
+  <img src="https://img.shields.io/badge/version-1.2.1-blue.svg" alt="Version" />
   <a href="https://github.com/datara-lang/datara/actions/workflows/ci.yml"><img src="https://github.com/datara-lang/datara/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <img src="https://img.shields.io/badge/tests-148%20suites%20%7C%20668%20passing-brightgreen.svg" alt="Tests" />
   <a href="docs/CONFORMANCE_MATRIX.md"><img src="https://img.shields.io/badge/Spec_V1_Conformance-84%2F84_Gates_PASS-brightgreen.svg" alt="Conformance" /></a>
@@ -207,17 +207,17 @@ cargo install forgen
 #### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/vscode.svg" height="20" valign="middle" alt="VS Code" /> VS Code & Cursor Extension (.vsix)
 Install syntax highlighting, type hover, and icon themes in 1 command:
 ```bash
-code --install-extension dist/datara-language-1.2.0.vsix
+code --install-extension dist/datara-language-1.2.1.vsix
 ```
 
 #### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/linux.svg" height="20" valign="middle" alt="Linux" /> Linux Native Packages (.deb & .rpm)
 Install native system packages on Debian/Ubuntu or Fedora/RHEL:
 ```bash
 # Debian / Ubuntu / Pop!_OS / Linux Mint:
-sudo dpkg -i datara_1.2.0_amd64.deb
+sudo dpkg -i datara_1.2.1_amd64.deb
 
 # Fedora / RHEL / CentOS / openSUSE:
-sudo rpm -ivh datara-1.2.0-1.x86_64.rpm
+sudo rpm -ivh datara-1.2.1-1.x86_64.rpm
 ```
 
 #### <img src="https://raw.githubusercontent.com/datara-lang/datara/main/assets/icons/windows.svg" height="20" valign="middle" alt="Windows" /> Windows: Winget & Scoop

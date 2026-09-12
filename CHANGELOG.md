@@ -4,6 +4,22 @@ All notable changes to the Datara compiler and toolchain (`forgen`) are document
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-09-12 «CRANELIFT GAMEDEV JIT & BRAND ASSETS»
+
+### Added
+- **Cranelift Ultra-Fast GameDev JIT Architecture**:
+  - Direct 128-bit hardware SIMD vector registers in CLIF (`F32X4` / `I8X16`) mapping to XMM / Q-registers without stack spill emulation.
+  - Native vector game math intrinsics (`f32x4_add`, `f32x4_sub`, `f32x4_mul`, `f32x4_div` decomposed lane lowering, `f32x4_dot`, `f32x4_cross`, `f32x4_horizontal_add`, `f32x4_min`, `f32x4_max`, `f32x4_sqrt`, `f32x4_abs`, `f32x4_neg`).
+  - AABB collision detection, ray-sphere intersection, and particle physics integration test harnesses.
+  - In-memory Cranelift context and ISA configuration recycling, reducing compilation latency to sub-millisecond range (< 200 us).
+  - Live Code Hot-Reloading (`hot_reload_function`) enabling in-process code swap within sub-frame latency budgets (< 16.6 ms) without restarting the host process.
+- **ELF/Mach-O/COFF Direct Module Emission**: Support for direct Cranelift object module creation across target triples (`x86_64-unknown-linux-gnu`, `x86_64-pc-windows-msvc`, `aarch64-apple-darwin`).
+
+### Fixed
+- **Vector Float Division in Cranelift CLIF**: Lowered vector float division into scalar lane extractions, scalar `fdiv`, and vector register reconstruction, satisfying strict Cranelift CLIF verifier.
+- **Brand Assets & Iconography**: Fully rebuilt `badge_512.png`, `datara.ico`, and extension icons around clean vector `icon.png`, removing all screenshot watermark artifacts.
+- **Windows Explorer Multi-Resolution ICO**: Generated complete mipmap resolutions (256, 128, 64, 48, 32, 24, 16) with Lanczos resampling.
+
 ## [1.2.0] - 2026-09-12 «APEX PERFORMANCE»
 
 ### Added

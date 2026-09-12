@@ -17,7 +17,7 @@ $repoRoot = (Get-Item "$PSScriptRoot\..").FullName
 $iconPath = Join-Path $repoRoot "assets\datara.ico"
 $logoPath = Join-Path $repoRoot "assets\datara-logo.png"
 
-$Version = "1.2.0"
+$Version = "1.2.1"
 $cargoTomlPath = Join-Path $repoRoot "Cargo.toml"
 if (Test-Path $cargoTomlPath) {
     $cargoToml = Get-Content $cargoTomlPath -Raw

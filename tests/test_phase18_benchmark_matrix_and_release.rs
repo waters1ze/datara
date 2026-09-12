@@ -231,8 +231,9 @@ fn test_cargo_toml_version_invariant() {
     assert!(
         version_line.contains("\"1.0.0\"")
             || version_line.contains("\"1.1.0\"")
-            || version_line.contains("\"1.2.0\""),
-        "Cargo.toml version must be 1.0.0, 1.1.0, or 1.2.0 (found: {})",
+            || version_line.contains("\"1.2.0\"")
+            || version_line.contains("\"1.2.1\""),
+        "Cargo.toml version must be 1.0.0, 1.1.0, 1.2.0, or 1.2.1 (found: {})",
         version_line
     );
 }

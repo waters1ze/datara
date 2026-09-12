@@ -2,7 +2,7 @@
   "name": "datara-language",
   "displayName": "Datara Language Support",
   "description": "Rich syntax highlighting, language configuration, and file icons for the Datara programming language (.dtr).",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "publisher": "datara-project",
   "icon": "icon.png",
   "engines": {
