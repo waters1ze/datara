@@ -4,7 +4,7 @@ Welcome to the official documentation for the **Datara** systems programming lan
 
 ---
 
-## 🧭 Documentation Map
+## Documentation Map
 
 ### 1. Tutorials & Guides
 * **[Official 10-Step Tutorial](TUTORIAL.md)** — Step-by-step hands-on guide from fresh installation to production CLI application.
