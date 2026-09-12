@@ -43,6 +43,7 @@ pub fn compile_all_functions<M: ClifModule>(
 
     // 3. Compile functions
     let mut fn_builder_ctx = FunctionBuilderContext::new();
+    let mut codegen_ctx = cranelift_codegen::Context::new();
     for name in sorted_func_names {
         let f = dmir_module
             .functions
@@ -970,6 +971,33 @@ pub fn compile_all_functions<M: ClifModule>(
                             let zero = builder.ins().f64const(0.0);
                             builder.ins().return_(&[zero]);
                         }
+                    } else if f.return_type == "f32x4"
+                        || f.return_type == "Float4"
+                        || f.return_type == "Vector4"
+                        || f.return_type == "Vec4"
+                    {
+                        if let Some(v_id) = value {
+                            if let Some(&v) = val_map.get(v_id) {
+                                let v_ty = builder.func.dfg.value_type(v);
+                                let ret_v = if v_ty == clif_types::F32X4 {
+                                    v
+                                } else if v_ty == clif_types::I64 {
+                                    let flags = cranelift_codegen::ir::MachMemFlags::new();
+                                    builder.ins().load(clif_types::F32X4, flags, v, 0)
+                                } else {
+                                    v
+                                };
+                                builder.ins().return_(&[ret_v]);
+                            } else {
+                                let zero = builder.ins().f32const(0.0);
+                                let v = builder.ins().splat(clif_types::F32X4, zero);
+                                builder.ins().return_(&[v]);
+                            }
+                        } else {
+                            let zero = builder.ins().f32const(0.0);
+                            let v = builder.ins().splat(clif_types::F32X4, zero);
+                            builder.ins().return_(&[v]);
+                        }
                     } else {
                         if let Some(v_id) = value {
                             if let Some(&v) = val_map.get(v_id) {
@@ -1003,15 +1031,16 @@ pub fn compile_all_functions<M: ClifModule>(
         builder.seal_all_blocks();
         builder.finalize(frontend_config);
 
-        let mut ctx = cranelift_codegen::Context::for_function(clif_fn.clone());
         if std::env::var("FORGEN_DUMP_CLIF").is_ok() {
             eprintln!("=== CLIF IR FOR {} ===\n{}", name, clif_fn.display());
         }
-        if let Err(e) = module.define_function(*func_id, &mut ctx) {
+        codegen_ctx.clear();
+        codegen_ctx.func = clif_fn;
+        if let Err(e) = module.define_function(*func_id, &mut codegen_ctx) {
             return Err(format!(
                 "Error in {}:\nCLIF:\n{}\nError:\n{}",
                 name,
-                clif_fn.display(),
+                codegen_ctx.func.display(),
                 e
             ));
         }

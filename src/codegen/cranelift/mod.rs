@@ -12,7 +12,10 @@ use crate::types::TypeChecker;
 use std::path::{Path, PathBuf};
 
 pub use self::backend::RealCraneliftBackend;
+pub use self::backend::hot_reload::JitTrampolineTable;
+pub use self::backend::opts::JitCompilationTier;
 pub use self::clif::{ClifEmitter, FunctionCodegenInspection, ModuleCodegenInspection};
+pub use self::jit::JitSession;
 
 #[derive(Clone)]
 pub struct CraneliftBackend {
@@ -78,6 +81,10 @@ impl CraneliftBackend {
     ) -> Result<(String, String, i32, u128), String> {
         self.real_backend
             .compile_and_run_jit(dmir_module, args, capture)
+    }
+
+    pub fn create_jit_session(&self, tier: JitCompilationTier) -> Result<jit::JitSession, String> {
+        jit::JitSession::new(self.real_backend.clone(), tier)
     }
 }
 

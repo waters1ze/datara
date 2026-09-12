@@ -306,6 +306,8 @@ impl<'a> Lowering<'a> {
             "f32x4_dot",
             "f32x4_horizontal_add",
             "f32x4_distance",
+            "aabb_intersects",
+            "datara_rt_aabb_intersects",
             "f32x8_dot",
             "f32x8_horizontal_add",
             "f32x8_distance",

@@ -183,7 +183,30 @@ pub fn compile_binop<M: ClifModule>(
                 }
             }
             "/" => {
-                if let Some(c) = c_right {
+                if lv_ty == clif_types::F32X4 || rv_ty == clif_types::F32X4 {
+                    let v1 = super::simd::ensure_f32x4(ctx, raw_lv);
+                    let v2 = super::simd::ensure_f32x4(ctx, raw_rv);
+                    let e0_a = ctx.builder.ins().extractlane(v1, 0);
+                    let e0_b = ctx.builder.ins().extractlane(v2, 0);
+                    let d0 = ctx.builder.ins().fdiv(e0_a, e0_b);
+
+                    let e1_a = ctx.builder.ins().extractlane(v1, 1);
+                    let e1_b = ctx.builder.ins().extractlane(v2, 1);
+                    let d1 = ctx.builder.ins().fdiv(e1_a, e1_b);
+
+                    let e2_a = ctx.builder.ins().extractlane(v1, 2);
+                    let e2_b = ctx.builder.ins().extractlane(v2, 2);
+                    let d2 = ctx.builder.ins().fdiv(e2_a, e2_b);
+
+                    let e3_a = ctx.builder.ins().extractlane(v1, 3);
+                    let e3_b = ctx.builder.ins().extractlane(v2, 3);
+                    let d3 = ctx.builder.ins().fdiv(e3_a, e3_b);
+
+                    let mut v = ctx.builder.ins().splat(clif_types::F32X4, d0);
+                    v = ctx.builder.ins().insertlane(v, d1, 1);
+                    v = ctx.builder.ins().insertlane(v, d2, 2);
+                    ctx.builder.ins().insertlane(v, d3, 3)
+                } else if let Some(c) = c_right {
                     if c == 1.0 {
                         lv
                     } else {

@@ -312,6 +312,8 @@ impl Resolver {
             "f32x4_lerp",
             "f32x4_normalize",
             "f32x4_distance",
+            "aabb_intersects",
+            "datara_rt_aabb_intersects",
             "f32x8_add",
             "f32x8_sub",
             "f32x8_mul",

@@ -188,6 +188,9 @@ impl<'a> TypeChecker<'a> {
             {
                 return DataraType::Float;
             }
+            if fn_name == "aabb_intersects" || fn_name == "datara_rt_aabb_intersects" {
+                return DataraType::Int;
+            }
             if fn_name.starts_with("int4_")
                 || fn_name.starts_with("i32x4_dot")
                 || fn_name.starts_with("i32x4_horizontal_add")

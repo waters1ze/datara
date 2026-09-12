@@ -74,3 +74,47 @@ fn main() {
         .expect("arm clif");
     assert!(arm_clif.contains("target aarch64-unknown-linux-gnu"));
 }
+
+#[test]
+fn test_cranelift_simd_linux_clif() {
+    let source = r#"
+fn main() {
+    let v1 = float4(10.0, 20.0, 30.0, 40.0)
+    let v2 = float4(1.0, 2.0, 3.0, 4.0)
+    
+    let v_add = f32x4_add(v1, v2)
+    let sum_add = f32x4_horizontal_add(v_add)
+    println(fmt"ADD_SUM: {sum_add}")
+    
+    let v_sub = f32x4_sub(v1, v2)
+    let sum_sub = f32x4_horizontal_add(v_sub)
+    println(fmt"SUB_SUM: {sum_sub}")
+
+    let v_mul = f32x4_mul(v1, v2)
+    let sum_mul = f32x4_horizontal_add(v_mul)
+    println(fmt"MUL_SUM: {sum_mul}")
+}
+"#;
+    let compiler = ForgenCompiler::new("release");
+    let dmir = compiler
+        .compile_source_to_dmir(source, "simd_linux")
+        .unwrap();
+    let backend = CraneliftBackend::new(TargetInfo::x86_64_linux());
+    let (isa, call_conv, frontend_config) = backend.real_backend.build_target_isa(false).unwrap();
+    let mut module = cranelift_object::ObjectModule::new(
+        cranelift_object::ObjectBuilder::new(
+            isa,
+            "simd_linux",
+            cranelift_module::default_libcall_names(),
+        )
+        .unwrap(),
+    );
+    let res =
+        backend
+            .real_backend
+            .compile_into_module(&mut module, &dmir, frontend_config, call_conv);
+    if let Err(e) = &res {
+        println!("Error compiling into Linux module: {}", e);
+    }
+    assert!(res.is_ok(), "Must compile into Linux module: {:?}", res);
+}

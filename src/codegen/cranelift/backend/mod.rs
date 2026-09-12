@@ -2,14 +2,17 @@ pub mod compile_func;
 pub mod declare_core;
 pub mod declare_ext;
 pub mod declare_module;
+pub mod hot_reload;
 pub mod inst_binop;
 pub mod inst_call;
 pub mod link;
+pub mod opts;
+pub mod simd;
 pub mod types;
 
 use cranelift_codegen::ir::Type as ClifType;
 use cranelift_codegen::isa::{CallConv, TargetFrontendConfig, TargetIsa};
-use cranelift_codegen::settings::{self, Configurable};
+use cranelift_codegen::settings;
 use cranelift_module::{Module as ClifModule, default_libcall_names};
 use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::collections::HashMap;
@@ -19,6 +22,8 @@ use target_lexicon::Triple;
 use crate::codegen::target::TargetInfo;
 use crate::dmir::Module;
 
+pub use hot_reload::JitTrampolineTable;
+pub use opts::JitCompilationTier;
 pub use types::*;
 
 #[derive(Debug, Clone, Default)]
@@ -50,19 +55,17 @@ impl RealCraneliftBackend {
         &self,
         is_jit: bool,
     ) -> Result<(Arc<dyn TargetIsa>, CallConv, TargetFrontendConfig), String> {
+        self.build_target_isa_with_tier(is_jit, JitCompilationTier::from_env())
+    }
+
+    pub fn build_target_isa_with_tier(
+        &self,
+        is_jit: bool,
+        tier: JitCompilationTier,
+    ) -> Result<(Arc<dyn TargetIsa>, CallConv, TargetFrontendConfig), String> {
         let mut flag_builder = settings::builder();
-        flag_builder
-            .set("opt_level", "speed")
-            .map_err(|e| e.to_string())?;
-        let is_pic = if is_jit || self.target.os == crate::codegen::target::Os::Windows {
-            "false"
-        } else {
-            "true"
-        };
-        flag_builder
-            .set("is_pic", is_pic)
-            .map_err(|e| e.to_string())?;
-        let _ = flag_builder.set("preserve_frame_pointers", "false");
+        let is_windows = self.target.os == crate::codegen::target::Os::Windows;
+        opts::configure_cranelift_flags(&mut flag_builder, tier, is_jit, is_windows)?;
 
         let triple_str = self.target.triple_string();
         let triple: Triple = triple_str
@@ -71,44 +74,7 @@ impl RealCraneliftBackend {
         let mut isa_builder = cranelift_codegen::isa::lookup(triple).map_err(|e| e.to_string())?;
 
         // Enable hardware CPU acceleration features strictly respecting target specification
-        if matches!(self.target.arch, crate::codegen::target::Arch::X86_64) {
-            let allow_sse3 = self.target.cpu_features.contains("sse3")
-                || self.target.cpu_features.contains("avx2");
-            let allow_sse4 = self.target.cpu_features.contains("sse4_2")
-                || self.target.cpu_features.contains("avx2");
-            let allow_avx = self
-                .target
-                .vector_support
-                .contains(&crate::codegen::target::VectorExtension::Avx)
-                || self
-                    .target
-                    .vector_support
-                    .contains(&crate::codegen::target::VectorExtension::Avx2);
-            let allow_avx2 = self
-                .target
-                .vector_support
-                .contains(&crate::codegen::target::VectorExtension::Avx2);
-
-            if allow_sse3 {
-                let _ = isa_builder.set("has_sse3", "true");
-                let _ = isa_builder.set("has_ssse3", "true");
-            }
-            if allow_sse4 {
-                let _ = isa_builder.set("has_sse41", "true");
-                let _ = isa_builder.set("has_sse42", "true");
-                let _ = isa_builder.set("has_popcnt", "true");
-            }
-            if allow_avx {
-                let _ = isa_builder.set("has_avx", "true");
-            }
-            if allow_avx2 {
-                let _ = isa_builder.set("has_avx2", "true");
-                let _ = isa_builder.set("has_fma", "true");
-                let _ = isa_builder.set("has_bmi1", "true");
-                let _ = isa_builder.set("has_bmi2", "true");
-                let _ = isa_builder.set("has_lzcnt", "true");
-            }
-        }
+        opts::configure_isa_hardware_features(&mut isa_builder, &self.target);
 
         let isa = isa_builder
             .finish(settings::Flags::new(flag_builder))

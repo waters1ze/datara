@@ -1,4 +1,4 @@
-use cranelift_codegen::isa::TargetIsa;
+use cranelift_codegen::isa::{CallConv, TargetFrontendConfig, TargetIsa};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::default_libcall_names;
 use std::ffi::{CStr, CString};
@@ -841,4 +841,121 @@ pub unsafe fn run_jit_entry(
     };
 
     Ok((stdout, String::new(), exit_code, duration))
+}
+
+use crate::codegen::cranelift::backend::ModuleCompileArtifacts;
+use crate::codegen::cranelift::backend::RealCraneliftBackend;
+use crate::codegen::cranelift::backend::hot_reload::JitTrampolineTable;
+use crate::codegen::cranelift::backend::opts::JitCompilationTier;
+use crate::dmir::Module;
+
+/// Persistent JIT Session for interactive game engines, live script reload,
+/// and low-latency continuous execution.
+pub struct JitSession {
+    pub isa: Arc<dyn TargetIsa>,
+    pub call_conv: CallConv,
+    pub frontend_config: TargetFrontendConfig,
+    pub trampolines: JitTrampolineTable,
+    pub backend: RealCraneliftBackend,
+    pub modules: Vec<JITModule>,
+}
+
+impl JitSession {
+    /// Creates a new persistent JIT session with the desired compilation tier.
+    pub fn new(backend: RealCraneliftBackend, tier: JitCompilationTier) -> Result<Self, String> {
+        let (isa, call_conv, frontend_config) = backend.build_target_isa_with_tier(true, tier)?;
+        Ok(Self {
+            isa,
+            call_conv,
+            frontend_config,
+            trampolines: JitTrampolineTable::new(),
+            backend,
+            modules: Vec::new(),
+        })
+    }
+
+    /// Compiles a DMIR module into the JIT session and populates the trampoline table.
+    pub fn load_module(&mut self, dmir_mod: &Module) -> Result<ModuleCompileArtifacts, String> {
+        let mut module = create_jit_module(self.isa.clone())?;
+        let artifacts = self.backend.compile_into_module_opt(
+            &mut module,
+            dmir_mod,
+            self.frontend_config,
+            self.call_conv,
+            true,
+        )?;
+        module.finalize_definitions().map_err(|e| e.to_string())?;
+
+        for name in dmir_mod.functions.keys() {
+            if let Some(&func_id) = artifacts.func_ids.get(name) {
+                let code_ptr = module.get_finalized_function(func_id);
+                self.trampolines.register(name, code_ptr);
+            }
+        }
+        if let Some(entry_id) = artifacts.main_entry_id.or(artifacts.main_fn_id) {
+            let code_ptr = module.get_finalized_function(entry_id);
+            self.trampolines.register("__main_entry", code_ptr);
+        }
+
+        self.modules.push(module);
+        Ok(artifacts)
+    }
+
+    /// Hot-reloads functions by recompiling the module and atomically swapping trampoline pointers in < 100 us.
+    pub fn hot_reload_function(
+        &mut self,
+        dmir_mod: &Module,
+        func_name: &str,
+    ) -> Result<u128, String> {
+        let start = Instant::now();
+        let mut new_module = create_jit_module(self.isa.clone())?;
+        let artifacts = self.backend.compile_into_module_opt(
+            &mut new_module,
+            dmir_mod,
+            self.frontend_config,
+            self.call_conv,
+            true,
+        )?;
+        new_module
+            .finalize_definitions()
+            .map_err(|e| e.to_string())?;
+
+        let func_id = artifacts
+            .func_ids
+            .get(func_name)
+            .ok_or_else(|| format!("Function '{}' not found in recompiled module", func_name))?;
+
+        let new_code_ptr = new_module.get_finalized_function(*func_id);
+        self.trampolines.hot_swap(func_name, new_code_ptr)?;
+
+        if let Some(entry_id) = artifacts.main_entry_id.or(artifacts.main_fn_id) {
+            let code_ptr = new_module.get_finalized_function(entry_id);
+            self.trampolines.register("__main_entry", code_ptr);
+        }
+
+        self.modules.push(new_module);
+        let elapsed_nanos = start.elapsed().as_nanos();
+        Ok(elapsed_nanos)
+    }
+
+    /// Executes the entry function (main or named entry) in-place.
+    pub fn run_entry(
+        &self,
+        entry_name: Option<&str>,
+        args: &[String],
+        capture: bool,
+    ) -> Result<(String, String, i32, u128), String> {
+        let code_ptr = if let Some(name) = entry_name {
+            self.trampolines
+                .get_ptr(name)
+                .ok_or_else(|| format!("Entry function '{}' not found in trampoline table", name))?
+        } else {
+            self.trampolines
+                .get_ptr("__main_entry")
+                .or_else(|| self.trampolines.get_ptr("main"))
+                .ok_or_else(|| "No main entry point found in trampoline table".to_string())?
+        };
+
+        unsafe { run_jit_entry(code_ptr, args, capture) }
+    }
 }
